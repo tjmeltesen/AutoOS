@@ -44,3 +44,9 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 
 - Changed `modules/maintenance.lua`: removed bare `"problem"`/`"maintenance"`/`"repair"`/`"structure"` patterns; parse `Problems: N` counter (fault only when N > 0); use phrase-level structure patterns. Fixes in-game loop that shut down electrolyzer on healthy `Problems: 0 Efficiency: 0.0 %` sensor line.
 - Changed `tests/phase1_test.lua`: added regression checks for `Problems: 0` (healthy) and `Problems: 1` (fault).
+
+## 2026-06-08 — Structure fault detection + multi-line sensor logging
+
+- Changed `modules/maintenance.lua`: added GT structure phrases (`incomplete structure`, `structure not formed`, etc.) after in-game test showed broken multiblock not detected.
+- Changed `main.lua`: log every `getSensorInformation()` line as `[Sensor 1]`, `[Sensor 2]`, … — line 1 is often machine type id only.
+- Changed `tests/phase1_test.lua`: added `INCOMPLETE STRUCTURE` and related structure phrase cases.

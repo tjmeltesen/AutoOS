@@ -42,11 +42,16 @@ local FAULT_PATTERNS = {
   "needs some duct tape",
   "needs a hard hammer",
   "needs a crowbar",
-  -- structural integrity failures (phrases, not bare words)
+  -- structural integrity failures (GT controller / WAILA phrasing)
+  "incomplete structure",
   "structure is incomplete",
+  "structure not formed",
+  "structure not complete",
   "invalid structure",
   "structure check failed",
   "structure invalid",
+  "not enough blocks",
+  "incorrect structure",
 }
 
 Maintenance.FAULT_PATTERNS = FAULT_PATTERNS

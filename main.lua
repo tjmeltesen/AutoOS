@@ -51,12 +51,16 @@ function Kernel.new(deps)
   return self
 end
 
--- Summarize sensor lines into a single cleaned status string for logging.
-local function sensor_summary(cache)
+-- Log all sensor lines — structure/maintenance text is often NOT on line 1
+-- (line 1 is frequently the machine type id, e.g. industrialelectrolyzer...).
+local function log_sensor_lines(cache)
   if type(cache.sensor) ~= "table" or #cache.sensor == 0 then
-    return "(no sensor data)"
+    print("[Sensor] (no sensor data)")
+    return
   end
-  return Maintenance.strip_format(cache.sensor[1])
+  for i, raw in ipairs(cache.sensor) do
+    print(string.format("[Sensor %d] %s", i, Maintenance.strip_format(raw)))
+  end
 end
 
 -- Run exactly one logic tick: poll -> evaluate -> commit.
@@ -106,7 +110,7 @@ function Kernel:log_tick(result)
       tostring(result.requested_state)))
   end
 
-  print(string.format("[Sensor] %s", sensor_summary(self.cache)))
+  log_sensor_lines(self.cache)
 end
 
 -- Timed main loop. maxTicks bounds the loop for desktop tests; pass nil for an

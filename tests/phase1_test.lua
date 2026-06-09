@@ -89,9 +89,11 @@ check("GT Problems: 1 triggers fault",
   Maintenance.has_fault({ "Problems: 1 Efficiency: 90.0 %" }) == true)
 
 local STRUCTURE_LINES = {
+  "INCOMPLETE STRUCTURE",
   "Machine structure is incomplete",
   "Invalid structure detected",
   "Structure check failed",
+  "Structure not formed correctly",
 }
 for _, line in ipairs(STRUCTURE_LINES) do
   check("detects structure fault: '" .. line .. "'", Maintenance.has_fault({ line }) == true)
