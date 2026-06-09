@@ -29,12 +29,12 @@ Maintenance.strip_format = strip_format
 
 -- Substrings that indicate a maintenance fault or a structure failure.
 -- Matched as plain text (case-insensitive) against stripped sensor lines.
+-- NOTE: Do NOT use bare "problem" — GT healthy status lines look like
+-- "Problems: 0 Efficiency: 100.0 %" and would false-positive.
 local FAULT_PATTERNS = {
-  -- maintenance hatch problems
-  "problem",
-  "maintenance",
-  "repair",
   "has problems",
+  "maintenance required",
+  "needs repair",
   -- the six specific maintenance issues
   "needs a hammer",
   "needs a wrench",
@@ -42,13 +42,24 @@ local FAULT_PATTERNS = {
   "needs some duct tape",
   "needs a hard hammer",
   "needs a crowbar",
-  -- structural integrity failures (treated as Priority 1 alongside maintenance)
-  "structure",
-  "incomplete",
-  "invalid",
+  -- structural integrity failures (phrases, not bare words)
+  "structure is incomplete",
+  "invalid structure",
+  "structure check failed",
+  "structure invalid",
 }
 
 Maintenance.FAULT_PATTERNS = FAULT_PATTERNS
+
+-- GT reports maintenance issue count as "Problems: N" on sensor lines.
+-- N == 0 is healthy; N > 0 means active maintenance issues.
+local function problems_count(line)
+  local count = line:match("problems:%s*(%d+)")
+  if count then
+    return tonumber(count)
+  end
+  return nil
+end
 
 -- Scan an array of sensor lines for any fault pattern.
 -- Returns: faulted(boolean), message(string|nil) — the offending (cleaned) line.
@@ -59,6 +70,12 @@ function Maintenance.has_fault(lines)
   for _, raw in ipairs(lines) do
     local clean = strip_format(raw)
     local lower = clean:lower()
+
+    local count = problems_count(lower)
+    if count and count > 0 then
+      return true, clean
+    end
+
     for _, pat in ipairs(FAULT_PATTERNS) do
       if lower:find(pat, 1, true) then
         return true, clean

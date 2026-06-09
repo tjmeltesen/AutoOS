@@ -82,6 +82,12 @@ for _, line in ipairs(FAULT_LINES) do
   check("detects fault: '" .. line .. "'", faulted == true)
 end
 
+check("GT healthy status Problems: 0 is not a fault",
+  Maintenance.has_fault({ "Problems: 0 Efficiency: 0.0 %" }) == false)
+
+check("GT Problems: 1 triggers fault",
+  Maintenance.has_fault({ "Problems: 1 Efficiency: 90.0 %" }) == true)
+
 local STRUCTURE_LINES = {
   "Machine structure is incomplete",
   "Invalid structure detected",

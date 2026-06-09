@@ -39,3 +39,8 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
   - Added `adapter.lua` (named in performance-pitfalls.md but not the README topology) and kept the State Cache as a reused plain table instead of a separate module.
   - Deferred `modules/process_control.lua` (Phase 2) and `modules/resource_manager.lua` (Phase 3); no empty stubs created yet.
   - Known caveat for in-game tuning: maintenance detection uses substring matching, so a healthy sensor line literally containing "problem"/"maintenance" could false-positive. Healthy mock lines avoid these; revisit pattern precision against real `getSensorInformation()` output during in-game verification.
+
+## 2026-06-08 — Fix GT "Problems: 0" false-positive shutdown
+
+- Changed `modules/maintenance.lua`: removed bare `"problem"`/`"maintenance"`/`"repair"`/`"structure"` patterns; parse `Problems: N` counter (fault only when N > 0); use phrase-level structure patterns. Fixes in-game loop that shut down electrolyzer on healthy `Problems: 0 Efficiency: 0.0 %` sensor line.
+- Changed `tests/phase1_test.lua`: added regression checks for `Problems: 0` (healthy) and `Problems: 1` (fault).
