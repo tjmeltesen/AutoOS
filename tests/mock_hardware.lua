@@ -73,6 +73,12 @@ function Mock.new(opts)
       stats.isMachineActive = stats.isMachineActive + 1
       return state.active
     end,
+    hasWork = function()
+      return state.active
+    end,
+    getAverageElectricInput = function()
+      return state.eu_input or 0
+    end,
     getWorkProgress = function()
       stats.getWorkProgress = stats.getWorkProgress + 1
       return 0

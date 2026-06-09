@@ -54,3 +54,10 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 ## 2026-06-08 — Log faults even when verbose=false
 
 - Changed `main.lua`: with `verbose = false`, healthy ticks stay silent but committed faults (shutdown/beep) still print full tick log.
+
+## 2026-06-08 — Live hardware status in logs + change detection
+
+- Changed `adapter.lua`: poll `hasWork()` and `getAverageElectricInput()` into cache.
+- Changed `main.lua`: log `[Hardware] work_allowed/active/has_work/eu_in` every printed tick; `[Arbitrator] action: none` vs `force_shutdown` (replaces misleading "unchanged"); `verbose=false` prints when any polled field or sensor line changes; `[Delta]` marker on change.
+- Added `dump.lua`: one-shot in-game gt_machine diagnostic script.
+- Added `start.lua`: in-game boot template with `verbose=false` + change-aware logging.

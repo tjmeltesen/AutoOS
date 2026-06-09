@@ -34,8 +34,11 @@ function Adapter:poll(cache)
   cache.sensor = m.getSensorInformation()
   cache.work_allowed = m.isWorkAllowed()
   cache.active = m.isMachineActive()
+  cache.has_work = m.hasWork and m.hasWork() or nil
   cache.progress = m.getWorkProgress and m.getWorkProgress() or nil
   cache.max_progress = m.getWorkMaxProgress and m.getWorkMaxProgress() or nil
+  -- EU input average helps spot power loss (informational; not a shutdown trigger).
+  cache.eu_input = m.getAverageElectricInput and m.getAverageElectricInput() or nil
   cache.time = self.computer and self.computer.uptime() or nil
 
   return cache

@@ -47,8 +47,35 @@ function Kernel.new(deps)
 
   self.tick_count = 0
   self.verbose = deps.verbose ~= false -- print emulator-style logs by default
+  self._prev = {} -- last-tick snapshot for change detection in logs
 
   return self
+end
+
+-- True when any polled hardware field changed since the previous tick.
+function Kernel:state_changed(cache)
+  local prev = self._prev
+  if prev.work_allowed ~= cache.work_allowed then return true end
+  if prev.active ~= cache.active then return true end
+  if prev.has_work ~= cache.has_work then return true end
+  if prev.eu_input ~= cache.eu_input then return true end
+  if type(cache.sensor) == "table" then
+    local ps = prev.sensor
+    if type(ps) ~= "table" or #ps ~= #cache.sensor then return true end
+    for i, line in ipairs(cache.sensor) do
+      if line ~= ps[i] then return true end
+    end
+  end
+  return false
+end
+
+function Kernel:_remember(cache)
+  local snap = self._prev
+  snap.work_allowed = cache.work_allowed
+  snap.active = cache.active
+  snap.has_work = cache.has_work
+  snap.eu_input = cache.eu_input
+  snap.sensor = cache.sensor
 end
 
 -- Log all sensor lines — structure/maintenance text is often NOT on line 1
@@ -80,36 +107,43 @@ function Kernel:tick()
 
   local result = self.arbitrator:commit(intents)
 
-  -- verbose=false silences healthy ticks; always surface faults so silent mode
-  -- still shows shutdowns and alarms.
-  if self.verbose or result.committed then
-    self:log_tick(result)
+  local changed = self:state_changed(self.cache)
+
+  -- verbose=false: silent when healthy AND nothing changed; print on fault,
+  -- state change, or sensor text change so live updates are visible.
+  if self.verbose or result.committed or changed then
+    self:log_tick(result, changed)
   end
 
+  self:_remember(self.cache)
   return result
 end
 
 -- README §5 emulator-style per-tick output.
-function Kernel:log_tick(result)
+function Kernel:log_tick(result, changed)
   print(string.format("--- SYSTEM TICK %d ---", self.tick_count))
+  if changed then
+    print("[Delta] hardware or sensor reading changed since last tick")
+  end
+
+  local c = self.cache
+  print(string.format(
+    "[Hardware] work_allowed=%s  active=%s  has_work=%s  eu_in=%s",
+    tostring(c.work_allowed), tostring(c.active), tostring(c.has_work),
+    c.eu_input ~= nil and tostring(c.eu_input) or "n/a"))
 
   local winning = result.intent
   if winning then
     print(string.format("[Maintenance] Fault detected: %s", tostring(winning.reason)))
   end
 
-  -- Requested machine state (what the arbitrator committed, if anything).
-  local requested
-  if result.requested_state ~= nil then
-    requested = tostring(result.requested_state)
-  else
-    requested = "unchanged"
-  end
-  print(string.format("[Arbitrator] Requested Machine State: %s", requested))
-
+  -- "unchanged" here means AutoOS took NO action this tick (not "machine state
+  -- is unchanged"). Live machine state is in [Hardware] above.
   if result.committed then
-    print(string.format("[Hardware Output] Machine set to ACTIVE = %s",
+    print(string.format("[Arbitrator] action: force_shutdown -> setWorkAllowed(%s)",
       tostring(result.requested_state)))
+  else
+    print("[Arbitrator] action: none (no fault matched sensor rules)")
   end
 
   log_sensor_lines(self.cache)
