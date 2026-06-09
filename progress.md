@@ -50,3 +50,7 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Changed `modules/maintenance.lua`: added GT structure phrases (`incomplete structure`, `structure not formed`, etc.) after in-game test showed broken multiblock not detected.
 - Changed `main.lua`: log every `getSensorInformation()` line as `[Sensor 1]`, `[Sensor 2]`, … — line 1 is often machine type id only.
 - Changed `tests/phase1_test.lua`: added `INCOMPLETE STRUCTURE` and related structure phrase cases.
+
+## 2026-06-08 — Log faults even when verbose=false
+
+- Changed `main.lua`: with `verbose = false`, healthy ticks stay silent but committed faults (shutdown/beep) still print full tick log.

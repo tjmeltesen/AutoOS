@@ -80,7 +80,9 @@ function Kernel:tick()
 
   local result = self.arbitrator:commit(intents)
 
-  if self.verbose then
+  -- verbose=false silences healthy ticks; always surface faults so silent mode
+  -- still shows shutdowns and alarms.
+  if self.verbose or result.committed then
     self:log_tick(result)
   end
 
