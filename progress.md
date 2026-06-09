@@ -70,3 +70,96 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 
 - Changed `main.lua`: `verbose=false` prints only on fault shutdown; `monitor=true` opt-in for change logging; dropped eu_input from change detection (rolling average jitter); default verbose is now false unless explicitly true.
 - Changed `start.lua`: document `verbose` vs `monitor` flags.
+
+## 2026-06-08 — Phase 1 in-game validation (Industrial Electrolyzer, GTNH)
+
+### Deployment (OpenComputers)
+
+- Layout on computer HDD: `/home/AutoOS/{main,adapter,arbitrator}.lua`, `/home/AutoOS/modules/maintenance.lua`, boot via `/home/start.lua`.
+- Import via `wget` **raw** URLs from `https://github.com/tjmeltesen/AutoOS` (repo HTML URL saves a single useless file named `AutoOS`; use `raw.githubusercontent.com/.../main/<file>`).
+- `start.lua` sets `package.path` for the `/home/AutoOS/` subfolder; requires Internet Card for `wget`.
+- Recommended in-game boot: `verbose = false` (silent unless fault shutdown); `monitor = true` only when debugging state changes.
+
+### Logging modes (final behavior)
+
+| Flag | Behavior |
+|------|----------|
+| `verbose = false` (default) | Silent; prints only on fault `force_shutdown` (+ beep) |
+| `monitor = true` | Also logs when `work_allowed` / `active` / non-noisy sensor lines change |
+| `verbose = true` | Every tick + full sensor dump (debug) |
+
+- `[Arbitrator] action: none` means AutoOS took no action — not "machine state unchanged". Live state is `[Hardware] work_allowed/active/has_work/eu_in`.
+- GT uptime/tick counter sensor lines (`Total Time…`, `in ticks:`) are ignored for change detection to avoid log spam.
+
+### In-game test matrix (user session)
+
+| Tick | Event | Sensor / hardware | AutoOS action | Verdict |
+|------|-------|-------------------|---------------|---------|
+| ~164 | Turn machine on | `work_allowed=true`, `active=false`, `eu_in=0` | none | Correct |
+| ~290 | Turn machine off (manual) | `work_allowed=false`, `active=false` | none | Correct — manual off ≠ fault |
+| ~335 | Broke maintenance hatch block | `Problems: 0`, pollution/parallel changed | none | Correct per rules — hatch removal ≠ maintenance counter |
+| ~500 | Power fail during recipe | `0 EU / 16896 EU`, `0 EU/t`, `active=false` | none | Correct by design — power fail is GT self-pause, not AutoOS shutdown |
+| (later) | Real maintenance issue | `Problems: N` where N > 0 | `force_shutdown` + beep | **Validated** — core Phase 1 contract works in-game |
+
+### Key findings
+
+- **False-positive fix confirmed:** healthy `Problems: 0 Efficiency: …` no longer triggers shutdown after `maintenance.lua` counter parse fix.
+- **Real maintenance confirmed:** `Problems: 1+` (and tool-repair text) triggers Priority 1 shutdown as intended.
+- **Structure incomplete:** breaking a hatch did not surface `INCOMPLETE STRUCTURE` (or `Problems > 0`) in `getSensorInformation()` for this electrolyzer — structure detection cannot fire without matching sensor text. Use `dump.lua` per-machine if tuning needed.
+- **Power loss:** visible in sensor EU lines and `[Hardware]` but intentionally out of Phase 1 scope (see `references/maintenance-and-safety.md`).
+
+### Desktop tests
+
+- `C:\Lua\lua55.exe tests\phase1_test.lua` — 43/43 checks passing after all Phase 1 iterations.
+
+### Phase 1 status: **complete & in-game validated**
+
+Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process_control.lua`, ME inventory reads).
+
+### Carry-forward for next session
+
+- Repo: `https://github.com/tjmeltesen/AutoOS`
+- In-game update: `wget -f` `main.lua`, `modules/maintenance.lua`, `start.lua` from raw URLs after pushes.
+- Do not re-litigate: manual off, power fail, hatch block break — expected no-ops unless sensor rules match.
+- Optional Phase 1.5 (not started): power-fail alert (log/beep, no shutdown); structure detection if real sensor phrases are captured via `dump.lua`.
+
+## 2026-06-08 — Phase 2: Multiblock Process Control & Leveling Engine
+
+- Added `modules/process_control.lua` (Module 1, Priority 3): pure cache-only dual-threshold hysteresis. `ProcessControl.new({label, low, high, kind})` returns a stateful instance holding its `active` flag across ticks; below `low` -> ACTIVE, above `high` -> IDLE, inside the deadband -> hold (no flapping). Emits `{priority=3, module="process_control", action="set_work_allowed", state, stock, reason}`. Exposes `.evaluate(cache)` as a field-function so the kernel's `mod.evaluate(cache)` loop is unchanged across static (maintenance) and instance (process control) modules. Reads `cache.stock[label]` only; holds state when stock is unknown.
+- Changed `adapter.lua`: `Adapter.new(machine, computer, me, targets)` now takes an optional ME proxy + target list. New `poll_inventory(cache)` runs one filtered `getItemsInNetwork({label=...})` per item target and a single `getFluidsInNetwork()` scan for fluid targets, writing counts into a reused `cache.stock` table (cleared, not reallocated, per performance-pitfalls.md). No ME proxy => `cache.stock = nil` and Phase 1-only behavior.
+- Changed `arbitrator.lua`: added `set_work_allowed` action and change-only writes — `commit(intents, cache)` skips `setWorkAllowed()` when the machine is already in the requested state (compares `cache.work_allowed`). `force_shutdown` write is likewise gated on change; the `computer.beep(800,2)` alarm fires only when a Priority 1 shutdown actually flips the machine off. Result now carries `action` for logging. Backward-compatible when `cache` is nil (always writes).
+- Changed `main.lua`: `Kernel.new` builds the adapter with `me`+targets and appends `ProcessControl.new(deps.process_control)` to `self.modules` only when both an ME proxy and a product config are supplied (otherwise Phase 1 only). `tick()` passes `self.cache` to `arbitrator:commit`. Added `[Process Control]` telemetry log line (tracked stock + ACTIVE/IDLE + bands) and generalized the winning-intent / arbitrator-action logging beyond maintenance. `build_oc_deps` now binds `component.me_interface` (preferred) or `component.me_controller` and a default Soldering Alloy config when a proxy is present.
+- Changed `start.lua`: binds `me = me_interface or me_controller` and a documented `process_control = {label, low, high, kind}` block (enabled only when `me` is non-nil).
+- Changed `tests/mock_hardware.lua`: added a mock `me` proxy (`getItemsInNetwork(filter)` honoring `{label=}`, `getFluidsInNetwork()`), `getItemsInNetwork`/`getFluidsInNetwork`/`me_calls` counters, `stock`/`fluids` state, and `set_stock`/`set_fluid` helpers; `me` exposed via `deps()`. `setWorkAllowed(true)` now restores `active` (machine resumes) for hysteresis-on tests.
+- Added `tests/phase2_test.lua`: 35 checks — construction guards, hysteresis bands + deadband hold, no-flapping sweep (<=2 transitions), unknown-stock hold, kernel ON/OFF drive, arbitrator change-only writes, Priority 1 > Priority 3 override + beep, fluid-target path, single ME poll point, zero-hardware-call module contract, and Phase 1-only fallback without an ME proxy. All pass.
+
+### Desktop tests
+
+- `C:\Lua\lua55.exe tests\phase1_test.lua` — 43/43 (no regressions from the change-only-write refactor).
+- `C:\Lua\lua55.exe tests\phase2_test.lua` — 35/35.
+
+### Phase 2 status: **complete (desktop-validated)**; in-game validation pending.
+
+### Carry-forward for next session
+
+- In-game: connect an ME interface/controller adapter, set the `process_control` label/thresholds in `start.lua` to the real product this machine refills, and confirm hysteresis drives `setWorkAllowed` without flapping. Watch the per-tick budget if the ME network is large (use filtered queries; consider throttling per performance-pitfalls.md).
+- Next: **Phase 3** (Raw Resource Management & Projection — ring buffers, consumption velocity ΔR, time-to-depletion; `modules/resource_manager.lua`, Priority 2 soft-sleep).
+
+## 2026-06-08 — Read-only status monitor (pre-Phase-4 helper)
+
+- Added `display.lua`: a thin, READ-ONLY status panel for in-game Phase 2 verification. `Display.new(gpu, screen, opts)` binds the screen, clamps to a compact resolution (default 60x16), and `:render(snapshot)` draws a fixed panel (machine state, power, process-control stock/band/state, arbitrator action, maintenance banner) with width-padded lines and palette colors. It never calls `setWorkAllowed`, never polls the machine/ME network, and holds no control state — it only consumes a snapshot built from the already-computed cache + arbitrator result. This is NOT the Phase 4 charting UI (no history buffers, braille sparklines, or navigation), just visual feedback while validating Phase 2.
+- Changed `main.lua`: `Kernel.new` builds `self.display` only when `deps.gpu` is provided (construction wrapped in `pcall`; headless on failure). `tick()` renders `self:_snapshot(result)` at the end inside a `pcall` so a display fault can never stall the safety/control loop (display is disabled after a render error). Added `_snapshot(result)` which pulls only from cache + result. `build_oc_deps` now binds `component.gpu` + `component.screen.address` when both are available.
+- Changed `start.lua`: auto-wires `gpu`/`screen` when both components are present, documented as informational/no-control; omit them to run headless.
+- Changed `tests/mock_hardware.lua`: added a mock `gpu` (bind/getResolution/maxResolution/setResolution/getSize/setForeground/setBackground/fill/set) that records rendered rows in `state.gpu_rows` and `gpu_set`/`gpu_fill` counters; exposed via the returned table.
+- Added `tests/display_test.lua`: 21 checks — construction/bind/resolution/clear, content rendering (title/tick/machine/product/band/state/arbitrator), fault banner, READ-ONLY contract (zero machine/ME calls during render), Phase 1-only snapshot (no PC section), and kernel-with-display preserving control behavior + the single-poll contract + headless fallback.
+
+### Desktop tests (all green)
+
+- `C:\Lua\lua55.exe tests\phase1_test.lua` — 43/43 (unchanged).
+- `C:\Lua\lua55.exe tests\phase2_test.lua` — 35/35 (unchanged).
+- `C:\Lua\lua55.exe tests\display_test.lua` — 21/21.
+
+### Notes / deviations
+
+- Deliberately scoped to a read-only single-panel monitor (not the interactive "add/manage items" terminal). A runtime management console + multi-item/multi-machine views still require a multi-target config refactor and are best landed with the Phase 4 display work.
+- In-game: also `wget -f` the new `display.lua` (and updated `main.lua`/`start.lua`) from the raw repo URLs; connect a GPU (Tier 2+ for color) + screen to see the panel.

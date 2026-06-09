@@ -1,5 +1,5 @@
 --[[
-  AutoOS — Core Execution Kernel (Phase 1)
+  AutoOS — Core Execution Kernel (Phases 1-2)
 
   Wires the layered data flow into a single deterministic tick:
 
@@ -20,6 +20,8 @@
 local Adapter = require("adapter")
 local Arbitrator = require("arbitrator")
 local Maintenance = require("modules.maintenance")
+local ProcessControl = require("modules.process_control")
+local Display = require("display")
 
 local TICK_INTERVAL = 0.5 -- seconds; target overhead <= 500ms
 
@@ -45,7 +47,12 @@ local function sensor_line_noisy(raw)
   return false
 end
 
--- deps = { machine = <gt_machine>, computer = <computer>, event = <event> }
+-- deps = {
+--   machine = <gt_machine>, computer = <computer>, event = <event>,
+--   me = <me_interface|me_controller>,              -- optional (Phase 2)
+--   process_control = { label, low, high, kind },   -- optional (Phase 2)
+--   gpu = <gpu>, screen = <screen address>,         -- optional read-only monitor
+-- }
 function Kernel.new(deps)
   deps = deps or {}
   assert(deps.machine, "Kernel.new: deps.machine (gt_machine proxy) is required")
@@ -54,15 +61,46 @@ function Kernel.new(deps)
   self.machine = deps.machine
   self.computer = deps.computer
   self.event = deps.event
+  self.me = deps.me
 
   -- Single reused State Cache table (no per-tick allocation).
   self.cache = {}
 
-  self.adapter = Adapter.new(self.machine, self.computer)
+  -- Phase 2 process-control target(s) the adapter must poll inventory for.
+  local targets = {}
+  if self.me and deps.process_control then
+    targets[#targets + 1] = {
+      label = deps.process_control.label,
+      kind = deps.process_control.kind or "item",
+    }
+  end
+
+  self.adapter = Adapter.new(self.machine, self.computer, self.me, targets)
   self.arbitrator = Arbitrator.new(self.machine, self.computer)
 
   -- Logic modules. Order does not matter; the arbitrator resolves priority.
   self.modules = { Maintenance }
+
+  -- Phase 2: enable the hysteresis leveling engine only when an ME proxy and a
+  -- product config are wired in. Without them, the kernel runs Phase 1 only.
+  self.process_control = nil
+  if self.me and deps.process_control then
+    self.process_control = ProcessControl.new(deps.process_control)
+    self.modules[#self.modules + 1] = self.process_control
+  end
+
+  -- Optional read-only status display. Built only when a gpu proxy is provided;
+  -- failures are isolated so the control loop never depends on the screen.
+  self.display = nil
+  if deps.gpu then
+    local ok, disp = pcall(Display.new, deps.gpu, deps.screen)
+    if ok then
+      self.display = disp
+    else
+      io.stderr:write("AutoOS: display init failed, continuing headless: "
+        .. tostring(disp) .. "\n")
+    end
+  end
 
   self.tick_count = 0
   -- verbose=true  : log every tick (debug)
@@ -140,7 +178,7 @@ function Kernel:tick()
     end
   end
 
-  local result = self.arbitrator:commit(intents)
+  local result = self.arbitrator:commit(intents, self.cache)
 
   local changed = self:state_changed(self.cache)
 
@@ -148,8 +186,55 @@ function Kernel:tick()
     self:log_tick(result, changed)
   end
 
+  -- Read-only status panel. Isolated in a pcall: a display error must never
+  -- prevent the safety/control loop from completing the tick.
+  if self.display then
+    local ok, err = pcall(function()
+      self.display:render(self:_snapshot(result))
+    end)
+    if not ok then
+      io.stderr:write("AutoOS: display render error: " .. tostring(err) .. "\n")
+      self.display = nil -- stop trying after a failure
+    end
+  end
+
   self:_remember(self.cache)
   return result
+end
+
+-- Build the plain snapshot table the read-only Display consumes. Pulls only
+-- from the already-computed cache + arbitrator result (no hardware access).
+function Kernel:_snapshot(result)
+  local c = self.cache
+  local pc = nil
+  if self.process_control then
+    local p = self.process_control
+    pc = {
+      label = p.label,
+      stock = c.stock and c.stock[p.label] or nil,
+      active = p.active,
+      low = p.low,
+      high = p.high,
+    }
+  end
+
+  local fault = nil
+  if result.intent and result.intent.module == "maintenance" and result.committed then
+    fault = result.intent.reason
+  end
+
+  return {
+    tick = self.tick_count,
+    work_allowed = c.work_allowed,
+    active = c.active,
+    has_work = c.has_work,
+    eu_input = c.eu_input,
+    pc = pc,
+    action = result.action,
+    committed = result.committed,
+    requested_state = result.requested_state,
+    fault = fault,
+  }
 end
 
 -- README §5 emulator-style per-tick output.
@@ -165,18 +250,32 @@ function Kernel:log_tick(result, changed)
     tostring(c.work_allowed), tostring(c.active), tostring(c.has_work),
     c.eu_input ~= nil and tostring(c.eu_input) or "n/a"))
 
-  local winning = result.intent
-  if winning then
-    print(string.format("[Maintenance] Fault detected: %s", tostring(winning.reason)))
+  -- Process-control telemetry: tracked stock + the hysteresis state requested.
+  if self.process_control then
+    local pc = self.process_control
+    local stock = c.stock and c.stock[pc.label]
+    print(string.format("[Process Control] %s stock=%s -> %s (low=%d high=%d)",
+      pc.label, stock ~= nil and tostring(stock) or "n/a",
+      pc.active and "ACTIVE" or "IDLE", pc.low, pc.high))
   end
 
-  -- "unchanged" here means AutoOS took NO action this tick (not "machine state
-  -- is unchanged"). Live machine state is in [Hardware] above.
+  local winning = result.intent
+  if winning then
+    if winning.module == "maintenance" then
+      print(string.format("[Maintenance] Fault detected: %s", tostring(winning.reason)))
+    else
+      print(string.format("[%s] %s", tostring(winning.module), tostring(winning.reason)))
+    end
+  end
+
+  -- "action: none" here means AutoOS wrote nothing to hardware this tick (either
+  -- no intent won, or the machine was already in the requested state). Live
+  -- machine state is in [Hardware] above.
   if result.committed then
-    print(string.format("[Arbitrator] action: force_shutdown -> setWorkAllowed(%s)",
-      tostring(result.requested_state)))
+    print(string.format("[Arbitrator] action: %s -> setWorkAllowed(%s)",
+      tostring(result.action), tostring(result.requested_state)))
   else
-    print("[Arbitrator] action: none (no fault matched sensor rules)")
+    print("[Arbitrator] action: none (no hardware change required)")
   end
 
   -- verbose=true dumps all sensor lines; false = compact (changed/important only).
@@ -219,10 +318,38 @@ local function build_oc_deps()
   if not (ok_c and ok_comp and ok_e) then
     return nil
   end
+
+  -- Phase 2: bind an ME proxy if one is connected (interface preferred, then
+  -- controller). Process control stays disabled until both a proxy and a
+  -- product config exist — edit the config block to match your line.
+  local me = nil
+  if component.isAvailable and component.isAvailable("me_interface") then
+    me = component.me_interface
+  elseif component.isAvailable and component.isAvailable("me_controller") then
+    me = component.me_controller
+  end
+
+  -- Optional read-only status monitor: bind the GPU to a screen when both exist.
+  local gpu, screen = nil, nil
+  if component.isAvailable and component.isAvailable("gpu")
+     and component.isAvailable("screen") then
+    gpu = component.gpu
+    screen = component.screen.address
+  end
+
   return {
     machine = component.gt_machine,
     computer = computer,
     event = event,
+    me = me,
+    process_control = me and {
+      label = "Soldering Alloy",
+      low = 64000,
+      high = 142800,
+      kind = "item",
+    } or nil,
+    gpu = gpu,
+    screen = screen,
   }
 end
 

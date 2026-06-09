@@ -41,6 +41,10 @@ function Mock.new(opts)
     beep = 0,
     uptime = 0,
     pull = 0,
+    -- Phase 2 ME-network call counters (single-poll-point contract).
+    getItemsInNetwork = 0,
+    getFluidsInNetwork = 0,
+    me_calls = 0,
   }
 
   local state = {
@@ -52,6 +56,9 @@ function Mock.new(opts)
     poll_index = 0, -- number of getSensorInformation calls so far
     fault_at_tick = opts.fault_at_tick, -- nil = never auto-fault
     last_beep = nil,
+    -- Phase 2 inventory: label -> count (items) / label -> amount (fluids).
+    stock = opts.stock or {},
+    fluids = opts.fluids or {},
   }
 
   local machine = {
@@ -90,10 +97,39 @@ function Mock.new(opts)
     setWorkAllowed = function(v)
       stats.setWorkAllowed = stats.setWorkAllowed + 1
       state.work_allowed = v
-      if v == false then
-        state.active = false
-      end
+      -- Mirror the GT machine: disabling work stops it; re-enabling lets it run.
+      state.active = v and true or false
       return 1 -- packetPerTick, per gt-machine-api.md
+    end,
+  }
+
+  -- Phase 2 mock ME network. Honors the {label=...} filter on items; fluids are
+  -- returned in full (getFluidsInNetwork takes no filter per me-network-api.md).
+  local me = {
+    getItemsInNetwork = function(filter)
+      stats.getItemsInNetwork = stats.getItemsInNetwork + 1
+      stats.me_calls = stats.me_calls + 1
+      local out = {}
+      if type(filter) == "table" and filter.label then
+        local size = state.stock[filter.label]
+        if size ~= nil then
+          out[1] = { label = filter.label, size = size, name = filter.label }
+        end
+      else
+        for label, size in pairs(state.stock) do
+          out[#out + 1] = { label = label, size = size, name = label }
+        end
+      end
+      return out
+    end,
+    getFluidsInNetwork = function()
+      stats.getFluidsInNetwork = stats.getFluidsInNetwork + 1
+      stats.me_calls = stats.me_calls + 1
+      local out = {}
+      for label, amount in pairs(state.fluids) do
+        out[#out + 1] = { label = label, amount = amount, name = label }
+      end
+      return out
     end,
   }
 
@@ -118,10 +154,37 @@ function Mock.new(opts)
     end,
   }
 
+  -- Mock GPU for the read-only status display. Records the last text written to
+  -- each row so tests can assert that rendering happened, plus call counters.
+  stats.gpu_set = 0
+  stats.gpu_fill = 0
+  local gpu = {
+    bind = function(addr) state.gpu_bound = addr; return true end,
+    getScreen = function() return state.gpu_bound end,
+    maxResolution = function() return 80, 25 end,
+    getResolution = function() return state.gpu_w or 60, state.gpu_h or 16 end,
+    setResolution = function(w, h) state.gpu_w, state.gpu_h = w, h; return true end,
+    getSize = function() return state.gpu_w or 60, state.gpu_h or 16 end,
+    setForeground = function(c) state.gpu_fg = c; return c end,
+    setBackground = function(c) state.gpu_bg = c; return c end,
+    fill = function(_, _, _, _, _)
+      stats.gpu_fill = stats.gpu_fill + 1
+      return true
+    end,
+    set = function(x, y, value)
+      stats.gpu_set = stats.gpu_set + 1
+      state.gpu_rows[y] = value
+      return true
+    end,
+  }
+  state.gpu_rows = {}
+
   return {
     machine = machine,
     computer = computer,
     event = event,
+    me = me,
+    gpu = gpu,
     state = state,
     stats = stats,
 
@@ -129,8 +192,10 @@ function Mock.new(opts)
     set_sensor = function(lines) state.sensor = lines end,
     set_fault = function(msg) state.sensor = { "Running.", msg or fault_message } end,
     set_healthy = function() state.sensor = healthy end,
+    set_stock = function(label, n) state.stock[label] = n end,
+    set_fluid = function(label, n) state.fluids[label] = n end,
     deps = function()
-      return { machine = machine, computer = computer, event = event }
+      return { machine = machine, computer = computer, event = event, me = me }
     end,
   }
 end
