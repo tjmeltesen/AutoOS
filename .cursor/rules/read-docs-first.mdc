@@ -1,0 +1,62 @@
+---
+description: Read docs first, then append changes to progress.md
+alwaysApply: true
+---
+
+# Read Project Docs First
+
+Before planning or writing code, read the project docs in this order:
+
+1. **`README.md`** — architecture, phased schedule, functional contracts, file layout
+2. **`references/README.md`** — index of API docs; open only what the task needs
+3. **`progress.md`** — what has already been done; avoid duplicating or contradicting prior work
+
+## Which Reference to Open
+
+| Task area | Read first |
+|-----------|------------|
+| Any module / phase | `references/autoos-api-mapping.md` |
+| `gt_machine`, maintenance, shutdown | `references/gt-machine-api.md`, `references/maintenance-and-safety.md` |
+| ME inventory, crafting, fluids | `references/me-network-api.md` |
+| Component access, events, loops | `references/opencomputers-component-api.md`, `references/opencomputers-libraries.md` |
+| GPU / monitoring UI | `references/gpu-and-display.md` |
+| Polling, tick budget, crashes | `references/performance-pitfalls.md` |
+| GTNH adapter / MFU setup | `references/gtnh-opencomputers-overview.md` |
+
+## Non-Negotiables (from docs)
+
+- Modules read the **State Cache** only — never poll hardware directly
+- Only the **Arbitrator** commits hardware changes (e.g. `setWorkAllowed()`)
+- Maintenance: parse `getSensorInformation()` — no dedicated fault boolean
+- Avoid `allItems()` in tight loops; prefer filtered `getItemsInNetwork()`
+- Target tick overhead ≤ **500ms**
+
+## Update progress.md After Every Change
+
+After completing any task (code, docs, rules, config), **append** a new entry to `progress.md`:
+
+- **Never rewrite or delete** existing entries — only add at the bottom
+- One dated entry per logical change; list files created/modified and a one-line summary
+- If a task spans multiple steps in one session, one combined entry is fine
+
+```markdown
+## YYYY-MM-DD — Short title
+
+- Changed `path/to/file.lua`: what and why
+- Added `path/to/new.lua`: purpose
+```
+
+## Example Workflow
+
+```
+❌ BAD: Jump straight into modules/process_control.lua and guess APIs
+
+✅ GOOD:
+1. Read README.md → confirm Phase 2 = hysteresis + inventory bands
+2. Read references/autoos-api-mapping.md + me-network-api.md
+3. Read progress.md → see what's already implemented
+4. Implement against documented APIs and architecture layers
+5. Append entry to progress.md
+```
+
+Do not contradict README or references without explaining why and updating docs if the design changed.
