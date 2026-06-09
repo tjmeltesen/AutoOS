@@ -50,6 +50,9 @@ function ProcessControl.new(config)
 
   local self = setmetatable({}, ProcessControl)
   self.label = config.label
+  -- craft_label: label passed to getCraftables when it differs from stock label
+  -- (e.g. stock tracked as fluid "Oxygen" but craft filter uses another spelling).
+  self.craft_label = config.craft_label or config.label
   self.low = config.low
   self.high = config.high
   self.kind = config.kind or "item"
@@ -77,6 +80,7 @@ function ProcessControl:_craftable(cache)
   if type(cache) ~= "table" or type(cache.craftable) ~= "table" then
     return false
   end
+  -- Adapter keys craftability by the stock label (config.label).
   return cache.craftable[self.label] == true
 end
 
@@ -94,8 +98,8 @@ function ProcessControl:_wants_machine()
 end
 
 function ProcessControl:_wants_craft()
-  return (self.mode == "craft" or self.mode == "both")
-    and self.kind == "item" -- getCraftables is item-only in ME API
+  -- Items and fluids (GTNH AE fluid patterns) both use getCraftables → request.
+  return self.mode == "craft" or self.mode == "both"
 end
 
 -- Build zero, one, or two Priority 3 intents for the arbitrator.
@@ -147,7 +151,7 @@ function ProcessControl:_evaluate(cache)
         priority = 3,
         module = "process_control",
         action = "request_craft",
-        label = self.label,
+        label = (cache.craft_labels and cache.craft_labels[self.label]) or self.craft_label,
         amount = amount,
         stock = stock,
         prioritize_power = self.prioritize_power,

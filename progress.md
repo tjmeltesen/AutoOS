@@ -190,3 +190,12 @@ Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process
 ## 2026-06-08 — README: emphasize ME autocraft leveling
 
 - Changed `README.md`: updated vision, architecture diagram, priority matrix, and functional requirements to highlight ME autocraft (`getCraftables` → `request`) alongside gt_machine control; expanded Phase 2 with `craft`/`machine`/`both` modes and prerequisites; added §5 in-game setup (layout, `process_control` config, recipe verification); refreshed file topology and desktop test commands; fixed broken code-fence formatting in the old §5 section.
+
+## 2026-06-08 — Fix fluid ME autocraft (Oxygen / dual interface)
+
+- Root cause: `process_control` only issued crafts when `kind == "item"`; fluids (e.g. Oxygen) were excluded even with a valid AE fluid pattern.
+- Changed `modules/process_control.lua`: crafts allowed for fluids; optional `craft_label`; intent uses `cache.craft_labels[label]` when adapter resolves an alternate filter (e.g. `drop of Oxygen`).
+- Changed `adapter.lua`: `poll_craftables` now checks fluid targets; tries `craft_label` then `drop of <name>` for fluid discretizer setups; stores `cache.craft_labels`.
+- Changed `main.lua`: passes `craft_label` in targets; logs ticks when craft is skipped (`craft_reason`) even with `verbose=false`.
+- Added `me_dump.lua`: in-game ME diagnostic — lists matching fluids/items/craftables and suggests `start.lua` fields.
+- Changed `tests/phase2_test.lua`: fluid craft intent check.

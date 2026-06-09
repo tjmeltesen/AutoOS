@@ -313,6 +313,13 @@ end
 --------------------------------------------------------------------------------
 
 do
+  local pc = ProcessControl.new(pc_config("fluid", "craft"))
+  local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
+  check("fluid craft mode emits request_craft",
+    out and out.action == "request_craft")
+end
+
+do
   local pc = ProcessControl.new(pc_config("item", "craft"))
   local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
   local craft_intent = out and out.action == "request_craft" and out or out and out[1]

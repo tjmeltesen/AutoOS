@@ -71,6 +71,7 @@ function Kernel.new(deps)
   if self.me and deps.process_control then
     targets[#targets + 1] = {
       label = deps.process_control.label,
+      craft_label = deps.process_control.craft_label,
       kind = deps.process_control.kind or "item",
     }
   end
@@ -189,7 +190,10 @@ function Kernel:tick()
 
   local changed = self:state_changed(self.cache)
 
-  if self.verbose or result.committed or (self.monitor and changed) then
+  -- Log when a craft was skipped (label/craftable mismatch) even if verbose=false.
+  local craft_skip = result.craft and not result.craft.committed and result.craft.craft_reason
+
+  if self.verbose or result.committed or craft_skip or (self.monitor and changed) then
     self:log_tick(result, changed)
   end
 

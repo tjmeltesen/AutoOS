@@ -107,10 +107,31 @@ function Adapter:poll_craftables(cache)
     for k in pairs(craftable) do craftable[k] = nil end
   end
 
+  local craft_labels = cache.craft_labels
+  if type(craft_labels) ~= "table" then
+    craft_labels = {}
+    cache.craft_labels = craft_labels
+  else
+    for k in pairs(craft_labels) do craft_labels[k] = nil end
+  end
+
   for _, target in ipairs(self.targets) do
-    if target.kind ~= "fluid" then
-      local crafts = self.me.getCraftables({ label = target.label })
-      craftable[target.label] = type(crafts) == "table" and #crafts > 0
+    local key = target.label
+    local craft_label = target.craft_label or target.label
+    local resolved = craft_label
+    local crafts = self.me.getCraftables({ label = craft_label })
+    craftable[key] = type(crafts) == "table" and #crafts > 0
+    -- GTNH fluid discretizer: also try "drop of <name>" when the primary label misses.
+    if not craftable[key] and target.kind == "fluid" then
+      local alt = "drop of " .. craft_label
+      crafts = self.me.getCraftables({ label = alt })
+      if type(crafts) == "table" and #crafts > 0 then
+        craftable[key] = true
+        resolved = alt
+      end
+    end
+    if craftable[key] then
+      craft_labels[key] = resolved
     end
   end
 end
