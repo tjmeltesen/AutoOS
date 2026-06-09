@@ -22,5 +22,6 @@ Kernel.new({
   machine = component.gt_machine,
   computer = computer,
   event = event,
-  verbose = false, -- prints on state/sensor change or fault; set true for every tick
+  verbose = false, -- silent unless fault shutdown (recommended in-game)
+  -- monitor = true,  -- uncomment to also log when work_allowed/active/sensors change
 }):run()

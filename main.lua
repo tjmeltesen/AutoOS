@@ -65,7 +65,11 @@ function Kernel.new(deps)
   self.modules = { Maintenance }
 
   self.tick_count = 0
-  self.verbose = deps.verbose ~= false -- print emulator-style logs by default
+  -- verbose=true  : log every tick (debug)
+  -- verbose=false : silent unless a fault shutdown is committed
+  -- monitor=true  : with verbose=false, also log when meaningful state changes
+  self.verbose = deps.verbose == true
+  self.monitor = deps.monitor == true
   self._prev = {} -- last-tick snapshot for change detection in logs
 
   return self
@@ -77,7 +81,7 @@ function Kernel:state_changed(cache)
   if prev.work_allowed ~= cache.work_allowed then return true end
   if prev.active ~= cache.active then return true end
   if prev.has_work ~= cache.has_work then return true end
-  if prev.eu_input ~= cache.eu_input then return true end
+  -- Skip eu_input: GT rolling average jitters every tick and causes log spam.
   if type(cache.sensor) == "table" then
     local ps = prev.sensor
     if type(ps) ~= "table" or #ps ~= #cache.sensor then return true end
@@ -110,12 +114,7 @@ local function log_sensor_lines(cache, prev_sensor, full_detail)
     local clean = Maintenance.strip_format(raw)
     local lower = clean:lower()
     local changed = prev_sensor == nil or raw ~= prev_sensor[i]
-    local important = lower:find("problems:", 1, true)
-      or lower:find("incomplete", 1, true)
-      or lower:find("needs a ", 1, true)
-      or lower:find("has problems", 1, true)
-
-    if full_detail or ((changed or important) and not sensor_line_noisy(raw)) then
+    if full_detail or (changed and not sensor_line_noisy(raw)) then
       print(string.format("[Sensor %d] %s", i, clean))
       printed = printed + 1
     end
@@ -145,9 +144,7 @@ function Kernel:tick()
 
   local changed = self:state_changed(self.cache)
 
-  -- verbose=false: silent when healthy AND nothing changed; print on fault,
-  -- state change, or sensor text change so live updates are visible.
-  if self.verbose or result.committed or changed then
+  if self.verbose or result.committed or (self.monitor and changed) then
     self:log_tick(result, changed)
   end
 

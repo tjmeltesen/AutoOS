@@ -65,3 +65,8 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 ## 2026-06-08 — Compact sensor logging (fix tick-counter spam)
 
 - Changed `main.lua`: ignore GT uptime/tick sensor lines for `[Delta]` change detection; compact sensor log prints only changed or fault-relevant lines unless `verbose=true`.
+
+## 2026-06-08 — verbose=false truly silent; monitor opt-in
+
+- Changed `main.lua`: `verbose=false` prints only on fault shutdown; `monitor=true` opt-in for change logging; dropped eu_input from change detection (rolling average jitter); default verbose is now false unless explicitly true.
+- Changed `start.lua`: document `verbose` vs `monitor` flags.
