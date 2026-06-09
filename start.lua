@@ -46,15 +46,19 @@ Kernel.new({
 
   -- Phase 2 hysteresis leveling. Enabled only when `me` is non-nil. Edit the
   -- label/thresholds to match the product this machine refills:
-  --   low  : run the machine when stock drops below this
-  --   high : stop once stock climbs above this (deadband prevents flapping)
+  --   low  : enter ACTIVE when stock drops below this
+  --   high : leave ACTIVE once stock climbs above this (deadband prevents flapping)
   --   kind : "item" (getItemsInNetwork filter) or "fluid" (getFluidsInNetwork)
+  --   mode : "craft" = ME autocraft only (needs AE recipe for label)
+  --          "machine" = gt_machine on/off only
+  --          "both" = machine on + ME craft request while refilling
   me = me,
   process_control = me and {
     label = "Soldering Alloy",
     low = 64000,
     high = 142800,
     kind = "item",
+    mode = "craft",
   } or nil,
 
   -- Read-only status panel (no control). Omit gpu/screen to run headless.

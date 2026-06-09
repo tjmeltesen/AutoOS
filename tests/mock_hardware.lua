@@ -44,6 +44,8 @@ function Mock.new(opts)
     -- Phase 2 ME-network call counters (single-poll-point contract).
     getItemsInNetwork = 0,
     getFluidsInNetwork = 0,
+    getCraftables = 0,
+    craft_request = 0,
     me_calls = 0,
   }
 
@@ -59,6 +61,11 @@ function Mock.new(opts)
     -- Phase 2 inventory: label -> count (items) / label -> amount (fluids).
     stock = opts.stock or {},
     fluids = opts.fluids or {},
+    -- Labels with ME autocraft recipes (getCraftables returns a match).
+    craftables = opts.craftables or {},
+    craft_jobs = {},
+    last_craft = nil,
+    craft_done = opts.craft_done ~= false, -- jobs finish immediately in mock
   }
 
   local machine = {
@@ -131,6 +138,32 @@ function Mock.new(opts)
       end
       return out
     end,
+    getCraftables = function(filter)
+      stats.getCraftables = stats.getCraftables + 1
+      stats.me_calls = stats.me_calls + 1
+      if type(filter) == "table" and filter.label and state.craftables[filter.label] then
+        return {{
+          label = filter.label,
+          request = function(amount, prioritize_power)
+            stats.craft_request = stats.craft_request + 1
+            state.last_craft = {
+              label = filter.label,
+              amount = amount,
+              prioritize_power = prioritize_power,
+            }
+            local job = {
+              isDone = function() return state.craft_done end,
+              hasFailed = function() return false end,
+              isCanceled = function() return false end,
+              isComputing = function() return not state.craft_done end,
+            }
+            state.craft_jobs[filter.label] = job
+            return job
+          end,
+        }}
+      end
+      return {}
+    end,
   }
 
   local computer = {
@@ -194,6 +227,18 @@ function Mock.new(opts)
     set_healthy = function() state.sensor = healthy end,
     set_stock = function(label, n) state.stock[label] = n end,
     set_fluid = function(label, n) state.fluids[label] = n end,
+    set_craftable = function(label, available)
+      if available then state.craftables[label] = true else state.craftables[label] = nil end
+    end,
+    set_craft_pending = function(label)
+      state.craft_done = false
+      state.craft_jobs[label] = {
+        isDone = function() return false end,
+        hasFailed = function() return false end,
+        isCanceled = function() return false end,
+        isComputing = function() return true end,
+      }
+    end,
     deps = function()
       return { machine = machine, computer = computer, event = event, me = me }
     end,

@@ -163,3 +163,30 @@ Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process
 
 - Deliberately scoped to a read-only single-panel monitor (not the interactive "add/manage items" terminal). A runtime management console + multi-item/multi-machine views still require a multi-target config refactor and are best landed with the Phase 4 display work.
 - In-game: also `wget -f` the new `display.lua` (and updated `main.lua`/`start.lua`) from the raw repo URLs; connect a GPU (Tier 2+ for color) + screen to see the panel.
+
+## 2026-06-08 — Phase 2: ME autocraft integration (process control)
+
+- Changed `modules/process_control.lua`: added `mode` config (`"machine"` | `"craft"` | `"both"`, default `"machine"` for desktop tests). When ACTIVE and stock `< high`, craft/both modes emit a Priority 3 `request_craft` intent with `amount = high - stock` if `cache.craftable[label]` is true (item targets only). Machine mode unchanged. Module may return one intent or an array (both mode).
+- Changed `adapter.lua`: `poll_craftables(cache)` runs one filtered `getCraftables({label})` per item target into reused `cache.craftable[label]` booleans (adapter is sole ME reader).
+- Changed `arbitrator.lua`: accepts optional `me` proxy; commits `request_craft` via `getCraftables({label})[1].request(amount, prioritize_power)`; tracks `craft_jobs[label]` and throttles duplicate requests while `AECraftingJob` is still active. `commit()` now applies **all** intents at the winning priority level (e.g. machine + craft together in `"both"` mode). Result carries `craft` and `machine` sub-results.
+- Changed `main.lua`: collects intent arrays from modules; passes `me` to arbitrator; logs craft commits/skips; snapshot/display include `mode`, `craftable`, and craft result.
+- Changed `start.lua`: default `mode = "craft"` with documented options; ME autocraft requires an AE recipe matching `label`.
+- Changed `display.lua`: shows mode, ME recipe availability, and last craft request/skip on the status panel.
+- Changed `tests/mock_hardware.lua`: `getCraftables(filter)`, `request()` with `AECraftingJob` mock, `set_craftable`/`set_craft_pending` helpers, `craft_request` counter.
+- Changed `tests/phase2_test.lua`: +14 craft checks (craft intent amount, craft-only vs machine-only, kernel commit, throttle, both mode, maintenance blocks craft, zero-direct-call contract). 49/49 passing.
+
+### Desktop tests
+
+- `C:\Lua\lua55.exe tests\phase1_test.lua` — 43/43.
+- `C:\Lua\lua55.exe tests\phase2_test.lua` — 49/49.
+- `C:\Lua\lua55.exe tests\display_test.lua` — 21/21.
+
+### In-game setup for ME autocraft
+
+- Ensure the tracked `label` in `start.lua` has a **craftable AE pattern** (visible in ME terminal → craftables).
+- Set `mode = "craft"` for ME-only leveling, `"both"` to also run the gt_machine, or `"machine"` for physical-line-only (previous behavior).
+- Re-`wget -f` updated files: `modules/process_control.lua`, `adapter.lua`, `arbitrator.lua`, `main.lua`, `display.lua`, `start.lua`.
+
+## 2026-06-08 — README: emphasize ME autocraft leveling
+
+- Changed `README.md`: updated vision, architecture diagram, priority matrix, and functional requirements to highlight ME autocraft (`getCraftables` → `request`) alongside gt_machine control; expanded Phase 2 with `craft`/`machine`/`both` modes and prerequisites; added §5 in-game setup (layout, `process_control` config, recipe verification); refreshed file topology and desktop test commands; fixed broken code-fence formatting in the old §5 section.

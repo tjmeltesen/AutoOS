@@ -63,8 +63,15 @@ local function cache_with(stock)
   return { stock = { [LABEL] = stock } }
 end
 
-local function pc_config(kind)
-  return { label = LABEL, low = LOW, high = HIGH, kind = kind or "item" }
+local function pc_config(kind, mode)
+  return { label = LABEL, low = LOW, high = HIGH, kind = kind or "item", mode = mode }
+end
+
+local function cache_with_craft(stock, craftable)
+  return {
+    stock = { [LABEL] = stock },
+    craftable = { [LABEL] = craftable },
+  }
 end
 
 --------------------------------------------------------------------------------
@@ -299,6 +306,103 @@ do
   check("healthy Phase 1-only tick writes nothing", result.committed == false
     and mock.stats.setWorkAllowed == 0)
   check("no ME polling without a proxy", mock.stats.getItemsInNetwork == 0)
+end
+
+--------------------------------------------------------------------------------
+-- 12. ME autocraft — craft mode requests recipes when ACTIVE
+--------------------------------------------------------------------------------
+
+do
+  local pc = ProcessControl.new(pc_config("item", "craft"))
+  local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
+  local craft_intent = out and out.action == "request_craft" and out or out and out[1]
+  check("craft mode emits request_craft intent", craft_intent ~= nil)
+  check("craft amount is deficit to high band",
+    craft_intent and craft_intent.amount == HIGH - (LOW - 1000))
+  check("craft intent is priority 3", craft_intent and craft_intent.priority == 3)
+end
+
+do
+  local pc = ProcessControl.new(pc_config("item", "craft"))
+  local out = pc.evaluate(cache_with_craft(HIGH + 1000, true))
+  check("craft mode IDLE above high emits no intents", out == nil)
+end
+
+do
+  local pc = ProcessControl.new(pc_config("item", "machine"))
+  local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
+  check("machine mode ignores craftable flag", out.action == "set_work_allowed")
+end
+
+do
+  local mock = Mock.new()
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  local result = kernel:tick()
+  check("craft mode commits ME request", result.craft and result.craft.committed == true)
+  check("craft request amount matches deficit",
+    mock.state.last_craft and mock.state.last_craft.amount == HIGH - (LOW - 1000))
+  check("craft mode does not drive gt_machine",
+    mock.stats.setWorkAllowed == 0)
+end
+
+do
+  local mock = Mock.new({ craft_done = false }) -- jobs stay active until finished
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  kernel:tick()
+  check("first craft request issued", mock.stats.craft_request == 1)
+  local before = mock.stats.craft_request
+  kernel:tick()
+  check("craft throttled while job active", mock.stats.craft_request == before)
+end
+
+do
+  local mock = Mock.new()
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "both"), verbose = false,
+  })
+  mock.state.work_allowed = false
+  mock.state.active = false
+  local result = kernel:tick()
+  check("both mode drives machine ON", mock.state.work_allowed == true)
+  check("both mode also requests craft",
+    result.craft and result.craft.committed == true)
+end
+
+do
+  local mock = Mock.new()
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  mock.set_fault("Machine needs a wrench!")
+  kernel:tick()
+  check("maintenance blocks ME craft", mock.stats.craft_request == 0)
+end
+
+do
+  local mock = Mock.new()
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  local pc = ProcessControl.new(pc_config("item", "craft"))
+  local before = mock.stats.getCraftables + mock.stats.craft_request
+  pc.evaluate(cache_with_craft(LOW - 1000, true))
+  local after = mock.stats.getCraftables + mock.stats.craft_request
+  check("process control performs zero ME craft calls", before == after)
 end
 
 --------------------------------------------------------------------------------

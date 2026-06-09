@@ -136,10 +136,25 @@ function Display:render(s)
       pc.stock ~= nil and tostring(pc.stock) or "n/a",
       tostring(pc.low), tostring(pc.high)), COLOR.value)
     row = row + 1
-    self:_line(row, string.format("  state: %s",
-      pc.active and "ACTIVE (refilling)" or "IDLE (satisfied)"),
+    self:_line(row, string.format("  state: %s  mode: %s",
+      pc.active and "ACTIVE (refilling)" or "IDLE (satisfied)",
+      tostring(pc.mode or "machine")),
       pc.active and COLOR.ok or COLOR.idle)
-    row = row + 2
+    row = row + 1
+    if pc.craftable then
+      self:_line(row, "  ME recipe: available", COLOR.ok)
+      row = row + 1
+    end
+    if pc.craft and pc.craft.committed then
+      self:_line(row, string.format("  craft: requested %d x %s",
+        pc.craft.craft_amount or 0, tostring(pc.craft.craft_label)),
+        COLOR.ok)
+      row = row + 1
+    elseif pc.craft and pc.craft.craft_reason then
+      self:_line(row, "  craft: " .. tostring(pc.craft.craft_reason), COLOR.idle)
+      row = row + 1
+    end
+    row = row + 1
   end
 
   -- Arbitrator outcome this tick.

@@ -87,6 +87,32 @@ function Adapter:poll_inventory(cache)
       stock[target.label] = poll_item(self.me, target.label)
     end
   end
+
+  self:poll_craftables(cache)
+end
+
+-- For each item target, check whether an ME autocraft recipe exists.
+-- Modules read cache.craftable[label]; they never call getCraftables directly.
+function Adapter:poll_craftables(cache)
+  if not self.me or not self.me.getCraftables then
+    cache.craftable = nil
+    return
+  end
+
+  local craftable = cache.craftable
+  if type(craftable) ~= "table" then
+    craftable = {}
+    cache.craftable = craftable
+  else
+    for k in pairs(craftable) do craftable[k] = nil end
+  end
+
+  for _, target in ipairs(self.targets) do
+    if target.kind ~= "fluid" then
+      local crafts = self.me.getCraftables({ label = target.label })
+      craftable[target.label] = type(crafts) == "table" and #crafts > 0
+    end
+  end
 end
 
 -- Poll all readings into the supplied cache table in one batch.

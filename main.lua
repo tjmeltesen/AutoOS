@@ -76,7 +76,7 @@ function Kernel.new(deps)
   end
 
   self.adapter = Adapter.new(self.machine, self.computer, self.me, targets)
-  self.arbitrator = Arbitrator.new(self.machine, self.computer)
+  self.arbitrator = Arbitrator.new(self.machine, self.computer, self.me)
 
   -- Logic modules. Order does not matter; the arbitrator resolves priority.
   self.modules = { Maintenance }
@@ -172,9 +172,16 @@ function Kernel:tick()
 
   local intents = {}
   for _, mod in ipairs(self.modules) do
-    local intent = mod.evaluate(self.cache)
-    if intent then
-      intents[#intents + 1] = intent
+    local out = mod.evaluate(self.cache)
+    if out then
+      -- Modules may return one intent or an array (process control: machine + craft).
+      if out.priority then
+        intents[#intents + 1] = out
+      else
+        for _, intent in ipairs(out) do
+          intents[#intents + 1] = intent
+        end
+      end
     end
   end
 
@@ -215,6 +222,9 @@ function Kernel:_snapshot(result)
       active = p.active,
       low = p.low,
       high = p.high,
+      mode = p.mode,
+      craftable = c.craftable and c.craftable[p.label] or false,
+      craft = result.craft,
     }
   end
 
@@ -254,9 +264,11 @@ function Kernel:log_tick(result, changed)
   if self.process_control then
     local pc = self.process_control
     local stock = c.stock and c.stock[pc.label]
-    print(string.format("[Process Control] %s stock=%s -> %s (low=%d high=%d)",
+    local craftable = c.craftable and c.craftable[pc.label]
+    print(string.format("[Process Control] %s stock=%s -> %s (low=%d high=%d mode=%s craftable=%s)",
       pc.label, stock ~= nil and tostring(stock) or "n/a",
-      pc.active and "ACTIVE" or "IDLE", pc.low, pc.high))
+      pc.active and "ACTIVE" or "IDLE", pc.low, pc.high, pc.mode,
+      craftable and "yes" or "no"))
   end
 
   local winning = result.intent
@@ -271,10 +283,19 @@ function Kernel:log_tick(result, changed)
   -- "action: none" here means AutoOS wrote nothing to hardware this tick (either
   -- no intent won, or the machine was already in the requested state). Live
   -- machine state is in [Hardware] above.
-  if result.committed then
+  if result.machine and result.machine.committed then
     print(string.format("[Arbitrator] action: %s -> setWorkAllowed(%s)",
-      tostring(result.action), tostring(result.requested_state)))
-  else
+      tostring(result.machine.action), tostring(result.machine.requested_state)))
+  end
+  if result.craft then
+    if result.craft.committed then
+      print(string.format("[Arbitrator] action: request_craft %s x%d",
+        tostring(result.craft.craft_label), result.craft.craft_amount or 0))
+    elseif result.craft.craft_reason then
+      print(string.format("[Arbitrator] craft skipped: %s", result.craft.craft_reason))
+    end
+  end
+  if not result.committed then
     print("[Arbitrator] action: none (no hardware change required)")
   end
 
@@ -347,6 +368,7 @@ local function build_oc_deps()
       low = 64000,
       high = 142800,
       kind = "item",
+      mode = "craft",
     } or nil,
     gpu = gpu,
     screen = screen,
