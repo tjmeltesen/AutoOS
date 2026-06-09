@@ -61,3 +61,7 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Changed `main.lua`: log `[Hardware] work_allowed/active/has_work/eu_in` every printed tick; `[Arbitrator] action: none` vs `force_shutdown` (replaces misleading "unchanged"); `verbose=false` prints when any polled field or sensor line changes; `[Delta]` marker on change.
 - Added `dump.lua`: one-shot in-game gt_machine diagnostic script.
 - Added `start.lua`: in-game boot template with `verbose=false` + change-aware logging.
+
+## 2026-06-08 — Compact sensor logging (fix tick-counter spam)
+
+- Changed `main.lua`: ignore GT uptime/tick sensor lines for `[Delta]` change detection; compact sensor log prints only changed or fault-relevant lines unless `verbose=true`.

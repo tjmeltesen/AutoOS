@@ -26,6 +26,25 @@ local TICK_INTERVAL = 0.5 -- seconds; target overhead <= 500ms
 local Kernel = {}
 Kernel.__index = Kernel
 
+-- GT appends uptime / tick counters that change every tick and would spam logs.
+local NOISY_SENSOR_PATTERNS = {
+  "total time",
+  "since built",
+  "in ticks:",
+  "hours,",
+  "minutes,",
+  "seconds.",
+}
+
+local function sensor_line_noisy(raw)
+  if type(raw) ~= "string" then return false end
+  local lower = Maintenance.strip_format(raw):lower()
+  for _, pat in ipairs(NOISY_SENSOR_PATTERNS) do
+    if lower:find(pat, 1, true) then return true end
+  end
+  return false
+end
+
 -- deps = { machine = <gt_machine>, computer = <computer>, event = <event> }
 function Kernel.new(deps)
   deps = deps or {}
@@ -63,7 +82,8 @@ function Kernel:state_changed(cache)
     local ps = prev.sensor
     if type(ps) ~= "table" or #ps ~= #cache.sensor then return true end
     for i, line in ipairs(cache.sensor) do
-      if line ~= ps[i] then return true end
+      -- Ignore uptime/tick counters; they tick every cycle and cause log spam.
+      if not sensor_line_noisy(line) and line ~= ps[i] then return true end
     end
   end
   return false
@@ -78,15 +98,31 @@ function Kernel:_remember(cache)
   snap.sensor = cache.sensor
 end
 
--- Log all sensor lines — structure/maintenance text is often NOT on line 1
--- (line 1 is frequently the machine type id, e.g. industrialelectrolyzer...).
-local function log_sensor_lines(cache)
+-- full_detail=true prints every line (debug). Default: only changed or important lines.
+local function log_sensor_lines(cache, prev_sensor, full_detail)
   if type(cache.sensor) ~= "table" or #cache.sensor == 0 then
     print("[Sensor] (no sensor data)")
     return
   end
+
+  local printed = 0
   for i, raw in ipairs(cache.sensor) do
-    print(string.format("[Sensor %d] %s", i, Maintenance.strip_format(raw)))
+    local clean = Maintenance.strip_format(raw)
+    local lower = clean:lower()
+    local changed = prev_sensor == nil or raw ~= prev_sensor[i]
+    local important = lower:find("problems:", 1, true)
+      or lower:find("incomplete", 1, true)
+      or lower:find("needs a ", 1, true)
+      or lower:find("has problems", 1, true)
+
+    if full_detail or ((changed or important) and not sensor_line_noisy(raw)) then
+      print(string.format("[Sensor %d] %s", i, clean))
+      printed = printed + 1
+    end
+  end
+
+  if printed == 0 and not full_detail then
+    print(string.format("[Sensor] %d lines (no meaningful change)", #cache.sensor))
   end
 end
 
@@ -146,7 +182,8 @@ function Kernel:log_tick(result, changed)
     print("[Arbitrator] action: none (no fault matched sensor rules)")
   end
 
-  log_sensor_lines(self.cache)
+  -- verbose=true dumps all sensor lines; false = compact (changed/important only).
+  log_sensor_lines(self.cache, self._prev.sensor, self.verbose)
 end
 
 -- Timed main loop. maxTicks bounds the loop for desktop tests; pass nil for an
