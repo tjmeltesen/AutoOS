@@ -261,3 +261,20 @@ Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process
 - Cause 2 (still turned machine on during power fail): the GUI's "Shut down due to power loss" text never appears in `getSensorInformation()` (phase-1 validation tick ~500 showed only `0 EU / 16896 EU`, `0 EU/t`). Text-only detection could never fire.
 - Changed `adapter.lua`: `parse_eu_pair` matches `<stored> EU / <cap> EU` with thousands separators; checks the line after the `Stored Energy:` header; sensor value takes precedence over component (`cache.stored_eu_source`). New drained-buffer rule: sensor-confirmed `stored == 0` AND `eu_in == 0` → `power_loss = true` (GT keeps idle machines' buffers charged, so empty buffer + no input = dead line). Component-sourced 0 is NOT trusted (it lies) — no false NO POWER regression.
 - Changed `tests/phase2_test.lua` (75 checks): two-line parse with `16,896` separators, full-buffer powered-idle crafts proceed, drained-buffer blocks ON + crafts.
+
+## 2026-06-09 — Phase 3 implementation guide
+
+- Added `references/phase3-implementation.md`: comprehensive build spec for Module 3 (ring buffers, ΔR/TTD, Priority 2 soft sleep, arbitrator/kernel/adapter contracts, test plan, in-game checklist, GTNH quirks, deferred `eu_in` display parse for trends).
+- Changed `references/README.md`, `README.md`: link to Phase 3 guide from reference index and phased schedule.
+
+## 2026-06-09 — Phase 3: Raw Resource Management & Projection (Module 3)
+
+- Added `modules/resource_manager.lua`: Priority 2 module tracking raw inputs (`inputs[] = { label, kind, min, warn_ttd }`). Emits one `soft_sleep` intent (state=false) while any input is missing or below `min`; respects `cache.power_loss` (no redundant OFF when GT self-paused). Edge-triggered depletion alert via `self.last_alert` when TTD crosses below `warn_ttd` while draining. Also exports the pure projection math (`append_sample` ring buffer capped at 60, `compute_velocity` over the buffer window with dt ≥ 1s, `compute_ttd` — `math.huge` when stable/rising, never NaN) shared with the adapter.
+- Changed `adapter.lua`: new `append_history(cache)` writes per-label stock rings into `cache.history` and derives `cache.velocity` / `cache.ttd` each tick (skips nil readings); `Adapter.new` takes a `history_labels` list. Sensor `eu_in` display fix: `parse_eu_usage_from_sensor` handles `Currently uses:` / `Current Energy Usage:` headers with the value on the same or next line (`cache.eu_input_sensor`, display-only, never power gating; `Max Energy Income` ignored).
+- Changed `arbitrator.lua`: `soft_sleep` action commits `setWorkAllowed(false)` without the maintenance beep (beep stays gated on `force_shutdown`).
+- Changed `main.lua`: registers ResourceManager between maintenance and process control; merges adapter targets (PC product + RM inputs, deduped — one filtered ME read per label per tick); soft-sleep transition logging keyed by input label (reason text embeds live stock and would spam); depletion warning printed once per crossing with optional `computer.beep`; snapshot/display-key/log_tick gained an `rm` block (per-input stock/min/TTD/LOW; raw TTD excluded from the redraw key); `[Hardware]` log and panel prefer `eu_input_sensor` when component eu_in reads 0.
+- Changed `display.lua`: optional `Inputs` section (stock / min / TTD / `(LOW)` rows + `SOFT SLEEP` line) and the sensor-preferred `eu_in` power row.
+- Changed `start.lua`: commented `resource_manager` config example (inputs, `soft_sleep`, `alert_beep`).
+- Changed `tests/mock_hardware.lua`: `drain_stock(label, n)` helper for velocity series.
+- Added `tests/phase3_test.lua` (46 checks): pure ring/velocity/TTD math, construction guards, soft-sleep evaluation incl. power-loss suppression and alert-only mode, alert edge-triggering, adapter history/projection via kernel ticks, P2-over-P3 and P1-over-P2 arbitration with recovery, zero-hardware module contract, one-read-per-label adapter contract, sensor EU/t parse. Regression green: phase1 43, phase2 75, display 22.
+- Changed `README.md`: Phase 3 marked implemented; file layout and test commands updated.

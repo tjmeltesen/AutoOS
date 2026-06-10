@@ -240,6 +240,10 @@ function Mock.new(opts)
     set_healthy = function() state.sensor = healthy end,
     set_stock = function(label, n) state.stock[label] = n end,
     set_fluid = function(label, n) state.fluids[label] = n end,
+    -- Phase 3 velocity tests: drain a stock series between ticks.
+    drain_stock = function(label, n)
+      state.stock[label] = math.max(0, (state.stock[label] or 0) - n)
+    end,
     set_craftable = function(label, available)
       if available then state.craftables[label] = true else state.craftables[label] = nil end
     end,

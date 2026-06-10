@@ -63,6 +63,22 @@ Kernel.new({
     max_craft = 16000,       -- mB: cap each single ME request (~16 buckets)
   } or nil,
 
+  -- Phase 3 (optional): raw-resource watchdog. Tracks ME stock history for
+  -- each listed input, projects time-to-depletion from the consumption rate,
+  -- and soft-sleeps the machine (Priority 2 — OFF without the maintenance
+  -- beep) while an input sits below its `min` floor. Production resumes
+  -- automatically once stock recovers. Uncomment and edit to enable:
+  --   min      : items/mB floor — below this the machine soft-sleeps
+  --   warn_ttd : seconds — beep + log once when depletion is projected sooner
+resource_manager = me and {
+  inputs = {
+  --     { label = "Empty Cell", kind = "item", min = 64, warn_ttd = 1800 },
+      { label = "Sulfuric Acid", kind = "fluid", min = 4000, warn_ttd = 1800},
+    },
+    -- soft_sleep = false,  -- alert-only: warn but never pause the machine
+    -- alert_beep = false,  -- silence the depletion warning beep
+  } or nil ,
+
   -- Read-only status panel (no control). Omit gpu/screen to run headless.
   gpu = gpu,
   screen = screen,

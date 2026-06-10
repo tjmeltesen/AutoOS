@@ -111,6 +111,7 @@ end
 --     tick, work_allowed, active, has_work, eu_input,
 --     fault = <maintenance reason|nil>,
 --     pc = { label, stock, active, low, high } | nil,
+--     rm = { inputs = { { label, stock, min, ttd, low } }, sleep_reason } | nil,
 --     action = <arbitrator action|nil>, committed = <bool>, requested_state = <bool|nil>,
 --   }
 function Display:render(s)
@@ -129,7 +130,13 @@ function Display:render(s)
     on_off(s.work_allowed), yes_no(s.active), yes_no(s.has_work)),
     s.work_allowed and COLOR.ok or COLOR.idle)
   row = row + 1
-  local eu_in = s.eu_input ~= nil and tostring(s.eu_input) or "n/a"
+  -- Prefer the sensor EU/t readout when the component average reads 0: some
+  -- controllers report 0 from getAverageElectricInput while a recipe runs.
+  local eu_in_val = s.eu_input
+  if (eu_in_val == nil or eu_in_val == 0) and s.eu_input_sensor then
+    eu_in_val = s.eu_input_sensor
+  end
+  local eu_in = eu_in_val ~= nil and tostring(eu_in_val) or "n/a"
   local stored = s.stored_eu ~= nil and tostring(s.stored_eu) or "n/a"
   -- eu_in=0 / stored=0 is normal on an idle machine; only sensor power-loss is a fault.
   self:_line(row, string.format("Power      eu_in=%s  stored=%s  %s",
@@ -163,6 +170,32 @@ function Display:render(s)
       row = row + 1
     elseif pc.craft and pc.craft.craft_reason then
       self:_line(row, "  craft: " .. tostring(pc.craft.craft_reason), COLOR.idle)
+      row = row + 1
+    end
+    row = row + 1
+  end
+
+  -- Raw inputs (Phase 3) — only when the resource manager is enabled.
+  if s.rm and s.rm.inputs and #s.rm.inputs > 0 then
+    self:_line(row, "Inputs", COLOR.label)
+    row = row + 1
+    for _, input in ipairs(s.rm.inputs) do
+      local ttd_str = "n/a"
+      if input.ttd == math.huge then
+        ttd_str = "inf"
+      elseif type(input.ttd) == "number" then
+        ttd_str = string.format("%.0fs", input.ttd)
+      end
+      self:_line(row, string.format("  %s  stock=%s  min=%s  TTD=%s%s",
+        tostring(input.label),
+        input.stock ~= nil and tostring(input.stock) or "n/a",
+        tostring(input.min), ttd_str,
+        input.low and "  (LOW)" or ""),
+        input.low and COLOR.fault or COLOR.value)
+      row = row + 1
+    end
+    if s.rm.sleep_reason then
+      self:_line(row, "  SOFT SLEEP: " .. tostring(s.rm.sleep_reason), COLOR.idle)
       row = row + 1
     end
     row = row + 1

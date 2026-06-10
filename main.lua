@@ -1,5 +1,5 @@
 --[[
-  AutoOS — Core Execution Kernel (Phases 1-2)
+  AutoOS — Core Execution Kernel (Phases 1-3)
 
   Wires the layered data flow into a single deterministic tick:
 
@@ -20,6 +20,7 @@
 local Adapter = require("adapter")
 local Arbitrator = require("arbitrator")
 local Maintenance = require("modules.maintenance")
+local ResourceManager = require("modules.resource_manager")
 local ProcessControl = require("modules.process_control")
 local Display = require("display")
 
@@ -66,6 +67,7 @@ end
 --   machine = <gt_machine>, computer = <computer>, event = <event>,
 --   me = <me_interface|me_controller>,              -- optional (Phase 2)
 --   process_control = { label, low, high, kind },   -- optional (Phase 2)
+--   resource_manager = { inputs = {...} },           -- optional (Phase 3)
 --   gpu = <gpu>, screen = <screen address>,         -- optional read-only monitor
 -- }
 function Kernel.new(deps)
@@ -81,17 +83,35 @@ function Kernel.new(deps)
   -- Single reused State Cache table (no per-tick allocation).
   self.cache = {}
 
-  -- Phase 2 process-control target(s) the adapter must poll inventory for.
+  -- Inventory targets the adapter must poll: the Phase 2 product plus every
+  -- Phase 3 raw input, deduped by label (one filtered ME read per label/tick).
   local targets = {}
+  local seen_labels = {}
+  local function add_target(label, craft_label, kind)
+    if label and not seen_labels[label] then
+      seen_labels[label] = true
+      targets[#targets + 1] = {
+        label = label,
+        craft_label = craft_label,
+        kind = kind or "item",
+      }
+    end
+  end
   if self.me and deps.process_control then
-    targets[#targets + 1] = {
-      label = deps.process_control.label,
-      craft_label = deps.process_control.craft_label,
-      kind = deps.process_control.kind or "item",
-    }
+    add_target(deps.process_control.label, deps.process_control.craft_label,
+      deps.process_control.kind)
+  end
+  -- Phase 3 inputs also get stock-history rings for velocity/TTD projection.
+  local history_labels = {}
+  if self.me and deps.resource_manager then
+    for _, input in ipairs(deps.resource_manager.inputs or {}) do
+      add_target(input.label, input.craft_label, input.kind)
+      history_labels[#history_labels + 1] = input.label
+    end
   end
 
-  self.adapter = Adapter.new(self.machine, self.computer, self.me, targets)
+  self.adapter = Adapter.new(self.machine, self.computer, self.me, targets,
+    history_labels)
   self.arbitrator = Arbitrator.new(self.machine, self.computer, self.me)
 
   -- Logic modules. Order does not matter; the arbitrator resolves priority.
@@ -100,6 +120,14 @@ function Kernel.new(deps)
   self.modules = {}
   if deps.maintenance ~= false then
     self.modules[#self.modules + 1] = Maintenance
+  end
+
+  -- Phase 3: raw-resource watchdog (Priority 2 soft sleep + depletion alerts).
+  -- Needs the ME proxy for input stock readings.
+  self.resource_manager = nil
+  if self.me and deps.resource_manager then
+    self.resource_manager = ResourceManager.new(deps.resource_manager)
+    self.modules[#self.modules + 1] = self.resource_manager
   end
 
   -- Phase 2: enable the hysteresis leveling engine only when an ME proxy and a
@@ -134,6 +162,7 @@ function Kernel.new(deps)
   self._prev_display_key = nil
   self._prev_fault = nil -- last maintenance fault reason, for transition logging
   self._prev_power_ok = nil -- power-available transition logging
+  self._prev_sleep_label = nil -- soft-sleep transition logging (Phase 3)
 
   return self
 end
@@ -231,6 +260,37 @@ function Kernel:tick()
   local fault_changed = fault ~= self._prev_fault
   self._prev_fault = fault
 
+  -- Phase 3 soft sleep is active whenever the resource_manager P2 intent wins.
+  -- Track by label, not reason text: the reason embeds the live stock count and
+  -- would register a "transition" every tick while draining.
+  local sleep_reason, sleep_label = nil, nil
+  if result.intent and result.intent.module == "resource_manager" then
+    sleep_reason = result.intent.reason
+    sleep_label = result.intent.label
+  end
+  local sleep_changed = sleep_label ~= self._prev_sleep_label
+  self._prev_sleep_label = sleep_label
+  -- Suppress "lifted" while a maintenance fault wins: P1 masking P2 is not a recovery.
+  if sleep_changed and not (fault and sleep_label == nil) then
+    if sleep_reason then
+      print(string.format("AutoOS: SOFT SLEEP - %s", tostring(sleep_reason)))
+    else
+      print("AutoOS: soft sleep lifted (inputs recovered)")
+    end
+  end
+
+  -- Depletion early-warning: the module edge-triggers last_alert for one tick.
+  local rm = self.resource_manager
+  if rm and rm.last_alert then
+    local a = rm.last_alert
+    print(string.format(
+      "AutoOS: DEPLETION WARNING - %s empties in ~%.0fs (threshold %ds)",
+      tostring(a.label), a.ttd or 0, a.warn_ttd or 0))
+    if rm.alert_beep and self.computer and self.computer.beep then
+      self.computer.beep(600, 0.4)
+    end
+  end
+
   local power_ok = not self.cache.power_loss
   if self._prev_power_ok ~= nil and power_ok ~= self._prev_power_ok then
     if power_ok then
@@ -263,7 +323,7 @@ function Kernel:tick()
   -- prevent the safety/control loop from completing the tick. Full re-render
   -- only on state change; otherwise just the tick counter row is refreshed.
   if self.display then
-    local snap = self:_snapshot(result, fault)
+    local snap = self:_snapshot(result, fault, sleep_reason)
     local key = self:_display_key(snap)
     local ok, err
     if key ~= self._prev_display_key then
@@ -285,7 +345,8 @@ end
 -- Build the plain snapshot table the read-only Display consumes. Pulls only
 -- from the already-computed cache + arbitrator result (no hardware access).
 -- fault: active maintenance fault reason (nil when healthy), computed in tick().
-function Kernel:_snapshot(result, fault)
+-- sleep_reason: active Phase 3 soft-sleep reason (nil when inputs healthy).
+function Kernel:_snapshot(result, fault, sleep_reason)
   local c = self.cache
   local pc = nil
   if self.process_control then
@@ -302,16 +363,35 @@ function Kernel:_snapshot(result, fault)
     }
   end
 
+  -- Phase 3 raw-input telemetry: per-input stock / floor / projected TTD.
+  local rm = nil
+  if self.resource_manager then
+    local inputs = {}
+    for i, input in ipairs(self.resource_manager.inputs) do
+      local stock = c.stock and c.stock[input.label] or nil
+      inputs[i] = {
+        label = input.label,
+        stock = stock,
+        min = input.min,
+        ttd = c.ttd and c.ttd[input.label] or nil,
+        low = stock == nil or stock < input.min,
+      }
+    end
+    rm = { inputs = inputs, sleep_reason = sleep_reason }
+  end
+
   return {
     tick = self.tick_count,
     work_allowed = c.work_allowed,
     active = c.active,
     has_work = c.has_work,
     eu_input = c.eu_input,
+    eu_input_sensor = c.eu_input_sensor,
     stored_eu = c.stored_eu,
     power_available = c.power_available,
     power_loss = c.power_loss,
     pc = pc,
+    rm = rm,
     action = result.action,
     committed = result.committed,
     requested_state = result.requested_state,
@@ -332,10 +412,22 @@ function Kernel:_display_key(snap)
       tostring(pc.craftable), tostring(pc.craft and pc.craft.committed),
       tostring(stable_craft_reason(snap.craft_reason)))
   end
-  return string.format("%s|%s|%s|%s|%s|%s|%s",
+  -- Resource rows re-render on stock / low-flag / sleep changes. Raw TTD is
+  -- excluded: it is recomputed every tick and would defeat the redraw guard.
+  local rm_key = ""
+  if snap.rm then
+    local parts = {}
+    for _, input in ipairs(snap.rm.inputs) do
+      parts[#parts + 1] = string.format("%s=%s:%s",
+        tostring(input.label), tostring(input.stock), tostring(input.low))
+    end
+    parts[#parts + 1] = tostring(snap.rm.sleep_reason ~= nil)
+    rm_key = table.concat(parts, "|")
+  end
+  return string.format("%s|%s|%s|%s|%s|%s|%s|%s",
     tostring(snap.work_allowed), tostring(snap.active), tostring(snap.has_work),
     tostring(snap.fault), tostring(snap.power_available), tostring(snap.power_loss),
-    pc_key)
+    pc_key, rm_key)
 end
 
 -- README §5 emulator-style per-tick output.
@@ -346,10 +438,16 @@ function Kernel:log_tick(result, changed)
   end
 
   local c = self.cache
+  -- Prefer the sensor EU/t readout when the component average reads 0 (some
+  -- controllers report 0 from getAverageElectricInput while a recipe runs).
+  local eu_in = c.eu_input
+  if (eu_in == nil or eu_in == 0) and c.eu_input_sensor then
+    eu_in = c.eu_input_sensor
+  end
   print(string.format(
     "[Hardware] work_allowed=%s  active=%s  has_work=%s  eu_in=%s  stored=%s  power=%s",
     tostring(c.work_allowed), tostring(c.active), tostring(c.has_work),
-    c.eu_input ~= nil and tostring(c.eu_input) or "n/a",
+    eu_in ~= nil and tostring(eu_in) or "n/a",
     c.stored_eu ~= nil and tostring(c.stored_eu) or "n/a",
     c.power_loss and "LOSS" or "OK"))
 
@@ -362,6 +460,24 @@ function Kernel:log_tick(result, changed)
       pc.label, stock ~= nil and tostring(stock) or "n/a",
       pc.active and "ACTIVE" or "IDLE", pc.low, pc.high, pc.mode,
       craftable and "yes" or "no"))
+  end
+
+  -- Phase 3 raw-input telemetry: stock vs floor + projected time-to-depletion.
+  if self.resource_manager then
+    for _, input in ipairs(self.resource_manager.inputs) do
+      local stock = c.stock and c.stock[input.label]
+      local ttd = c.ttd and c.ttd[input.label]
+      local ttd_str = "n/a"
+      if ttd == math.huge then
+        ttd_str = "inf"
+      elseif type(ttd) == "number" then
+        ttd_str = string.format("%.0fs", ttd)
+      end
+      print(string.format("[Resource] %s stock=%s min=%d ttd=%s%s",
+        input.label, stock ~= nil and tostring(stock) or "n/a",
+        input.min, ttd_str,
+        (stock == nil or stock < input.min) and "  ** LOW **" or ""))
+    end
   end
 
   local winning = result.intent

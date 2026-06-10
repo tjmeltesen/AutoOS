@@ -9,6 +9,7 @@ These notes are compiled from official OpenComputers documentation, the GTNH wik
 | File | Description |
 |------|-------------|
 | [autoos-api-mapping.md](autoos-api-mapping.md) | Maps each AutoOS phase/module to the APIs it needs |
+| [phase3-implementation.md](phase3-implementation.md) | **Phase 3 build guide** — ring buffers, TTD, soft sleep, tests, constraints |
 | [opencomputers-component-api.md](opencomputers-component-api.md) | Core `component` library: proxies, addresses, primaries |
 | [opencomputers-libraries.md](opencomputers-libraries.md) | `computer`, `event`, `term`, `sides`, signals |
 | [gtnh-opencomputers-overview.md](gtnh-opencomputers-overview.md) | GTNH adapter setup, MFU, discovery patterns |

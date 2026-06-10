@@ -19,6 +19,9 @@
     references/performance-pitfalls.md      (single poll point, table reuse, filters)
 ]]
 
+-- Pure projection math only (ring append / velocity / TTD) — no logic coupling.
+local ResourceMath = require("modules.resource_manager")
+
 local Adapter = {}
 Adapter.__index = Adapter
 
@@ -79,17 +82,57 @@ local function parse_stored_eu_from_sensor(lines)
   return nil
 end
 
+-- Current EU/t usage from sensor text, for DISPLAY only (never power gating).
+-- getAverageElectricInput() reads 0 on some controllers while a recipe runs;
+-- the scanner readout is the reliable source. Same two-line split as stored
+-- energy: a "Currently uses:" header line, value on the same or next line.
+-- "Max Energy Income" is the hatch ceiling, not usage — deliberately ignored.
+local EU_USAGE_HEADERS = {
+  "currently uses",
+  "current energy usage",
+  "probably uses",
+}
+
+local function parse_eu_rate(s)
+  local n = s:match("([%d,]+)%s*EU/t")
+  if not n then return nil end
+  return tonumber((n:gsub(",", "")))
+end
+
+local function parse_eu_usage_from_sensor(lines)
+  if type(lines) ~= "table" then return nil end
+  for i, raw in ipairs(lines) do
+    local clean = strip_format(raw)
+    local lower = clean:lower()
+    for _, header in ipairs(EU_USAGE_HEADERS) do
+      if lower:find(header, 1, true) then
+        local n = parse_eu_rate(clean)
+        if n then return n end
+        local nxt = lines[i + 1]
+        if nxt then
+          n = parse_eu_rate(strip_format(nxt))
+          if n then return n end
+        end
+      end
+    end
+  end
+  return nil
+end
+
 -- machine  : gt_machine proxy (real component or mock)
 -- computer : computer library (real or mock) — used for the tick timestamp
 -- me       : ME network proxy (me_interface / me_controller) — optional
 -- targets  : list of { label, kind = "item"|"fluid" } products to track — optional
-function Adapter.new(machine, computer, me, targets)
+-- history_labels : labels (subset of targets) to keep stock history rings for,
+--                  feeding cache.velocity / cache.ttd (Phase 3) — optional
+function Adapter.new(machine, computer, me, targets, history_labels)
   assert(machine, "Adapter.new: a gt_machine proxy is required")
   local self = setmetatable({}, Adapter)
   self.machine = machine
   self.computer = computer
   self.me = me
   self.targets = targets or {}
+  self.history_labels = history_labels or {}
   return self
 end
 
@@ -193,6 +236,47 @@ function Adapter:poll_craftables(cache)
   end
 end
 
+-- Append the current tick's stock samples to per-label history rings and
+-- derive cache.velocity / cache.ttd (Phase 3 projection inputs). The rings and
+-- the velocity/ttd maps are reused across ticks — no per-tick table churn
+-- beyond the one sample entry (performance-pitfalls.md §Memory).
+function Adapter:append_history(cache)
+  if #self.history_labels == 0 then return end
+
+  local history = cache.history
+  if type(history) ~= "table" then
+    history = {}
+    cache.history = history
+  end
+  local velocity = cache.velocity
+  if type(velocity) ~= "table" then
+    velocity = {}
+    cache.velocity = velocity
+  end
+  local ttd = cache.ttd
+  if type(ttd) ~= "table" then
+    ttd = {}
+    cache.ttd = ttd
+  end
+
+  local t = cache.time
+  for _, label in ipairs(self.history_labels) do
+    local count = cache.stock and cache.stock[label]
+    -- Skip when the reading is missing: a nil sample would poison velocity.
+    if t ~= nil and count ~= nil then
+      local ring = history[label]
+      if type(ring) ~= "table" then
+        ring = {}
+        history[label] = ring
+      end
+      ResourceMath.append_sample(ring, t, count)
+      local v = ResourceMath.compute_velocity(ring)
+      velocity[label] = v
+      ttd[label] = ResourceMath.compute_ttd(count, v)
+    end
+  end
+end
+
 -- Poll all readings into the supplied cache table in one batch.
 -- The same cache table is reused every tick to avoid per-tick allocation
 -- (performance-pitfalls.md §Memory).
@@ -236,9 +320,13 @@ function Adapter:poll(cache)
     cache.power_loss = true
   end
   cache.power_available = not cache.power_loss
+  -- Display-only EU/t usage from sensor text (component eu_input reads 0 on
+  -- some controllers while running). Never feeds power_loss gating.
+  cache.eu_input_sensor = parse_eu_usage_from_sensor(cache.sensor)
   cache.time = self.computer and self.computer.uptime() or nil
 
   self:poll_inventory(cache)
+  self:append_history(cache)
 
   return cache
 end

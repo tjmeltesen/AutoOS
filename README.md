@@ -78,6 +78,8 @@ To ensure project stability, AutoOS must be developed and verified chronological
 
 * **Objective:** Predict bottlenecks before processing blocks stall completely.
 * **Mechanism:** Maintains localized ring-buffers tracking inventory counts over time. Computes moving averages of material consumption velocity and calculates Time-to-Depletion warnings.
+* **Status:** Implemented (`modules/resource_manager.lua`). The adapter keeps per-input stock history rings and derives `cache.velocity` / `cache.ttd`; the module emits a Priority 2 `soft_sleep` intent (machine OFF, no maintenance beep) while any input sits below its `min` floor, and edge-triggers a depletion warning when TTD drops below `warn_ttd`. Includes the sensor-based `eu_in` display fix. Configure via the commented `resource_manager` block in `start.lua`.
+* **Implementation guide:** See [`references/phase3-implementation.md`](references/phase3-implementation.md) for file-by-file steps, intent contracts, tests, and in-game validation (includes deferred `eu_in` display fix).
 
 ### Phase 4: Time-Varying Charts & Display Orchestration (Module 4)
 
@@ -146,11 +148,12 @@ AutoOS/
 ├── modules/
 │   ├── process_control.lua
 │   ├── maintenance.lua
-│   └── resource_manager.lua   # Phase 3 (planned)
+│   └── resource_manager.lua   # Phase 3 soft sleep + TTD projection
 └── tests/
     ├── mock_hardware.lua
     ├── phase1_test.lua
     ├── phase2_test.lua        # hysteresis + ME autocraft
+    ├── phase3_test.lua        # ring buffers, TTD, P2 soft sleep
     └── display_test.lua
 ```
 
@@ -160,6 +163,7 @@ Install a local Lua interpreter (5.2+; project verified on 5.5).
 cd path/to/AutoOS
 lua tests/phase1_test.lua   # maintenance + kernel
 lua tests/phase2_test.lua   # hysteresis + ME craft modes
+lua tests/phase3_test.lua   # resource rings, TTD, P2 soft sleep
 lua tests/display_test.lua  # read-only monitor
 ```
 

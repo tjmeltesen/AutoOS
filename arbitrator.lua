@@ -8,7 +8,7 @@
 
   Priority matrix (README §3):
     1 — Critical Safety   (maintenance / structure)  -> force shutdown
-    2 — Process Integrity (resource soft sleep)       -> Phase 3
+    2 — Process Integrity (resource soft sleep)       -> machine off, no beep
     3 — Standard          (process control)           -> machine on/off, ME craft
 
   All intents at the winning priority level are committed (e.g. both
@@ -263,6 +263,11 @@ function Arbitrator:commit(intents, cache)
   for _, intent in ipairs(intents or {}) do
     if intent.priority == win_priority then
       if intent.action == "force_shutdown" then
+        machine_result = self:_commit_work_allowed(false, intent, cache)
+        if machine_result.committed then any_committed = true end
+      elseif intent.action == "soft_sleep" then
+        -- Priority 2 resource pause: OFF like force_shutdown but silent — the
+        -- beep is reserved for maintenance faults (action name gates it).
         machine_result = self:_commit_work_allowed(false, intent, cache)
         if machine_result.committed then any_committed = true end
       elseif intent.action == "set_work_allowed" then
