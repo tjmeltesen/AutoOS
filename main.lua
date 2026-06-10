@@ -37,6 +37,9 @@ local function stable_craft_reason(reason)
   if reason:match("^cooldown") then
     return "cooldown (awaiting stock update)"
   end
+  if reason:match("^no machine power") then
+    return "no machine power"
+  end
   return reason
 end
 
@@ -130,6 +133,7 @@ function Kernel.new(deps)
   self._prev_craft_reason = nil -- suppress repeated craft-skip log spam
   self._prev_display_key = nil
   self._prev_fault = nil -- last maintenance fault reason, for transition logging
+  self._prev_power_ok = nil -- power-available transition logging
 
   return self
 end
@@ -227,6 +231,16 @@ function Kernel:tick()
   local fault_changed = fault ~= self._prev_fault
   self._prev_fault = fault
 
+  local power_ok = not (self.cache.power_loss or self.cache.power_available == false)
+  if self._prev_power_ok ~= nil and power_ok ~= self._prev_power_ok then
+    if power_ok then
+      print("AutoOS: machine power restored")
+    else
+      print("AutoOS: POWER LOSS - withholding machine ON and ME crafts")
+    end
+  end
+  self._prev_power_ok = power_ok
+
   -- Fault transitions always print (safety-critical), even with a display bound.
   if fault_changed then
     if fault then
@@ -294,6 +308,9 @@ function Kernel:_snapshot(result, fault)
     active = c.active,
     has_work = c.has_work,
     eu_input = c.eu_input,
+    stored_eu = c.stored_eu,
+    power_available = c.power_available,
+    power_loss = c.power_loss,
     pc = pc,
     action = result.action,
     committed = result.committed,
@@ -315,9 +332,10 @@ function Kernel:_display_key(snap)
       tostring(pc.craftable), tostring(pc.craft and pc.craft.committed),
       tostring(stable_craft_reason(snap.craft_reason)))
   end
-  return string.format("%s|%s|%s|%s|%s",
+  return string.format("%s|%s|%s|%s|%s|%s|%s",
     tostring(snap.work_allowed), tostring(snap.active), tostring(snap.has_work),
-    tostring(snap.fault), pc_key)
+    tostring(snap.fault), tostring(snap.power_available), tostring(snap.power_loss),
+    pc_key)
 end
 
 -- README §5 emulator-style per-tick output.
@@ -329,9 +347,11 @@ function Kernel:log_tick(result, changed)
 
   local c = self.cache
   print(string.format(
-    "[Hardware] work_allowed=%s  active=%s  has_work=%s  eu_in=%s",
+    "[Hardware] work_allowed=%s  active=%s  has_work=%s  eu_in=%s  stored=%s  power=%s",
     tostring(c.work_allowed), tostring(c.active), tostring(c.has_work),
-    c.eu_input ~= nil and tostring(c.eu_input) or "n/a"))
+    c.eu_input ~= nil and tostring(c.eu_input) or "n/a",
+    c.stored_eu ~= nil and tostring(c.stored_eu) or "n/a",
+    (c.power_loss or c.power_available == false) and "LOSS" or "OK"))
 
   -- Process-control telemetry: tracked stock + the hysteresis state requested.
   if self.process_control then

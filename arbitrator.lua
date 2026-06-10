@@ -111,6 +111,17 @@ function Arbitrator:_craft_slot_available(label, cache)
 end
 
 function Arbitrator:_commit_work_allowed(target, intent, cache)
+  -- Defense in depth: never re-enable into a power-failed line (GT self-pauses).
+  if target == true and cache and (cache.power_loss or cache.power_available == false) then
+    return {
+      committed = false,
+      requested_state = target,
+      action = intent.action,
+      intent = intent,
+      machine_reason = "no machine power (eu_in=0, stored=0 or power loss)",
+    }
+  end
+
   local current = cache and cache.work_allowed
   if cache ~= nil and current == target then
     return {
@@ -149,6 +160,15 @@ function Arbitrator:_commit_craft(intent, cache)
   local amount = intent.amount or 0
   if amount <= 0 then
     return { committed = false, action = "request_craft", intent = intent }
+  end
+
+  if cache and (cache.power_loss or cache.power_available == false) then
+    return {
+      committed = false,
+      action = "request_craft",
+      intent = intent,
+      craft_reason = "no machine power (eu_in=0, stored=0 or power loss)",
+    }
   end
 
   if not self:_craft_slot_available(label, cache) then

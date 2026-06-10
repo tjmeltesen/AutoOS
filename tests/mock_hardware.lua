@@ -66,6 +66,9 @@ function Mock.new(opts)
     craft_jobs = {},
     last_craft = nil,
     craft_done = opts.craft_done ~= false, -- jobs finish immediately in mock
+    -- Default powered so existing tests don't need per-case setup.
+    eu_input = opts.eu_input ~= nil and opts.eu_input or 128,
+    stored_eu = opts.stored_eu ~= nil and opts.stored_eu or 0,
   }
 
   local machine = {
@@ -92,6 +95,9 @@ function Mock.new(opts)
     end,
     getAverageElectricInput = function()
       return state.eu_input or 0
+    end,
+    getStoredEU = function()
+      return state.stored_eu or 0
     end,
     getWorkProgress = function()
       stats.getWorkProgress = stats.getWorkProgress + 1
@@ -223,6 +229,10 @@ function Mock.new(opts)
 
     -- Test helpers for manual scenario control.
     set_sensor = function(lines) state.sensor = lines end,
+    set_power = function(eu_in, stored_eu)
+      state.eu_input = eu_in or 0
+      state.stored_eu = stored_eu or 0
+    end,
     set_fault = function(msg) state.sensor = { "Running.", msg or fault_message } end,
     set_healthy = function() state.sensor = healthy end,
     set_stock = function(label, n) state.stock[label] = n end,

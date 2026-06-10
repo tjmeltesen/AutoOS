@@ -22,6 +22,33 @@
 local Adapter = {}
 Adapter.__index = Adapter
 
+-- Strip Minecraft § color codes before substring matching sensor text.
+local function strip_format(s)
+  return (s:gsub("\194\167.", ""))
+end
+
+-- GT power-fail messages (distinct from maintenance — machine self-pauses).
+local POWER_LOSS_PATTERNS = {
+  "shut down due to power loss",
+  "shut down due to power",
+  "power loss",
+  "insufficient energy",
+  "not enough energy",
+}
+
+local function detect_power_loss(lines)
+  if type(lines) ~= "table" then return false end
+  for _, raw in ipairs(lines) do
+    local lower = strip_format(raw):lower()
+    for _, pat in ipairs(POWER_LOSS_PATTERNS) do
+      if lower:find(pat, 1, true) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 -- machine  : gt_machine proxy (real component or mock)
 -- computer : computer library (real or mock) — used for the tick timestamp
 -- me       : ME network proxy (me_interface / me_controller) — optional
@@ -154,8 +181,15 @@ function Adapter:poll(cache)
   end
   cache.progress = m.getWorkProgress and m.getWorkProgress() or nil
   cache.max_progress = m.getWorkMaxProgress and m.getWorkMaxProgress() or nil
-  -- EU input average helps spot power loss (informational; not a shutdown trigger).
   cache.eu_input = m.getAverageElectricInput and m.getAverageElectricInput() or nil
+  cache.stored_eu = m.getStoredEU and m.getStoredEU() or nil
+  cache.power_loss = detect_power_loss(cache.sensor)
+  -- True when the machine can draw/run: incoming EU or internal buffer (gt-machine-api).
+  -- Power fail is NOT a maintenance shutdown — AutoOS must not keep calling
+  -- setWorkAllowed(true) into a dead line, but also must not force OFF.
+  local eu_in = cache.eu_input or 0
+  local stored = cache.stored_eu or 0
+  cache.power_available = (eu_in > 0) or (stored > 0)
   cache.time = self.computer and self.computer.uptime() or nil
 
   self:poll_inventory(cache)

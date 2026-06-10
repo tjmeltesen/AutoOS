@@ -129,8 +129,12 @@ function Display:render(s)
     on_off(s.work_allowed), yes_no(s.active), yes_no(s.has_work)),
     s.work_allowed and COLOR.ok or COLOR.idle)
   row = row + 1
-  self:_line(row, string.format("Power      eu_in=%s",
-    s.eu_input ~= nil and tostring(s.eu_input) or "n/a"), COLOR.value)
+  local eu_in = s.eu_input ~= nil and tostring(s.eu_input) or "n/a"
+  local stored = s.stored_eu ~= nil and tostring(s.stored_eu) or "n/a"
+  local no_power = s.power_loss or s.power_available == false
+  self:_line(row, string.format("Power      eu_in=%s  stored=%s  %s",
+    eu_in, stored, no_power and "NO POWER" or "OK"),
+    no_power and COLOR.fault or COLOR.ok)
   row = row + 2
 
   -- Process control (Phase 2) — only when enabled.

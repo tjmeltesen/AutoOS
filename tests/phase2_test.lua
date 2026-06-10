@@ -510,6 +510,65 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- 13. Power gating — withhold ON/craft when machine has no energy
+--------------------------------------------------------------------------------
+
+do
+  local pc = ProcessControl.new(pc_config("item", "craft"))
+  local cache = cache_with_craft(LOW - 1000, true)
+  cache.power_available = false
+  local out = pc.evaluate(cache)
+  check("module skips craft when no power", find_intent(out, "request_craft") == nil)
+  check("module skips machine-on when no power", find_intent(out, "set_work_allowed") == nil)
+end
+
+do
+  local mock = Mock.new({ eu_input = 0, stored_eu = 0 })
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  mock.state.work_allowed = false
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  kernel:tick()
+  check("no power: does not call setWorkAllowed", mock.stats.setWorkAllowed == 0)
+  check("no power: does not request ME craft", mock.stats.craft_request == 0)
+end
+
+do
+  local mock = Mock.new({ eu_input = 0, stored_eu = 8000 })
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  mock.state.work_allowed = false
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  local result = kernel:tick()
+  check("stored EU buffer: machine enabled", mock.state.work_allowed == true)
+  check("stored EU buffer: craft requested",
+    result.craft and result.craft.committed == true)
+end
+
+do
+  local mock = Mock.new({ eu_input = 0, stored_eu = 16896 })
+  mock.set_sensor({ "Running.", "Shut down due to power loss" })
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  mock.state.work_allowed = false
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  kernel:tick()
+  check("sensor power loss: blocks ON despite stored EU",
+    mock.stats.setWorkAllowed == 0)
+  check("sensor power loss: blocks ME craft",
+    mock.stats.craft_request == 0)
+end
+
+--------------------------------------------------------------------------------
 -- Summary
 --------------------------------------------------------------------------------
 

@@ -89,6 +89,14 @@ function ProcessControl:_craftable(cache)
   return cache.craftable[self.label] == true
 end
 
+-- GT power-fail self-pauses the machine. Do not emit ON or ME craft while dead.
+function ProcessControl:_power_ok(cache)
+  if type(cache) ~= "table" then return true end
+  if cache.power_loss then return false end
+  if cache.power_available == false then return false end
+  return true
+end
+
 function ProcessControl:_apply(stock)
   if stock < self.low then
     self.active = true
@@ -140,18 +148,21 @@ function ProcessControl:_evaluate(cache)
       reason = string.format("%s %d >= high %d; stock satisfied",
         self.label, stock, self.high)
     end
-    intents[#intents + 1] = {
-      priority = 3,
-      module = "process_control",
-      action = "set_work_allowed",
-      state = active,
-      stock = stock,
-      reason = reason,
-    }
-  elseif self.mode == "craft" and active then
+    -- Turning OFF when satisfied is always safe. Turning ON requires power.
+    if not active or self:_power_ok(cache) then
+      intents[#intents + 1] = {
+        priority = 3,
+        module = "process_control",
+        action = "set_work_allowed",
+        state = active,
+        stock = stock,
+        reason = reason,
+      }
+    end
+  elseif self.mode == "craft" and active and self:_power_ok(cache) then
     -- Craft mode: the ME pattern runs on the bound machine. Keep it enabled
     -- while refilling or dispatched jobs hang on a switched-off machine.
-    -- ON only — craft mode never turns the machine off.
+    -- ON only — craft mode never turns the machine off. Skip when power is dead.
     intents[#intents + 1] = {
       priority = 3,
       module = "process_control",
@@ -163,7 +174,8 @@ function ProcessControl:_evaluate(cache)
   end
 
   -- ME autocraft: request while ACTIVE and still below the high band.
-  if self:_wants_craft() and active and stock < self.high and self:_craftable(cache) then
+  if self:_wants_craft() and active and stock < self.high and self:_craftable(cache)
+      and self:_power_ok(cache) then
     local amount = self.high - stock
     if self.max_craft then
       amount = math.min(amount, self.max_craft)
