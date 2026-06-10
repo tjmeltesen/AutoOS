@@ -254,3 +254,10 @@ Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process
 - Changed `adapter.lua`: added fallback parser for sensor line `Stored Energy: X EU / Y EU`; if component reading is missing/zero and sensor reports X, cache uses the sensor value.
 - Changed `tests/mock_hardware.lua`: optional `no_getStoredEU` machine mode.
 - Changed `tests/phase2_test.lua`: regression ensures sensor fallback captures `stored_eu=16896` and all power-gating checks still pass.
+
+## 2026-06-09 — Two-line stored EU parse + drained-buffer power-fail detection
+
+- Cause 1 (stored=0 persisted): GT splits the readout across two sensor lines (`[Sensor 4] Stored Energy:` then `[Sensor 5] 16896 EU / 16896 EU` — visible in the first in-game monitor screenshot). Same-line parser missed it and fell back to the lying `getStoredEU()`.
+- Cause 2 (still turned machine on during power fail): the GUI's "Shut down due to power loss" text never appears in `getSensorInformation()` (phase-1 validation tick ~500 showed only `0 EU / 16896 EU`, `0 EU/t`). Text-only detection could never fire.
+- Changed `adapter.lua`: `parse_eu_pair` matches `<stored> EU / <cap> EU` with thousands separators; checks the line after the `Stored Energy:` header; sensor value takes precedence over component (`cache.stored_eu_source`). New drained-buffer rule: sensor-confirmed `stored == 0` AND `eu_in == 0` → `power_loss = true` (GT keeps idle machines' buffers charged, so empty buffer + no input = dead line). Component-sourced 0 is NOT trusted (it lies) — no false NO POWER regression.
+- Changed `tests/phase2_test.lua` (75 checks): two-line parse with `16,896` separators, full-buffer powered-idle crafts proceed, drained-buffer blocks ON + crafts.

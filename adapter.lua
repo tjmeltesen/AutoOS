@@ -49,16 +49,29 @@ local function detect_power_loss(lines)
   return false
 end
 
+-- Match "<stored> EU / <capacity> EU" and return the stored amount.
+-- GT may format numbers with thousands separators ("16,896 EU").
+local function parse_eu_pair(s)
+  local stored = s:match("([%d,]+)%s*EU%s*/%s*[%d,]+%s*EU")
+  if not stored then return nil end
+  return tonumber((stored:gsub(",", "")))
+end
+
+-- GT splits the scanner readout across sensor lines:
+--   [Sensor 4] Stored Energy:
+--   [Sensor 5] 16896 EU / 16896 EU
+-- (validated in-game). Also handles both on one line. Returns nil when the
+-- sensor carries no stored-energy readout at all.
 local function parse_stored_eu_from_sensor(lines)
   if type(lines) ~= "table" then return nil end
-  for _, raw in ipairs(lines) do
+  for i, raw in ipairs(lines) do
     local clean = strip_format(raw)
-    local lower = clean:lower()
-    if lower:find("stored energy", 1, true) then
-      local left = clean:match("[Ss]tored [Ee]nergy:%s*([^/]+)")
-      if left then
-        local digits = left:gsub("[^%d]", "")
-        local n = tonumber(digits)
+    if clean:lower():find("stored energy", 1, true) then
+      local n = parse_eu_pair(clean)
+      if n then return n end
+      local nxt = lines[i + 1]
+      if nxt then
+        n = parse_eu_pair(strip_format(nxt))
         if n then return n end
       end
     end
@@ -199,17 +212,29 @@ function Adapter:poll(cache)
   cache.progress = m.getWorkProgress and m.getWorkProgress() or nil
   cache.max_progress = m.getWorkMaxProgress and m.getWorkMaxProgress() or nil
   cache.eu_input = m.getAverageElectricInput and m.getAverageElectricInput() or nil
-  local reported_stored = m.getStoredEU and m.getStoredEU() or nil
+  -- Sensor text is the source of truth for stored EU: on this controller
+  -- getStoredEU() returns 0 while the scanner shows a full buffer (validated
+  -- in-game). Component value is only a fallback when the sensor has no readout.
   local sensed_stored = parse_stored_eu_from_sensor(cache.sensor)
-  if sensed_stored and ((not reported_stored) or reported_stored <= 0) then
+  if sensed_stored ~= nil then
     cache.stored_eu = sensed_stored
+    cache.stored_eu_source = "sensor"
   else
-    cache.stored_eu = reported_stored
+    cache.stored_eu = m.getStoredEU and m.getStoredEU() or nil
+    cache.stored_eu_source = cache.stored_eu ~= nil and "component" or nil
   end
+
   cache.power_loss = detect_power_loss(cache.sensor)
-  -- eu_in/stored are informational (display, Phase 3 trends). An idle machine
-  -- with power connected often reads eu_in=0 and stored=0 — that is NOT a fault.
-  -- GT power-fail is detected from sensor text ("Shut down due to power loss").
+  -- Drained-buffer power-fail detection: GT machines keep their internal buffer
+  -- charged from the network even while idle/disabled (validated in-game:
+  -- disabled electrolyzer reads 16896/16896 EU). The GUI's "Shut down due to
+  -- power loss" text does NOT appear in getSensorInformation(), so a
+  -- sensor-confirmed empty buffer with zero input is the power-fail signal.
+  -- Only trusted when the value came from sensor text — getStoredEU() lies.
+  if not cache.power_loss and cache.stored_eu_source == "sensor"
+      and (cache.stored_eu or 0) <= 0 and (cache.eu_input or 0) <= 0 then
+    cache.power_loss = true
+  end
   cache.power_available = not cache.power_loss
   cache.time = self.computer and self.computer.uptime() or nil
 

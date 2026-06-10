@@ -554,6 +554,43 @@ do
 end
 
 do
+  -- In-game format: GT splits the readout across two sensor lines and
+  -- getStoredEU() lies (returns 0). Powered idle machine -> crafting proceeds.
+  local mock = Mock.new({ eu_input = 0, stored_eu = 0 })
+  mock.set_sensor({ "Running.", "Stored Energy:", "16,896 EU / 16,896 EU" })
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  mock.state.work_allowed = false
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  local result = kernel:tick()
+  check("two-line sensor stored EU parsed", kernel.cache.stored_eu == 16896)
+  check("full buffer: power reads OK", kernel.cache.power_loss == false)
+  check("full buffer: craft proceeds", result.craft and result.craft.committed == true)
+end
+
+do
+  -- Power fail: buffer drained to 0 with no input (sensor-confirmed). The GUI's
+  -- "Shut down due to power loss" text never reaches getSensorInformation(),
+  -- so the drained buffer IS the power-fail signal. Withhold ON + crafts.
+  local mock = Mock.new({ eu_input = 0, stored_eu = 0 })
+  mock.set_sensor({ "Running.", "Stored Energy:", "0 EU / 16896 EU" })
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  mock.state.work_allowed = false
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  kernel:tick()
+  check("drained buffer: power loss detected", kernel.cache.power_loss == true)
+  check("drained buffer: blocks machine ON", mock.stats.setWorkAllowed == 0)
+  check("drained buffer: blocks ME craft", mock.stats.craft_request == 0)
+end
+
+do
   local mock = Mock.new({ eu_input = 0, stored_eu = 16896 })
   mock.set_sensor({ "Running.", "Shut down due to power loss" })
   mock.set_stock(LABEL, LOW - 1000)
