@@ -28,6 +28,18 @@ local TICK_INTERVAL = 0.5 -- seconds; target overhead <= 500ms
 local Kernel = {}
 Kernel.__index = Kernel
 
+-- Collapse time-varying craft skip messages so logs/display keys do not fire every tick.
+local function stable_craft_reason(reason)
+  if not reason then return nil end
+  if reason:match("^craft job still active") then
+    return "craft job still active"
+  end
+  if reason:match("^cooldown") then
+    return "cooldown (awaiting stock update)"
+  end
+  return reason
+end
+
 -- GT appends uptime / tick counters that change every tick and would spam logs.
 local NOISY_SENSOR_PATTERNS = {
   "total time",
@@ -80,7 +92,12 @@ function Kernel.new(deps)
   self.arbitrator = Arbitrator.new(self.machine, self.computer, self.me)
 
   -- Logic modules. Order does not matter; the arbitrator resolves priority.
-  self.modules = { Maintenance }
+  -- maintenance=false skips gt_machine fault shutdown (use for ME-only craft when
+  -- a connected multiblock has unrelated maintenance issues).
+  self.modules = {}
+  if deps.maintenance ~= false then
+    self.modules[#self.modules + 1] = Maintenance
+  end
 
   -- Phase 2: enable the hysteresis leveling engine only when an ME proxy and a
   -- product config are wired in. Without them, the kernel runs Phase 1 only.
@@ -110,6 +127,9 @@ function Kernel.new(deps)
   self.verbose = deps.verbose == true
   self.monitor = deps.monitor == true
   self._prev = {} -- last-tick snapshot for change detection in logs
+  self._prev_craft_reason = nil -- suppress repeated craft-skip log spam
+  self._prev_display_key = nil
+  self._prev_fault = nil -- last maintenance fault reason, for transition logging
 
   return self
 end
@@ -190,22 +210,57 @@ function Kernel:tick()
 
   local changed = self:state_changed(self.cache)
 
-  -- Log when a craft was skipped (label/craftable mismatch) even if verbose=false.
-  local craft_skip = result.craft and not result.craft.committed and result.craft.craft_reason
+  -- Log craft skips only when the stable reason changes (avoids terminal spam).
+  local craft_reason = result.craft and result.craft.craft_reason
+  local stable_reason = stable_craft_reason(craft_reason)
+  local craft_reason_changed = stable_reason ~= self._prev_craft_reason
+  if craft_reason_changed then
+    self._prev_craft_reason = stable_reason
+  end
 
-  if self.verbose or result.committed or craft_skip or (self.monitor and changed) then
+  -- Maintenance fault is active whenever its intent wins — not just on the tick
+  -- the shutdown commits (change-only writes make later ticks commit nothing).
+  local fault = nil
+  if result.intent and result.intent.module == "maintenance" then
+    fault = result.intent.reason
+  end
+  local fault_changed = fault ~= self._prev_fault
+  self._prev_fault = fault
+
+  -- Fault transitions always print (safety-critical), even with a display bound.
+  if fault_changed then
+    if fault then
+      print(string.format("AutoOS: MAINTENANCE FAULT - %s (crafting suppressed)",
+        tostring(fault)))
+    else
+      print("AutoOS: maintenance fault cleared")
+    end
+  end
+
+  -- Console logs scroll the shared screen and fight the status panel, so they
+  -- stay quiet while a display is bound (verbose=true overrides for debugging).
+  local logging = self.verbose or not self.display
+  if logging and (self.verbose or result.committed or craft_reason_changed
+      or (self.monitor and changed)) then
     self:log_tick(result, changed)
   end
 
   -- Read-only status panel. Isolated in a pcall: a display error must never
-  -- prevent the safety/control loop from completing the tick.
+  -- prevent the safety/control loop from completing the tick. Full re-render
+  -- only on state change; otherwise just the tick counter row is refreshed.
   if self.display then
-    local ok, err = pcall(function()
-      self.display:render(self:_snapshot(result))
-    end)
+    local snap = self:_snapshot(result, fault)
+    local key = self:_display_key(snap)
+    local ok, err
+    if key ~= self._prev_display_key then
+      self._prev_display_key = key
+      ok, err = pcall(function() self.display:render(snap) end)
+    else
+      ok, err = pcall(function() self.display:update_tick(snap.tick) end)
+    end
     if not ok then
       io.stderr:write("AutoOS: display render error: " .. tostring(err) .. "\n")
-      self.display = nil -- stop trying after a failure
+      self.display = nil
     end
   end
 
@@ -215,7 +270,8 @@ end
 
 -- Build the plain snapshot table the read-only Display consumes. Pulls only
 -- from the already-computed cache + arbitrator result (no hardware access).
-function Kernel:_snapshot(result)
+-- fault: active maintenance fault reason (nil when healthy), computed in tick().
+function Kernel:_snapshot(result, fault)
   local c = self.cache
   local pc = nil
   if self.process_control then
@@ -232,11 +288,6 @@ function Kernel:_snapshot(result)
     }
   end
 
-  local fault = nil
-  if result.intent and result.intent.module == "maintenance" and result.committed then
-    fault = result.intent.reason
-  end
-
   return {
     tick = self.tick_count,
     work_allowed = c.work_allowed,
@@ -248,7 +299,25 @@ function Kernel:_snapshot(result)
     committed = result.committed,
     requested_state = result.requested_state,
     fault = fault,
+    craft_reason = result.craft and result.craft.craft_reason or nil,
   }
+end
+
+-- Stable key for display refresh. Excludes the tick counter and eu_input: GT's
+-- rolling EU average jitters every tick and would force a full redraw each cycle.
+function Kernel:_display_key(snap)
+  if not snap then return "" end
+  local pc = snap.pc
+  local pc_key = ""
+  if pc then
+    pc_key = string.format("%s|%s|%s|%s|%s|%s",
+      tostring(pc.stock), tostring(pc.active), tostring(pc.mode),
+      tostring(pc.craftable), tostring(pc.craft and pc.craft.committed),
+      tostring(stable_craft_reason(snap.craft_reason)))
+  end
+  return string.format("%s|%s|%s|%s|%s",
+    tostring(snap.work_allowed), tostring(snap.active), tostring(snap.has_work),
+    tostring(snap.fault), pc_key)
 end
 
 -- README §5 emulator-style per-tick output.
@@ -362,18 +431,13 @@ local function build_oc_deps()
     screen = component.screen.address
   end
 
+  -- No process_control config here: product/band setup lives in start.lua,
+  -- the real in-game entry point. Running main.lua directly gives Phase 1 only.
   return {
     machine = component.gt_machine,
     computer = computer,
     event = event,
     me = me,
-    process_control = me and {
-      label = "Soldering Alloy",
-      low = 64000,
-      high = 142800,
-      kind = "item",
-      mode = "craft",
-    } or nil,
     gpu = gpu,
     screen = screen,
   }

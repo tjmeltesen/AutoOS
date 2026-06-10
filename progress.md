@@ -207,3 +207,29 @@ Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process
 - Changed `arbitrator.lua`: 10s cooldown per craft label unless polled stock rose since last request; tracks `craft_state` with stock snapshot at commit.
 - Changed `start.lua`: Oxygen fluid example with realistic mB bands (`low=8000`, `high=32000`, `max_craft=16000`).
 - Changed `tests/phase2_test.lua`: `max_craft` cap check.
+
+## 2026-06-09 — Fix hysteresis stuck ACTIVE at stock == high
+
+- Changed `modules/process_control.lua`: exit ACTIVE when `stock >= high` (was `>` only). At exactly the upper band (e.g. Oxygen 128000 mB with high=128000) the state stayed ACTIVE forever and the display showed "refilling" + craft cooldown with no crafts issued.
+- Changed `tests/phase2_test.lua`: regression check that stock equal to `high` turns IDLE.
+
+## 2026-06-09 — Stuck ME craft, display pulse, optional maintenance skip
+
+- Changed `arbitrator.lua`: stale craft jobs cleared after 120s timeout (ME stuck after power loss / manual machine off); craft skip message shows elapsed vs timeout.
+- Changed `main.lua`: log craft skips only when stable reason changes (stops `[Arbitrator] craft skipped` every tick); display re-renders only when state changes (stops monitor pulsing); `maintenance=false` skips gt_machine fault shutdown for ME-only setups.
+- Changed `start.lua`: commented `maintenance = false` option for oxygen autocraft when the connected electrolyzer has unrelated Problems.
+- Changed `tests/mock_hardware.lua`: `advance_clock()` helper; `tests/phase2_test.lua`: stale job timeout regression.
+
+## 2026-06-09 — Craft next batch when machine idle (has_work=NO)
+
+- Changed `arbitrator.lua`: when gt_machine reports idle (`active=false`, `has_work=false`), clear phantom ME craft jobs and skip cooldown so the next `max_craft` batch (e.g. 16000 mB Oxygen) fires immediately; still throttle while the machine is actually busy.
+- Changed `tests/phase2_test.lua`: idle-machine second-batch regression; busy-machine throttle test sets `active=true`.
+
+## 2026-06-09 — Flow review fixes: dispatch grace, fault visibility, craft-mode machine ON, quiet logs
+
+- Changed `arbitrator.lua`: idle-clear now requires a 15s dispatch grace after each request (ME needs time to compute + push ingredients; immediate idle-clear fired duplicate 16000 batches every tick). Cooldown applies unconditionally again.
+- Changed `modules/process_control.lua`: craft mode ensures `work_allowed=true` while refilling — the ME pattern executes on the bound machine, so a switched-off machine hung every dispatched job. Craft mode never turns the machine off.
+- Changed `main.lua`: maintenance fault now reported every tick it stands (was only the commit tick — panel showed "Maintenance OK" while a standing fault silently suppressed all crafting); fault transitions always print; console logs silenced while a display is bound (they scrolled the shared screen and fought the panel — the pulsing/`ired)` artifacts); cooldown countdown collapsed in log/display change detection; `eu_input` dropped from the display key (jitters every tick); per-tick title-row refresh via `Display:update_tick`; removed stale Soldering Alloy config from `build_oc_deps`.
+- Changed `adapter.lua`: `hasWork()` false no longer collapses to nil (Lua and/or trap).
+- Changed `display.lua`: added `update_tick()` cheap title-row refresh.
+- Changed `tests/phase2_test.lua` (62 checks), `tests/display_test.lua` (22): dispatch-grace regression, craft-mode machine-ON tests, steady-state fault banner regression, `find_intent` helper.

@@ -11,7 +11,10 @@
   When ACTIVE, replenishment can use one or both paths (config.mode):
 
     * "machine" — drive gt_machine via set_work_allowed (physical processing)
-    * "craft"   — request ME autocraft via request_craft (getCraftables recipes)
+    * "craft"   — request ME autocraft via request_craft (getCraftables recipes).
+                  While refilling, also ensures work_allowed=true: the ME pattern
+                  executes ON the bound machine, so a switched-off machine would
+                  hang every dispatched job forever. Never turns the machine off.
     * "both"    — machine on + ME craft request each tick while refilling
 
   ME craft intents carry amount = high - stock (deficit to the upper band).
@@ -89,7 +92,9 @@ end
 function ProcessControl:_apply(stock)
   if stock < self.low then
     self.active = true
-  elseif stock > self.high then
+  elseif stock >= self.high then
+    -- >= (not >): hitting high exactly means the band is satisfied; > alone
+    -- left the state stuck ACTIVE at stock == high (refilling forever).
     self.active = false
   end
   return self.active
@@ -142,6 +147,18 @@ function ProcessControl:_evaluate(cache)
       state = active,
       stock = stock,
       reason = reason,
+    }
+  elseif self.mode == "craft" and active then
+    -- Craft mode: the ME pattern runs on the bound machine. Keep it enabled
+    -- while refilling or dispatched jobs hang on a switched-off machine.
+    -- ON only — craft mode never turns the machine off.
+    intents[#intents + 1] = {
+      priority = 3,
+      module = "process_control",
+      action = "set_work_allowed",
+      state = true,
+      stock = stock,
+      reason = string.format("%s refilling; machine enabled for ME craft", self.label),
     }
   end
 

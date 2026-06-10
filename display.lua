@@ -99,6 +99,13 @@ end
 local function on_off(b) return b and "ON" or "OFF" end
 local function yes_no(b) return b and "YES" or "NO" end
 
+-- Cheap per-tick refresh of the title row only (no scroll, no full redraw).
+-- The kernel calls this when nothing else on the panel changed.
+function Display:update_tick(tick)
+  self:_line(1, string.format("AutoOS Monitor            tick %s",
+    tostring(tick or "?")), COLOR.title)
+end
+
 -- Render a snapshot table built by the kernel:
 --   {
 --     tick, work_allowed, active, has_work, eu_input,

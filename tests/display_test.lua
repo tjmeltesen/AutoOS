@@ -173,6 +173,28 @@ do
 end
 
 --------------------------------------------------------------------------------
+-- 6b. Steady-state maintenance fault stays visible on the panel.
+-- Change-only writes mean ticks after the shutdown commit nothing; the fault
+-- banner must still show (regression: panel said "Maintenance OK" while a
+-- standing fault silently suppressed all crafting).
+--------------------------------------------------------------------------------
+
+do
+  local mock = Mock.new()
+  mock.set_stock(LABEL, LOW - 1000)
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config(),
+    gpu = mock.gpu, screen = "screen-addr-3", verbose = false,
+  })
+  mock.set_fault("Machine needs a wrench!")
+  kernel:tick() -- commits the shutdown, renders fault banner
+  kernel:tick() -- nothing commits, but the fault is still standing
+  check("fault banner persists after the shutdown tick",
+    rows_contain(mock, "MAINTENANCE FAULT"))
+end
+
+--------------------------------------------------------------------------------
 -- 7. No gpu => no display, fully headless (Phase 1/2 behavior unchanged).
 --------------------------------------------------------------------------------
 

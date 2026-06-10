@@ -145,7 +145,13 @@ function Adapter:poll(cache)
   cache.sensor = m.getSensorInformation()
   cache.work_allowed = m.isWorkAllowed()
   cache.active = m.isMachineActive()
-  cache.has_work = m.hasWork and m.hasWork() or nil
+  -- Explicit if/else: `m.hasWork and m.hasWork() or nil` would collapse a real
+  -- false reading into nil (Lua and/or trap), hiding "machine has no work".
+  if m.hasWork then
+    cache.has_work = m.hasWork()
+  else
+    cache.has_work = nil
+  end
   cache.progress = m.getWorkProgress and m.getWorkProgress() or nil
   cache.max_progress = m.getWorkMaxProgress and m.getWorkMaxProgress() or nil
   -- EU input average helps spot power loss (informational; not a shutdown trigger).

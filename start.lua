@@ -43,6 +43,7 @@ Kernel.new({
   event = event,
   verbose = false, -- silent unless fault shutdown (recommended in-game)
   -- monitor = true,  -- uncomment to also log when work_allowed/active/sensors change
+  -- maintenance = false,  -- ME-only oxygen: ignore electrolyzer Problems (no beep/shutdown)
 
   -- Phase 2 hysteresis leveling. Enabled only when `me` is non-nil. Edit the
   -- label/thresholds to match the product this machine refills:

@@ -74,6 +74,16 @@ local function cache_with_craft(stock, craftable)
   }
 end
 
+-- Modules return nil, one intent, or an array. Find the intent with `action`.
+local function find_intent(out, action)
+  if type(out) ~= "table" then return nil end
+  if out.action == action then return out end
+  for _, intent in ipairs(out) do
+    if intent.action == action then return intent end
+  end
+  return nil
+end
+
 --------------------------------------------------------------------------------
 -- 1. ProcessControl construction guards
 --------------------------------------------------------------------------------
@@ -111,6 +121,10 @@ do
   -- Above high -> IDLE.
   local i3 = pc.evaluate(cache_with(HIGH + 1))
   check("above high turns IDLE", i3.state == false and pc.active == false)
+
+  -- At high exactly -> IDLE (boundary must not stay ACTIVE).
+  local i3b = pc.evaluate(cache_with(HIGH))
+  check("at high turns IDLE", i3b.state == false and pc.active == false)
 
   -- Inside deadband while IDLE -> hold IDLE (no premature restart = no flapping).
   local i4 = pc.evaluate(cache_with((LOW + HIGH) // 2))
@@ -316,7 +330,7 @@ do
   local pc = ProcessControl.new(pc_config("fluid", "craft"))
   local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
   check("fluid craft mode emits request_craft",
-    out and out.action == "request_craft")
+    find_intent(out, "request_craft") ~= nil)
 end
 
 do
@@ -325,17 +339,20 @@ do
     max_craft = 10000,
   })
   local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
-  check("max_craft caps request amount", out and out.amount == 10000)
+  local craft_intent = find_intent(out, "request_craft")
+  check("max_craft caps request amount", craft_intent and craft_intent.amount == 10000)
 end
 
 do
   local pc = ProcessControl.new(pc_config("item", "craft"))
   local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
-  local craft_intent = out and out.action == "request_craft" and out or out and out[1]
+  local craft_intent = find_intent(out, "request_craft")
   check("craft mode emits request_craft intent", craft_intent ~= nil)
   check("craft amount is deficit to high band",
     craft_intent and craft_intent.amount == HIGH - (LOW - 1000))
   check("craft intent is priority 3", craft_intent and craft_intent.priority == 3)
+  check("craft mode also emits machine-on while refilling",
+    find_intent(out, "set_work_allowed") ~= nil)
 end
 
 do
@@ -362,14 +379,41 @@ do
   check("craft mode commits ME request", result.craft and result.craft.committed == true)
   check("craft request amount matches deficit",
     mock.state.last_craft and mock.state.last_craft.amount == HIGH - (LOW - 1000))
-  check("craft mode does not drive gt_machine",
+  check("craft mode: no redundant write when machine already ON",
     mock.stats.setWorkAllowed == 0)
+end
+
+do
+  -- Craft mode must enable a switched-off machine while refilling: the ME
+  -- pattern executes on it, so dispatched jobs hang if it stays off.
+  local mock = Mock.new()
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  mock.state.work_allowed = false
+  mock.state.active = false
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  local result = kernel:tick()
+  check("craft mode turns machine ON while refilling",
+    mock.state.work_allowed == true)
+  check("craft mode still requests the craft",
+    result.craft and result.craft.committed == true)
+
+  -- Once satisfied, craft mode emits no machine intent (never turns it off).
+  mock.set_stock(LABEL, HIGH + 1000)
+  local writes = mock.stats.setWorkAllowed
+  kernel:tick()
+  check("craft mode never turns the machine OFF when satisfied",
+    mock.state.work_allowed == true and mock.stats.setWorkAllowed == writes)
 end
 
 do
   local mock = Mock.new({ craft_done = false }) -- jobs stay active until finished
   mock.set_stock(LABEL, LOW - 1000)
   mock.set_craftable(LABEL, true)
+  mock.state.active = true -- machine busy: phantom ME job should block retry
   local kernel = Kernel.new({
     machine = mock.machine, computer = mock.computer, event = mock.event,
     me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
@@ -379,6 +423,50 @@ do
   local before = mock.stats.craft_request
   kernel:tick()
   check("craft throttled while job active", mock.stats.craft_request == before)
+end
+
+do
+  local mock = Mock.new({ craft_done = false })
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  mock.state.active = false -- idle machine (no work)
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me,
+    process_control = {
+      label = LABEL, low = LOW, high = HIGH, kind = "item", mode = "craft",
+      max_craft = 16000,
+    },
+    verbose = false,
+  })
+  kernel:tick()
+  check("idle machine: first batch issued", mock.stats.craft_request == 1)
+  mock.state.active = false -- process_control turned work on; keep machine idle
+  kernel:tick()
+  check("idle machine: no duplicate batch during dispatch grace",
+    mock.stats.craft_request == 1)
+  mock.advance_clock(16) -- past craft_dispatch_grace (15s)
+  kernel:tick()
+  check("idle machine: next batch after dispatch grace",
+    mock.stats.craft_request == 2)
+  check("idle machine: batch size capped",
+    mock.state.last_craft and mock.state.last_craft.amount == 16000)
+end
+
+do
+  local mock = Mock.new({ craft_done = false })
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  kernel.arbitrator.craft_job_timeout = 30
+  kernel:tick()
+  check("stale job blocks first retry", mock.stats.craft_request == 1)
+  mock.advance_clock(31)
+  kernel:tick()
+  check("stale craft job cleared after timeout", mock.stats.craft_request == 2)
 end
 
 do

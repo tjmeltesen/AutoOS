@@ -16,11 +16,13 @@
   intents are suppressed when a higher priority wins.
 
   Change-only writes: setWorkAllowed() is called only when the requested state
-  differs from cache.work_allowed. ME crafts are throttled three ways:
-    1) while AECraftingJob reports not done;
+  differs from cache.work_allowed.   ME crafts are throttled three ways:
+    1) while AECraftingJob reports not done — but an idle gt_machine clears the
+       job once the dispatch grace period has passed (phantom-job recovery);
     2) cooldown after a committed request (stock may lag in getFluidsInNetwork);
     3) until polled stock rises above the level seen at the last request.
-  This prevents back-to-back duplicate orders (e.g. 200k + 200k = 400k).
+  This prevents back-to-back duplicate orders (e.g. 200k + 200k = 400k) while
+  still pipelining the next max_craft batch when the machine is free.
 
   References:
     references/autoos-api-mapping.md         (arbitrator commits crafts + machine)
@@ -43,7 +45,22 @@ function Arbitrator.new(machine, computer, me)
   self.craft_jobs = {} -- craft label -> AECraftingJob (or mock)
   self.craft_state = {} -- craft label -> { time, stock_at_request, amount }
   self.craft_cooldown = 10 -- seconds between requests unless stock increased
+  self.craft_job_timeout = 120 -- seconds; stale ME jobs are cleared (power loss / stuck craft)
+  -- ME needs time to compute the job and push ingredients into the machine.
+  -- An idle machine only proves the job is finished/dead after this grace, or
+  -- duplicate batches fire every tick during dispatch (overcraft).
+  self.craft_dispatch_grace = 15 -- seconds
   return self
+end
+
+-- Machine is idle: not running and no recipe/work in progress. After the
+-- dispatch grace, an idle machine means the tracked ME job is finished or dead
+-- (e.g. isDone never fires after power loss) and must not block the next batch.
+local function machine_idle(cache)
+  if not cache then return false end
+  if cache.active == true then return false end
+  if cache.has_work == true then return false end
+  return true
 end
 
 local function select_intent(intents)
@@ -59,12 +76,37 @@ local function select_intent(intents)
 end
 
 -- True when no active craft job blocks a new request for this label.
-function Arbitrator:_craft_slot_available(label)
+-- Stale jobs (ME stuck after power loss, long isComputing) are cleared after the
+-- hard timeout, or earlier when the gt_machine sits idle past the dispatch grace.
+function Arbitrator:_craft_slot_available(label, cache)
   local job = self.craft_jobs[label]
   if not job then return true end
-  if job.isDone and job.isDone() then return true end
-  if job.hasFailed and job.hasFailed() then return true end
-  if job.isCanceled and job.isCanceled() then return true end
+
+  local state = self.craft_state[label]
+  if state and self.computer and self.computer.uptime then
+    local age = self.computer.uptime() - (state.time or 0)
+    if age >= self.craft_job_timeout then
+      self.craft_jobs[label] = nil
+      return true
+    end
+    if age >= self.craft_dispatch_grace and machine_idle(cache) then
+      self.craft_jobs[label] = nil
+      return true
+    end
+  end
+
+  if job.isDone and job.isDone() then
+    self.craft_jobs[label] = nil
+    return true
+  end
+  if job.hasFailed and job.hasFailed() then
+    self.craft_jobs[label] = nil
+    return true
+  end
+  if job.isCanceled and job.isCanceled() then
+    self.craft_jobs[label] = nil
+    return true
+  end
   return false
 end
 
@@ -109,12 +151,17 @@ function Arbitrator:_commit_craft(intent, cache)
     return { committed = false, action = "request_craft", intent = intent }
   end
 
-  if not self:_craft_slot_available(label) then
+  if not self:_craft_slot_available(label, cache) then
+    local state = self.craft_state[label]
+    local waiting = state and self.computer and self.computer.uptime
+      and (self.computer.uptime() - (state.time or 0)) or 0
     return {
       committed = false,
       action = "request_craft",
       intent = intent,
-      craft_reason = "craft job still active",
+      craft_reason = string.format(
+        "craft job still active (%.0fs / %ds timeout)",
+        waiting, self.craft_job_timeout),
     }
   end
 

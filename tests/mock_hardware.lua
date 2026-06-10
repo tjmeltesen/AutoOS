@@ -239,6 +239,9 @@ function Mock.new(opts)
         isComputing = function() return true end,
       }
     end,
+    advance_clock = function(seconds)
+      state.clock = state.clock + (seconds or 0)
+    end,
     deps = function()
       return { machine = machine, computer = computer, event = event, me = me }
     end,
