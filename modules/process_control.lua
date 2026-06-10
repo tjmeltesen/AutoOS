@@ -35,6 +35,7 @@ local VALID_MODES = { machine = true, craft = true, both = true }
 --   kind = "item"|"fluid",
 --   mode = "machine"|"craft"|"both",   -- default "machine" (desktop tests)
 --   prioritize_power = true,           -- passed to craftables[1].request()
+--   max_craft = <number>,              -- optional cap per request (mB/items)
 -- }
 function ProcessControl.new(config)
   config = config or {}
@@ -58,6 +59,7 @@ function ProcessControl.new(config)
   self.kind = config.kind or "item"
   self.mode = mode
   self.prioritize_power = config.prioritize_power ~= false
+  self.max_craft = config.max_craft -- nil = no cap (full deficit to high)
 
   -- Hysteresis state. Start inactive; the first sub-low reading turns it on.
   self.active = false
@@ -146,12 +148,16 @@ function ProcessControl:_evaluate(cache)
   -- ME autocraft: request while ACTIVE and still below the high band.
   if self:_wants_craft() and active and stock < self.high and self:_craftable(cache) then
     local amount = self.high - stock
+    if self.max_craft then
+      amount = math.min(amount, self.max_craft)
+    end
     if amount > 0 then
       intents[#intents + 1] = {
         priority = 3,
         module = "process_control",
         action = "request_craft",
         label = (cache.craft_labels and cache.craft_labels[self.label]) or self.craft_label,
+        stock_label = self.label,
         amount = amount,
         stock = stock,
         prioritize_power = self.prioritize_power,

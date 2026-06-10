@@ -54,11 +54,12 @@ Kernel.new({
   --          "both" = machine on + ME craft request while refilling
   me = me,
   process_control = me and {
-    label = "Soldering Alloy",
-    low = 64000,
-    high = 142800,
-    kind = "item",
+    label = "Oxygen",
+    low = 8000,              -- mB: enter ACTIVE below this (~8 buckets)
+    high = 32000,            -- mB: leave ACTIVE above this (~32 buckets)
+    kind = "fluid",
     mode = "craft",
+    max_craft = 16000,       -- mB: cap each single ME request (~16 buckets)
   } or nil,
 
   -- Read-only status panel (no control). Omit gpu/screen to run headless.

@@ -320,6 +320,15 @@ do
 end
 
 do
+  local pc = ProcessControl.new({
+    label = LABEL, low = LOW, high = HIGH, kind = "item", mode = "craft",
+    max_craft = 10000,
+  })
+  local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
+  check("max_craft caps request amount", out and out.amount == 10000)
+end
+
+do
   local pc = ProcessControl.new(pc_config("item", "craft"))
   local out = pc.evaluate(cache_with_craft(LOW - 1000, true))
   local craft_intent = out and out.action == "request_craft" and out or out and out[1]

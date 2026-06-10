@@ -16,8 +16,11 @@
   intents are suppressed when a higher priority wins.
 
   Change-only writes: setWorkAllowed() is called only when the requested state
-  differs from cache.work_allowed. ME crafts are throttled: a new request is
-  not issued while the previous AECraftingJob for that label is still active.
+  differs from cache.work_allowed. ME crafts are throttled three ways:
+    1) while AECraftingJob reports not done;
+    2) cooldown after a committed request (stock may lag in getFluidsInNetwork);
+    3) until polled stock rises above the level seen at the last request.
+  This prevents back-to-back duplicate orders (e.g. 200k + 200k = 400k).
 
   References:
     references/autoos-api-mapping.md         (arbitrator commits crafts + machine)
@@ -37,7 +40,9 @@ function Arbitrator.new(machine, computer, me)
   self.machine = machine
   self.computer = computer
   self.me = me
-  self.craft_jobs = {} -- label -> AECraftingJob (or mock) for throttle
+  self.craft_jobs = {} -- craft label -> AECraftingJob (or mock)
+  self.craft_state = {} -- craft label -> { time, stock_at_request, amount }
+  self.craft_cooldown = 10 -- seconds between requests unless stock increased
   return self
 end
 
@@ -88,7 +93,7 @@ function Arbitrator:_commit_work_allowed(target, intent, cache)
   }
 end
 
-function Arbitrator:_commit_craft(intent)
+function Arbitrator:_commit_craft(intent, cache)
   if not self.me or not self.me.getCraftables then
     return {
       committed = false,
@@ -113,6 +118,25 @@ function Arbitrator:_commit_craft(intent)
     }
   end
 
+  -- Cooldown: ME stock polling can lag behind a finished job, causing a second
+  -- full-deficit request before fluid counts update (200k + 200k = 400k).
+  local stock_key = intent.stock_label or label
+  local stock_now = cache and cache.stock and cache.stock[stock_key]
+  local prev = self.craft_state[label]
+  if prev and self.computer and self.computer.uptime then
+    local elapsed = self.computer.uptime() - prev.time
+    local stock_stale = stock_now == nil or stock_now <= prev.stock_at_request
+    if elapsed < self.craft_cooldown and stock_stale then
+      return {
+        committed = false,
+        action = "request_craft",
+        intent = intent,
+        craft_reason = string.format(
+          "cooldown %.0fs (awaiting stock update)", self.craft_cooldown - elapsed),
+      }
+    end
+  end
+
   local crafts = self.me.getCraftables({ label = label })
   if type(crafts) ~= "table" or #crafts == 0 then
     return {
@@ -135,6 +159,11 @@ function Arbitrator:_commit_craft(intent)
 
   local job = craftable.request(amount, intent.prioritize_power ~= false)
   self.craft_jobs[label] = job
+  self.craft_state[label] = {
+    time = self.computer and self.computer.uptime and self.computer.uptime() or 0,
+    stock_at_request = stock_now or intent.stock or 0,
+    amount = amount,
+  }
 
   return {
     committed = true,
@@ -173,7 +202,7 @@ function Arbitrator:commit(intents, cache)
         machine_result = self:_commit_work_allowed(intent.state, intent, cache)
         if machine_result.committed then any_committed = true end
       elseif intent.action == "request_craft" then
-        craft_result = self:_commit_craft(intent)
+        craft_result = self:_commit_craft(intent, cache)
         if craft_result.committed then any_committed = true end
       end
     end

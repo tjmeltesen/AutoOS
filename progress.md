@@ -199,3 +199,11 @@ Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process
 - Changed `main.lua`: passes `craft_label` in targets; logs ticks when craft is skipped (`craft_reason`) even with `verbose=false`.
 - Added `me_dump.lua`: in-game ME diagnostic — lists matching fluids/items/craftables and suggests `start.lua` fields.
 - Changed `tests/phase2_test.lua`: fluid craft intent check.
+
+## 2026-06-08 — Fix duplicate ME craft orders (200k + 200k = 400k)
+
+- Cause: each request used `amount = high - stock`; ME fluid stock often lags in `getFluidsInNetwork`, so a second full-deficit craft fired before counts updated (job `isDone()` can return true while stock still reads low).
+- Changed `modules/process_control.lua`: optional `max_craft` caps each single `request()` amount.
+- Changed `arbitrator.lua`: 10s cooldown per craft label unless polled stock rose since last request; tracks `craft_state` with stock snapshot at commit.
+- Changed `start.lua`: Oxygen fluid example with realistic mB bands (`low=8000`, `high=32000`, `max_craft=16000`).
+- Changed `tests/phase2_test.lua`: `max_craft` cap check.
