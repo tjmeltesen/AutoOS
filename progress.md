@@ -247,3 +247,10 @@ Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process
 - Cause: gating used `eu_in > 0 or stored > 0`; idle electrolyzer with power connected reads `eu_in=0` and `stored=0` (validated in-game tick ~164). Panel falsely showed NO POWER and blocked all crafting.
 - Fix: gate only on GT sensor power-loss text (`Shut down due to power loss`, etc.). `eu_in`/`stored` remain informational for display and Phase 3.
 - Changed `adapter.lua`, `process_control.lua`, `arbitrator.lua`, `display.lua`, `main.lua`, `tests/phase2_test.lua`.
+
+## 2026-06-09 — Stored EU fallback from sensor text
+
+- Cause: on some GT controllers, scanner/WAILA shows nonzero stored EU while `gt_machine.getStoredEU()` reports `0` or is unavailable. Monitor then displayed `stored=0` even with buffer energy.
+- Changed `adapter.lua`: added fallback parser for sensor line `Stored Energy: X EU / Y EU`; if component reading is missing/zero and sensor reports X, cache uses the sensor value.
+- Changed `tests/mock_hardware.lua`: optional `no_getStoredEU` machine mode.
+- Changed `tests/phase2_test.lua`: regression ensures sensor fallback captures `stored_eu=16896` and all power-gating checks still pass.

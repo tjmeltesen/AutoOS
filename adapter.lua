@@ -49,6 +49,23 @@ local function detect_power_loss(lines)
   return false
 end
 
+local function parse_stored_eu_from_sensor(lines)
+  if type(lines) ~= "table" then return nil end
+  for _, raw in ipairs(lines) do
+    local clean = strip_format(raw)
+    local lower = clean:lower()
+    if lower:find("stored energy", 1, true) then
+      local left = clean:match("[Ss]tored [Ee]nergy:%s*([^/]+)")
+      if left then
+        local digits = left:gsub("[^%d]", "")
+        local n = tonumber(digits)
+        if n then return n end
+      end
+    end
+  end
+  return nil
+end
+
 -- machine  : gt_machine proxy (real component or mock)
 -- computer : computer library (real or mock) — used for the tick timestamp
 -- me       : ME network proxy (me_interface / me_controller) — optional
@@ -182,7 +199,13 @@ function Adapter:poll(cache)
   cache.progress = m.getWorkProgress and m.getWorkProgress() or nil
   cache.max_progress = m.getWorkMaxProgress and m.getWorkMaxProgress() or nil
   cache.eu_input = m.getAverageElectricInput and m.getAverageElectricInput() or nil
-  cache.stored_eu = m.getStoredEU and m.getStoredEU() or nil
+  local reported_stored = m.getStoredEU and m.getStoredEU() or nil
+  local sensed_stored = parse_stored_eu_from_sensor(cache.sensor)
+  if sensed_stored and ((not reported_stored) or reported_stored <= 0) then
+    cache.stored_eu = sensed_stored
+  else
+    cache.stored_eu = reported_stored
+  end
   cache.power_loss = detect_power_loss(cache.sensor)
   -- eu_in/stored are informational (display, Phase 3 trends). An idle machine
   -- with power connected often reads eu_in=0 and stored=0 — that is NOT a fault.

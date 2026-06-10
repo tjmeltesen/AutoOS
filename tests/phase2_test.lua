@@ -539,6 +539,21 @@ do
 end
 
 do
+  -- Some GT controllers report stored EU correctly in sensor text while the
+  -- direct getStoredEU() component method returns 0 or is unavailable.
+  local mock = Mock.new({ eu_input = 0, stored_eu = 0, no_getStoredEU = true })
+  mock.set_sensor({ "Running.", "Stored Energy: 16896 EU / 16896 EU" })
+  mock.set_stock(LABEL, LOW - 1000)
+  mock.set_craftable(LABEL, true)
+  local kernel = Kernel.new({
+    machine = mock.machine, computer = mock.computer, event = mock.event,
+    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
+  })
+  kernel:tick()
+  check("sensor fallback reads stored EU", kernel.cache.stored_eu == 16896)
+end
+
+do
   local mock = Mock.new({ eu_input = 0, stored_eu = 16896 })
   mock.set_sensor({ "Running.", "Shut down due to power loss" })
   mock.set_stock(LABEL, LOW - 1000)

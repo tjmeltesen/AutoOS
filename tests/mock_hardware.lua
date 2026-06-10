@@ -115,6 +115,9 @@ function Mock.new(opts)
       return 1 -- packetPerTick, per gt-machine-api.md
     end,
   }
+  if opts.no_getStoredEU then
+    machine.getStoredEU = nil
+  end
 
   -- Phase 2 mock ME network. Honors the {label=...} filter on items; fluids are
   -- returned in full (getFluidsInNetwork takes no filter per me-network-api.md).
