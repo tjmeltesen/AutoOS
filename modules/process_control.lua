@@ -89,12 +89,11 @@ function ProcessControl:_craftable(cache)
   return cache.craftable[self.label] == true
 end
 
--- GT power-fail self-pauses the machine. Do not emit ON or ME craft while dead.
+-- GT power-fail self-pauses the machine (sensor text). Do not emit ON or craft
+-- while that stands. eu_in=0 on an idle line is normal — not a power-fail signal.
 function ProcessControl:_power_ok(cache)
   if type(cache) ~= "table" then return true end
-  if cache.power_loss then return false end
-  if cache.power_available == false then return false end
-  return true
+  return not cache.power_loss
 end
 
 function ProcessControl:_apply(stock)

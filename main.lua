@@ -37,8 +37,8 @@ local function stable_craft_reason(reason)
   if reason:match("^cooldown") then
     return "cooldown (awaiting stock update)"
   end
-  if reason:match("^no machine power") then
-    return "no machine power"
+  if reason:match("^GT power loss") then
+    return "GT power loss"
   end
   return reason
 end
@@ -231,7 +231,7 @@ function Kernel:tick()
   local fault_changed = fault ~= self._prev_fault
   self._prev_fault = fault
 
-  local power_ok = not (self.cache.power_loss or self.cache.power_available == false)
+  local power_ok = not self.cache.power_loss
   if self._prev_power_ok ~= nil and power_ok ~= self._prev_power_ok then
     if power_ok then
       print("AutoOS: machine power restored")
@@ -351,7 +351,7 @@ function Kernel:log_tick(result, changed)
     tostring(c.work_allowed), tostring(c.active), tostring(c.has_work),
     c.eu_input ~= nil and tostring(c.eu_input) or "n/a",
     c.stored_eu ~= nil and tostring(c.stored_eu) or "n/a",
-    (c.power_loss or c.power_available == false) and "LOSS" or "OK"))
+    c.power_loss and "LOSS" or "OK"))
 
   -- Process-control telemetry: tracked stock + the hysteresis state requested.
   if self.process_control then

@@ -184,12 +184,10 @@ function Adapter:poll(cache)
   cache.eu_input = m.getAverageElectricInput and m.getAverageElectricInput() or nil
   cache.stored_eu = m.getStoredEU and m.getStoredEU() or nil
   cache.power_loss = detect_power_loss(cache.sensor)
-  -- True when the machine can draw/run: incoming EU or internal buffer (gt-machine-api).
-  -- Power fail is NOT a maintenance shutdown — AutoOS must not keep calling
-  -- setWorkAllowed(true) into a dead line, but also must not force OFF.
-  local eu_in = cache.eu_input or 0
-  local stored = cache.stored_eu or 0
-  cache.power_available = (eu_in > 0) or (stored > 0)
+  -- eu_in/stored are informational (display, Phase 3 trends). An idle machine
+  -- with power connected often reads eu_in=0 and stored=0 — that is NOT a fault.
+  -- GT power-fail is detected from sensor text ("Shut down due to power loss").
+  cache.power_available = not cache.power_loss
   cache.time = self.computer and self.computer.uptime() or nil
 
   self:poll_inventory(cache)

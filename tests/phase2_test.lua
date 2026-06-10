@@ -516,13 +516,14 @@ end
 do
   local pc = ProcessControl.new(pc_config("item", "craft"))
   local cache = cache_with_craft(LOW - 1000, true)
-  cache.power_available = false
+  cache.power_loss = true
   local out = pc.evaluate(cache)
-  check("module skips craft when no power", find_intent(out, "request_craft") == nil)
-  check("module skips machine-on when no power", find_intent(out, "set_work_allowed") == nil)
+  check("module skips craft on sensor power loss", find_intent(out, "request_craft") == nil)
+  check("module skips machine-on on sensor power loss", find_intent(out, "set_work_allowed") == nil)
 end
 
 do
+  -- Idle machine: eu_in=0 and stored=0 is normal with power connected.
   local mock = Mock.new({ eu_input = 0, stored_eu = 0 })
   mock.set_stock(LABEL, LOW - 1000)
   mock.set_craftable(LABEL, true)
@@ -531,23 +532,9 @@ do
     machine = mock.machine, computer = mock.computer, event = mock.event,
     me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
   })
-  kernel:tick()
-  check("no power: does not call setWorkAllowed", mock.stats.setWorkAllowed == 0)
-  check("no power: does not request ME craft", mock.stats.craft_request == 0)
-end
-
-do
-  local mock = Mock.new({ eu_input = 0, stored_eu = 8000 })
-  mock.set_stock(LABEL, LOW - 1000)
-  mock.set_craftable(LABEL, true)
-  mock.state.work_allowed = false
-  local kernel = Kernel.new({
-    machine = mock.machine, computer = mock.computer, event = mock.event,
-    me = mock.me, process_control = pc_config("item", "craft"), verbose = false,
-  })
   local result = kernel:tick()
-  check("stored EU buffer: machine enabled", mock.state.work_allowed == true)
-  check("stored EU buffer: craft requested",
+  check("idle eu_in=0: still enables machine for craft", mock.state.work_allowed == true)
+  check("idle eu_in=0: still requests ME craft",
     result.craft and result.craft.committed == true)
 end
 

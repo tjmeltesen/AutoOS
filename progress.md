@@ -234,11 +234,16 @@ Ready for **Phase 2** (Multiblock Process Control / hysteresis, `modules/process
 - Changed `display.lua`: added `update_tick()` cheap title-row refresh.
 - Changed `tests/phase2_test.lua` (62 checks), `tests/display_test.lua` (22): dispatch-grace regression, craft-mode machine-ON tests, steady-state fault banner regression, `find_intent` helper.
 
-## 2026-06-09 — Power-aware process control (eu_in + stored EU gating)
+## 2026-06-09 — Power-aware process control (sensor power-loss gating)
 
 - Why it was broken: `eu_input` was polled for display only; craft-mode “keep machine ON” fought GT power-fail by calling `setWorkAllowed(true)` every tick with `eu_in=0`. Phase 3 trends were never required for this — energy gating belongs in the control loop now.
-- Changed `adapter.lua`: poll `getStoredEU()`; set `cache.power_available` (`eu_in > 0` or `stored_eu > 0`); parse sensor for GT power-loss text (`cache.power_loss`).
-- Changed `modules/process_control.lua`: skip `set_work_allowed(true)` and `request_craft` when `power_loss` or not `power_available`.
-- Changed `arbitrator.lua`: defense-in-depth block on enabling machine or crafting with no power.
-- Changed `main.lua`, `display.lua`: power transition log, panel shows `eu_in` + `stored` + `NO POWER`/`OK`.
-- Changed `tests/mock_hardware.lua`, `tests/phase2_test.lua`: power gating regressions (no EU, stored-only buffer, sensor power-loss with stored EU).
+- Changed `adapter.lua`: poll `getStoredEU()`; parse sensor for GT power-loss text (`cache.power_loss`); `power_available = not power_loss`.
+- Changed `modules/process_control.lua`: skip `set_work_allowed(true)` and `request_craft` when `power_loss`.
+- Changed `arbitrator.lua`: defense-in-depth block on enabling machine or crafting during sensor power loss.
+- Changed `main.lua`, `display.lua`: power transition log, panel shows `eu_in` + `stored` + `POWER LOSS`/`OK`.
+
+## 2026-06-09 — Fix false NO POWER on idle machine (eu_in=0 is normal)
+
+- Cause: gating used `eu_in > 0 or stored > 0`; idle electrolyzer with power connected reads `eu_in=0` and `stored=0` (validated in-game tick ~164). Panel falsely showed NO POWER and blocked all crafting.
+- Fix: gate only on GT sensor power-loss text (`Shut down due to power loss`, etc.). `eu_in`/`stored` remain informational for display and Phase 3.
+- Changed `adapter.lua`, `process_control.lua`, `arbitrator.lua`, `display.lua`, `main.lua`, `tests/phase2_test.lua`.

@@ -131,10 +131,10 @@ function Display:render(s)
   row = row + 1
   local eu_in = s.eu_input ~= nil and tostring(s.eu_input) or "n/a"
   local stored = s.stored_eu ~= nil and tostring(s.stored_eu) or "n/a"
-  local no_power = s.power_loss or s.power_available == false
+  -- eu_in=0 / stored=0 is normal on an idle machine; only sensor power-loss is a fault.
   self:_line(row, string.format("Power      eu_in=%s  stored=%s  %s",
-    eu_in, stored, no_power and "NO POWER" or "OK"),
-    no_power and COLOR.fault or COLOR.ok)
+    eu_in, stored, s.power_loss and "POWER LOSS" or "OK"),
+    s.power_loss and COLOR.fault or COLOR.ok)
   row = row + 2
 
   -- Process control (Phase 2) — only when enabled.
