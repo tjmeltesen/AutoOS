@@ -8,9 +8,15 @@
   Optional top-level boot:
     /home/start.lua → loadfile("/home/AutoOS/subnet_broker/start.lua")()
 
-  Deploy via floppy/USB or wget raw URLs, e.g.:
-    wget -f https://raw.githubusercontent.com/tjmeltesen/AutoOS/main/subnet_broker/config.lua
-    (repeat for each file — do NOT wget the HTML repo page)
+  Deploy via floppy/USB or wget raw URLs (do NOT wget the HTML repo page):
+    wget -f .../subnet_broker/config.lua /home/AutoOS/subnet_broker/config.lua
+    wget -f .../subnet_broker/load_balancer.lua /home/AutoOS/subnet_broker/load_balancer.lua
+    wget -f .../subnet_broker/maintenance_parse.lua /home/AutoOS/subnet_broker/maintenance_parse.lua
+    wget -f .../subnet_broker/machine_poll.lua /home/AutoOS/subnet_broker/machine_poll.lua
+    wget -f .../subnet_broker/circuit_manager.lua /home/AutoOS/subnet_broker/circuit_manager.lua
+    wget -f .../subnet_broker/broker_core.lua /home/AutoOS/subnet_broker/broker_core.lua
+    wget -f .../subnet_broker/diag.lua /home/AutoOS/subnet_broker/diag.lua
+    wget -f .../subnet_broker/start.lua /home/AutoOS/subnet_broker/start.lua
 
   Edit config.lua with real component UUIDs from:
     local c = require("component"); for a,n in c.list() do print(n,a) end

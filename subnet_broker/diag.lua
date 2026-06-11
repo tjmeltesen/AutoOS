@@ -1,11 +1,13 @@
 --[[
-  AutoOS Subnet Broker — Phase 1 in-game diagnostic (read-only)
-
-  Confirms config validity, optional component UUID presence, and README math
-  scenarios. Does not call setWorkAllowed, ME APIs, or transposers.
+  AutoOS Subnet Broker — in-game diagnostic (read-only + optional circuit test)
 
   Run from OC shell:
     loadfile("/home/AutoOS/subnet_broker/diag.lua")()
+
+  Optional circuit round-trip (in-game):
+    DRY_RUN_CIRCUIT = true before loadfile, or in REPL after:
+    local cm = require("circuit_manager").new({ config = require("config"), component = require("component") })
+    cm:push_circuit("reactor_01", 14); cm:recover_circuit("reactor_01")
 ]]
 
 local sep = package.config:sub(1, 1)
@@ -16,6 +18,7 @@ local Config = require("config")
 local LoadBalancer = require("load_balancer")
 
 local all_pass = true
+local phase2_warn = false
 
 local function fail(msg)
   all_pass = false
@@ -31,34 +34,78 @@ else
   all_pass = false
 end
 
--- 2. UUID walk (in-game only when component API exists)
+-- 2. Component list
 local component_addrs = {}
-local has_component = pcall(function()
-  local component = require("component")
-  if component and component.list then
-    for addr, name in component.list() do
+local component_api
+pcall(function()
+  component_api = require("component")
+  if component_api and component_api.list then
+    for addr, name in component_api.list() do
       component_addrs[addr] = name
     end
   end
 end)
 
-if has_component and next(component_addrs) then
+local function type_label(ctype)
+  if not ctype then return "MISSING" end
+  if ctype == "me_exportbus" then return "FOUND me_exportbus" end
+  if ctype == "transposer" then return "FOUND transposer" end
+  if ctype == "gt_machine" then return "FOUND gt_machine" end
+  if ctype == "aemultipart" or ctype == "tilechest" then
+    return "FOUND " .. ctype .. " (fluid/item ME bus)"
+  end
+  return "FOUND " .. ctype
+end
+
+if component_api and next(component_addrs) then
   for _, m in ipairs(Config.machines) do
-    for _, field in ipairs({ "gt_address", "bus_in", "hatch_fluid" }) do
-      local addr = m[field]
-      local ctype = component_addrs[addr]
-      if ctype then
-        print(string.format("[AutoOS] %s %s %s FOUND %s", m.id, field, addr, ctype))
-      else
-        print(string.format("[AutoOS] %s %s %s MISSING", m.id, field, addr))
-      end
-    end
+    print(string.format("[AutoOS] %s gt_address %s %s",
+      m.id, m.gt_address, type_label(component_addrs[m.gt_address])))
+    print(string.format("[AutoOS] %s bus_in %s %s",
+      m.id, m.bus_in, type_label(component_addrs[m.bus_in])))
+    print(string.format("[AutoOS] %s hatch_fluid %s %s",
+      m.id, m.hatch_fluid, type_label(component_addrs[m.hatch_fluid])))
+  end
+
+  local vault = Config.circuit_vault and Config.circuit_vault.address or Config.circuit_vault_address
+  if vault then
+    print(string.format("[AutoOS] circuit_vault %s %s", vault, type_label(component_addrs[vault])))
+  end
+  if Config.database_address then
+    print(string.format("[AutoOS] database %s %s",
+      Config.database_address, type_label(component_addrs[Config.database_address])))
   end
 else
   print("[AutoOS] component.list unavailable — skipping UUID walk (desktop or no OC)")
 end
 
--- 3. Math scenarios
+-- 3. Machine poll (Phase 2)
+local healthy_count = 0
+pcall(function()
+  local MachinePoll = require("machine_poll")
+  if not component_api then return end
+  local poll = MachinePoll.new({ config = Config, component = component_api })
+  local results = poll:poll_all()
+  for _, m in ipairs(Config.machines) do
+    local st = results[m.id]
+    if not st or not st.available then
+      phase2_warn = true
+      print(string.format("[AutoOS] %s poll: UNAVAILABLE (no gt_machine proxy)", m.id))
+    elseif st.healthy then
+      healthy_count = healthy_count + 1
+      print(string.format("[AutoOS] %s poll: OK (work_allowed=%s active=%s)",
+        m.id, tostring(st.work_allowed), tostring(st.active)))
+    else
+      phase2_warn = true
+      print(string.format("[AutoOS] %s poll: FAULT — %s", m.id, tostring(st.fault_message)))
+    end
+  end
+  if healthy_count == 0 and next(component_addrs) then
+    fail("all machines faulted or unavailable")
+  end
+end)
+
+-- 4. Math scenarios (Phase 1)
 local function ops_list(pool, volume, unit)
   local map, map_err = LoadBalancer.calculate_distribution(pool, volume, unit)
   if not map then
@@ -102,9 +149,32 @@ end
 check_scenario("Scenario A", 15000, 1440, { 3, 3, 2, 2 })
 check_scenario("Scenario B", 3000, 1000, { 1, 1, 1, 0 })
 
--- 4. Summary
+-- 5. Optional circuit dry-run
+if DRY_RUN_CIRCUIT and component_api then
+  pcall(function()
+    local CircuitManager = require("circuit_manager")
+    local cm = CircuitManager.new({ config = Config, component = component_api })
+    local ok_push, err_push = cm:push_circuit("reactor_01", 14)
+    print(string.format("[AutoOS] Circuit push reactor_01: %s %s",
+      ok_push and "OK" or "FAIL", tostring(err_push or "")))
+    local ok_rec, err_rec = cm:recover_circuit("reactor_01", 14)
+    print(string.format("[AutoOS] Circuit recover reactor_01: %s %s",
+      ok_rec and "OK" or "FAIL", tostring(err_rec or "")))
+    if not ok_push or not ok_rec then
+      phase2_warn = true
+    end
+  end)
+end
+
+-- 6. Summary
 if all_pass then
   print("[AutoOS] PHASE 1 IN-GAME: PASS")
+  if phase2_warn then
+    print("[AutoOS] PHASE 2 IN-GAME: PASS (with warnings — check poll/circuit lines above)")
+  else
+    print("[AutoOS] PHASE 2 IN-GAME: PASS")
+  end
 else
   print("[AutoOS] PHASE 1 IN-GAME: FAIL")
+  print("[AutoOS] PHASE 2 IN-GAME: FAIL")
 end
