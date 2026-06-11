@@ -9,7 +9,7 @@
     local cm = require("circuit_manager").new({ config = require("config"), component = require("component") })
     cm:push_circuit("reactor_01", 14); cm:recover_circuit("reactor_01")
 ]]
-
+DRY_RUN_CIRCUIT = true
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/AutoOS/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
