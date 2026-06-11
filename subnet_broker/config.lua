@@ -160,7 +160,7 @@ Config.main_net_channel = 105
 
 Config.circuit_vault = {
 
-  address = "vault-chest-00a12",
+  address = "2403c040-d5b4-4878-bf3c-c3b79650dbc0",
 
   component_type = "transposer",
 
