@@ -61,10 +61,10 @@ Config.main_net_channel = 105
 Config.circuit_vault_address = "vault-chest-00a12"
 
 Config.machines = {
-  { id = "reactor_01", gt_address = "gt-uuid-01", bus_in = "bus-in-01", hatch_fluid = "hatch-fluid-01" },
-  { id = "reactor_02", gt_address = "gt-uuid-02", bus_in = "bus-in-02", hatch_fluid = "hatch-fluid-02" },
-  { id = "reactor_03", gt_address = "gt-uuid-03", bus_in = "bus-in-03", hatch_fluid = "hatch-fluid-03" },
-  { id = "reactor_04", gt_address = "gt-uuid-04", bus_in = "bus-in-04", hatch_fluid = "hatch-fluid-04" },
+  { id = "reactor_01", gt_address = "972c1b95-2f92-4ba2-8524-1b3152f60dfd", bus_in = "58d6b8e5-b3d4-4062-9c51-2064b25e0b9e", hatch_fluid = "eb9c49a7-bf26-448a-b7ff-649bc1203639" },
+  { id = "reactor_02", gt_address = "73d06674-1dbd-4c71-97be-0f958ccea03f", bus_in = "b311b7c4-cb6a-438d-b2ae-98ebdd3cf9d2", hatch_fluid = "789ee6ac-20ea-4a86-8fb6-e64ecf80af47" },
+  { id = "reactor_03", gt_address = "61351d4f-0a11-4066-b1b9-eb1fe9393ce8", bus_in = "a1250086-ec9b-4ecd-87d3-587add148e27", hatch_fluid = "db65fd20-cdaf-480c-a232-f82df07c0fda" },
+  { id = "reactor_04", gt_address = "194191a4-1c59-4216-b49e-97268de0b600", bus_in = "fb4d836c-b0c4-433e-a790-fed03addab7d", hatch_fluid = "1403ad07-68bf-45ed-bb54-9a1650081a96" },
 }
 
 Config.constraints = {
