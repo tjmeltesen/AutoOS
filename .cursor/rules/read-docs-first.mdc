@@ -16,10 +16,10 @@ Before planning or writing code, read the project docs in this order:
 | Task area | Read first |
 |-----------|------------|
 | Any module / phase | `references/autoos-api-mapping.md` |
-| `gt_machine`, maintenance, shutdown | `references/gt-machine-api.md`, `references/maintenance-and-safety.md` |
-| ME inventory, crafting, fluids | `references/me-network-api.md` |
-| Component access, events, loops | `references/opencomputers-component-api.md`, `references/opencomputers-libraries.md` |
-| GPU / monitoring UI | `references/gpu-and-display.md` |
+| `gt_machine`, maintenance, shutdown | `references/OC-GTNH-docs-main/docs/components/gt_machine.lua`, `references/maintenance-and-safety.md` |
+| ME inventory, crafting, fluids | `references/OC-GTNH-docs-main/docs/components/abstracts/CommonNetworkAPI.lua`, `me_interface.lua`, `type_definitions/ae_types/` |
+| Component access, events, loops | `references/OC-GTNH-docs-main/docs/component.lua`, `event.lua`, `sides.lua` |
+| GPU / monitoring UI | `references/OC-GTNH-docs-main/docs/components/gpu.lua`, `screen.lua` |
 | Polling, tick budget, crashes | `references/performance-pitfalls.md` |
 | GTNH adapter / MFU setup | `references/gtnh-opencomputers-overview.md` |
 
@@ -53,7 +53,7 @@ After completing any task (code, docs, rules, config), **append** a new entry to
 
 ✅ GOOD:
 1. Read README.md → confirm Phase 2 = hysteresis + inventory bands
-2. Read references/autoos-api-mapping.md + me-network-api.md
+2. Read references/autoos-api-mapping.md + OC-GTNH CommonNetworkAPI.lua
 3. Read progress.md → see what's already implemented
 4. Implement against documented APIs and architecture layers
 5. Append entry to progress.md

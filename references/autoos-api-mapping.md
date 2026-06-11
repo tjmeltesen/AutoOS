@@ -2,6 +2,8 @@
 
 How each AutoOS module maps to OpenComputers / GTNH APIs.
 
+**Method signatures:** [`OC-GTNH-docs-main/docs/`](OC-GTNH-docs-main/docs/) — see [`references/README.md`](README.md) for the file index.
+
 ## Architecture Layers
 
 ```

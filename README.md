@@ -1,185 +1,252 @@
-# AutoOS
+# AutoOS: Integrated Manufacturing Execution System & Statistical Process Control (MES-SPC)
 
-A modular, event-driven, universal control system application built in Lua for **OpenComputers** within the **GregTech New Horizons (GTNH)** ecosystem.
+## Advanced Project Architecture & Specification Document for GregTech New Horizons (GTNH)
 
-AutoOS decouples physical hardware components from high-level logical modules through a centralized broker architecture, ensuring deterministic, optimized, and explosion-proof automated industrial plant management. Inventory leveling uses **ME autocraft recipes** (AE patterns) and/or **gt_machine** run signals — whichever fits the line — all gated by the same hysteresis bands and priority safety tree.
-
----
-
-## 1. Project Proposal & Vision
-
-Operating a high-tier automated infrastructure in GTNH introduces extreme variables: sudden inventory shortages can stall massive processing chains, unmitigated multiblock maintenance faults corrupt efficiency or trigger total structural collapse, and excessive hardware polling triggers single-threaded OpenComputers "Computer Too Busy" exceptions.
-
-**AutoOS** provides a stable framework to handle these risks. By isolating hardware interactions inside a shared State Cache and running logical actions through a strict, multi-tiered Priority Arbitrator, AutoOS guarantees that hardware safety boundaries are never violated. The system introduces **ME-driven autocraft leveling**, multiblock process control, resource degradation forecasting, and real-time status displays.
+AutoOS is a decoupled, highly modular automation framework designed for OpenComputers (OC). It bridges the gap between global warehouse stocking targets and localized, highly volatile multi-block processing pools without introducing execution lag or fractional fluid division lockups.
 
 ---
 
-## 2. System Architecture Layout
+## 1. System Topology & Network Design
 
-The application relies on an isolated, multi-tiered data flow. Modules compute abstract automation intent completely independently, while the **Validation Arbitration Layer** is the exclusive gateway authorized to commit changes to physical blocks and the ME network.
+```mermaid
+graph TD
+    %% Overseer Macro Level
+    subgraph Overseer_Tier [Overseer Global Tier]
+        Overseer[overseer_main.lua] -->|Audits Global Stock Matrix| Global_Storage[(Main AE2 Network Storage)]
+        Overseer -->|Calculates Hysteresis Triggers| Hysteresis[hysteresis_engine.lua]
+        Hysteresis -->|Dispatches Network Packet| Net_Bridge[network_protocols.lua]
+    end
 
-```
-[ Hardware / Adapter Layer ] -> Polls gt_machine + ME (stock, craftability). Updates Cache.
-              |
-              v
-[   Central State Cache    ] -> Atomic snapshots: sensor, stock[label], craftable[label].
-              |
-              v
-[ Decoupled Logic Modules  ] -> Hysteresis, maintenance, velocities (cache-only reads).
-              |
-              v
-[   Validation Arbitrator  ] -> Commits setWorkAllowed() + ME craft requests.
-```
+    %% Network Packet Routing
+    Net_Bridge -->|Wireless / Serial Packet| Broker_Core
 
-### Priority Arbitration Matrix
+    %% Subnet Architecture
+    subgraph Subnet_Node [Isolated Subnet Broker Node]
+        Broker_Core[broker_core.lua] -->|1. Reads Config Mapping| Local_Config[(config.lua)]
+        Broker_Core -->|2. Scans Incoming Smart Buffer| ME_Int(Subnet ME Interface Buffer)
+        
+        %% Core Control Logic
+        Broker_Core -->|3. Identifies Token & Pulls Data| Math_Engine[load_balancer.lua]
+        Math_Engine -->|4. Quantizes Volumes to Whole Operations| Alloc_Map{Allocation Map}
+        
+        %% Physical Execution Paths
+        Alloc_Map -->|5a. Fetch Physical Circuits| Vault_Mgr[circuit_manager.lua]
+        Vault_Mgr -->|Active Routing| Vault[(Local Circuit Vault)]
+        
+        Alloc_Map -->|5b. Route Exact Integer Chunks| Machine_Pool[[Universal Machine Array]]
+        Vault -->|Injects Circuit Blocks| Machine_Pool
+        
+        %% Cleanup Cycle
+        Machine_Pool -->|6. Check Status| Status_Check[machine_poll.lua]
+        Machine_Pool -->|7. Cycle Complete: Recover Circuits| Vault_Mgr
+        Machine_Pool -->|8. Return Outputs| ME_Int
+    end
 
-When resource demands conflict with structural safety, the Arbitrator resolves intents based on a rigid tier system:
-
-1. **Priority 1 (Critical Safety):** *Maintenance Module Intercept* — Forces unconditional machine shutdown if errors occur. Overrides all down-line logic commands (including ME crafts).
-2. **Priority 2 (Process Integrity):** *Raw Resource Management Intercept* — Suspends lines ("Soft Sleep") if required chemical or material components are missing to prevent empty-cycling.
-3. **Priority 3 (Standard Management):** *Multiblock Process Control (MPC)* — Evaluates inventory bands and replenishes stock via **ME autocraft** (`getCraftables` → `request`) and/or **gt_machine** on/off (`setWorkAllowed`).
-
----
-
-## 3. Strict Functional Requirements & Core Goals
-
-| Domain | Strict Requirement (Functional Contract) | System Metric / Goal |
-| :--- | :--- | :--- |
-| **Safety / Arbitration** | Maintenance faults must trigger a hard shutdown, overriding all resource-level logic commands. | Zero multiblock damage or processing waste from unmaintained loops. |
-| **Stability / Loop Control** | Leveling must utilize dual-threshold hysteresis to eliminate rapid cycling (flapping). | Target buffer maintenance within a static deadband window. |
-| **ME Autocraft Leveling** | When stock is low, request AE crafts for the configured `label` up to `high - stock`; throttle while a job is active. | Stock refilled from ME patterns without spamming craft requests every tick. |
-| **Compute Optimization** | Hardware components must never be polled directly by modules. All reads draw from the State Cache. | Execution cycle overhead $\le 500\text{ms}$; zero system crashes. |
-| **Predictive Alerts** | Provide depletion forecasts using a moving derivative profile: $\Delta R = (R_t - R_{t-\Delta t}) / \Delta t$. | Early warning alarms triggered if Time-to-Depletion ($TTD$) $< 1800\text{s}$. |
-
----
-
-## 4. Phased Implementation Schedule
-
-To ensure project stability, AutoOS must be developed and verified chronologically in four distinct phases:
-
-### Phase 1: Core Kernel Foundation & Maintenance Safeguards (Module 2) — **complete**
-
-* **Objective:** Establish the main loop, state cache layout, and the underlying priority override tree.
-* **Mechanism:** Polls the machine's primary adapter. Parses `getSensorInformation()` for maintenance/structure faults; fires high-priority audio warnings and cuts the run signal via `setWorkAllowed(false)`.
-
-### Phase 2: Multiblock Process Control & Leveling Engine (Module 1) — **implemented**
-
-* **Objective:** Establish automated inventory replenishment control rules.
-* **Mechanism:** Dual-limit hysteresis loop on ME stock counts:
-  * `STATE_ACTIVE` when stock $< Threshold_{low}$
-  * Hold through the deadband until stock $> Threshold_{high}$ (prevents flapping)
-* **Replenishment modes** (`process_control.mode` in `start.lua`):
-  * `"craft"` — **ME autocraft only.** Issues `getCraftables({label})[1].request(high - stock)` while ACTIVE. Requires a matching AE autocraft pattern in the ME network.
-  * `"machine"` — **gt_machine only.** Drives `setWorkAllowed(true/false)` while ACTIVE/IDLE.
-  * `"both"` — Machine on **and** ME craft request while refilling.
-* **Prerequisites:** ME Interface or Controller adapter; `label` must match the ME display name and an existing autocraft recipe.
-
-### Phase 3: Raw Resource Management & Projection Engine (Module 3)
-
-* **Objective:** Predict bottlenecks before processing blocks stall completely.
-* **Mechanism:** Maintains localized ring-buffers tracking inventory counts over time. Computes moving averages of material consumption velocity and calculates Time-to-Depletion warnings.
-* **Status:** Implemented (`modules/resource_manager.lua`). The adapter keeps per-input stock history rings and derives `cache.velocity` / `cache.ttd`; the module emits a Priority 2 `soft_sleep` intent (machine OFF, no maintenance beep) while any input sits below its `min` floor, and edge-triggers a depletion warning when TTD drops below `warn_ttd`. Includes the sensor-based `eu_in` display fix. Configure via the commented `resource_manager` block in `start.lua`.
-* **Implementation guide:** See [`references/phase3-implementation.md`](references/phase3-implementation.md) for file-by-file steps, intent contracts, tests, and in-game validation (includes deferred `eu_in` display fix).
-
-### Phase 4: Time-Varying Charts & Display Orchestration (Module 4)
-
-* **Objective:** High-fidelity monitoring UI.
-* **Mechanism:** Pulls data history vectors from Phase 3's buffers and maps them to text layouts or pseudo-braille graphics using raw OpenComputers GPU buffer components at a throttled frame-tick.
-* **Note:** A thin read-only status monitor (`display.lua`) is available now for in-game Phase 2 verification; full charts remain Phase 4 scope.
-
----
-
-## 5. In-Game Setup (Process Control + ME Autocraft)
-
-Typical OpenComputers layout on the computer HDD:
-
-```text
-/home/
-  start.lua
-  AutoOS/
-    main.lua
-    adapter.lua
-    arbitrator.lua
-    display.lua          # optional read-only status panel
-    modules/
-      maintenance.lua
-      process_control.lua
+    %% Styling
+    style Overseer fill:#2c3e50,stroke:#34495e,stroke-width:2px,color:#fff
+    style Global_Storage fill:#7f8c8d,stroke:#95a5a6,stroke-width:2px,color:#fff
+    style ME_Int fill:#16a085,stroke:#1abc9c,stroke-width:2px,color:#fff
+    style Broker_Core fill:#2980b9,stroke:#3498db,stroke-width:2px,color:#fff
+    style Local_Config fill:#8e44ad,stroke:#9b59b6,stroke-width:2px,color:#fff
+    style Machine_Pool fill:#d35400,stroke:#e67e22,stroke-width:2px,color:#fff
+    style Vault fill:#27ae60,stroke:#2ecc71,stroke-width:2px,color:#fff
 ```
 
-**Hardware:** Adapter on GT controller (`gt_machine`); Adapter on ME Interface/Controller (`me_interface` or `me_controller`); Internet Card for `wget`; optional GPU + Screen for the status panel.
+### The Architectural Blueprint
 
-**Configure** the tracked product in `/home/start.lua`:
+**Overseer Global Tier:** Performs high-level database scans against warehouse inventory. It functions purely as an asynchronous macro task dispatcher.
 
-```lua
-process_control = me and {
-  label = "Soldering Alloy",   -- exact ME name; must have an AE autocraft recipe
-  low = 64000,                 -- enter ACTIVE below this
-  high = 142800,               -- leave ACTIVE above this (deadband: low < stock < high)
-  kind = "item",               -- "item" or "fluid" (craft mode is item-only)
-  mode = "craft",              -- "craft" | "machine" | "both"
-} or nil,
-```
-
-Verify a recipe exists before booting:
-
-```lua
-local c = require("component")
-for _, cr in ipairs(c.me_interface.getCraftables({label="Soldering Alloy"})) do
-  print("craftable:", cr.label)
-end
-```
-
-Import/update files via raw GitHub URLs (`wget -f https://raw.githubusercontent.com/<user>/AutoOS/main/...`). See `progress.md` for deployment notes.
+**Isolated Subnet Broker Nodes:** Micro-controllers physically dedicated to localized machine groupings. They operate entirely off immediate localized conditions and are decoupled from the core base infrastructure.
 
 ---
 
-## 6. Out-of-Game Desktop Testing & Verification Procedure
+## 2. Advanced Process Flow & The "Token-Based" Universal Loop
 
-Testing automation logic inside a live survival world threatens high-tier GTNH machinery. AutoOS logic should be validated entirely off-game using local mock execution files.
+To achieve a truly universal array where any multi-block can process any recipe on demand without static hardcoded logic mappings, AutoOS intercepts execution through the **AE2 Pattern Encoding Trick**.
 
-### Repository file layout
+### The Core Lifecycle
 
-```text
+1. **Pattern Encoding:** Every automated recipe is programmed into your Main Net AE2 Pattern Terminal with its required Integrated Circuit included as a physical input item ingredient.
+2. **Batch Influx:** When a craft triggers (via automated restocking or a direct player terminal click), AE2 dumps the raw items, fluids, and the physical circuit "Token" into the Subnet's Main ME Interface Buffer.
+3. **Passive Intercept:** The Subnet Broker continuously polls this buffer interface. It doesn't care where the job originated. When it catches an incoming `gt.integrated_circuit` item, it intercepts its configuration tag value (e.g., Circuit 14) to identify the target recipe and immediately evacuates the physical token back to network storage.
+4. **Quantized Load-Balancing Math:** To prevent fractional-volume fluid splitting (which bricks GregTech multiblocks), the broker translates total incoming bulk volumes into clean, discrete integer operations ($O$) before allocating them down to individual machines:
+
+$$\text{Operations Per Machine} = \left\lfloor \frac{\text{Total Available Operations}}{\text{Active Machine Pool Size}} \right\rfloor$$
+
+5. **Dynamic Vault Dispatch:** The broker instructs its local Circuit Vault to push physical circuit configuration blocks into the input buses of the assigned machines before any raw materials are moved. Once processing concludes, circuits are swept back to the vault automatically.
+
+---
+
+## 3. Directory Layout & Repository Structure
+
+```
 AutoOS/
-├── main.lua
-├── adapter.lua
-├── arbitrator.lua
-├── display.lua
-├── modules/
-│   ├── process_control.lua
-│   ├── maintenance.lua
-│   └── resource_manager.lua   # Phase 3 soft sleep + TTD projection
-└── tests/
-    ├── mock_hardware.lua
-    ├── phase1_test.lua
-    ├── phase2_test.lua        # hysteresis + ME autocraft
-    ├── phase3_test.lua        # ring buffers, TTD, P2 soft sleep
-    └── display_test.lua
+├── overseer/
+│   ├── overseer_main.lua         # Global stock checking loop; handles bulk requests
+│   ├── inventory_cache.lua       # Caches global item and fluid metric snapshots
+│   └── hysteresis_engine.lua     # Evaluates high/low triggers for restocking rules
+├── subnet_broker/
+│   ├── config.lua                # LOCAL CONFIG: Unique subnet hardware & recipe baselines
+│   ├── broker_core.lua           # Main Subnet polling loop and processing coordinator
+│   ├── machine_poll.lua          # Diagnostics and GTNH maintenance fault scanner
+│   ├── circuit_manager.lua       # Handles inventory manipulation of physical circuit blocks
+│   └── load_balancer.lua         # Pure math module executing quantized integer division
+└── shared/
+    └── network_protocols.lua     # Serialized JSON packet definitions for Inter-OS comms
 ```
 
-Install a local Lua interpreter (5.2+; project verified on 5.5).
+---
 
-```bash
-cd path/to/AutoOS
-lua tests/phase1_test.lua   # maintenance + kernel
-lua tests/phase2_test.lua   # hysteresis + ME craft modes
-lua tests/phase3_test.lua   # resource rings, TTD, P2 soft sleep
-lua tests/display_test.lua  # read-only monitor
+## 4. Engineering Specifications & Code Contracts
+
+### Module: `subnet_broker/config.lua`
+
+Provides localized environmental context to the broker. This file is the only file that changes between physical machine arrays.
+
+```lua
+local Config = {
+    subnet_id = "universal_chemical_mv_01",
+    main_net_channel = 105,
+    circuit_vault_address = "vault-chest-00a12",
+    
+    machines = {
+        { id = "reactor_01", bus_in = "bus-in-address-01", bus_out = "bus-out-address-01" },
+        { id = "reactor_02", bus_in = "bus-in-address-02", bus_out = "bus-out-address-02" },
+        { id = "reactor_03", bus_in = "bus-in-address-03", bus_out = "bus-out-address-03" },
+        { id = "reactor_04", bus_in = "bus-in-address-04", bus_out = "bus-out-address-04" }
+    },
+    
+    constraints = {
+        max_energy_tier = 2, -- MV Level Cap
+        recipe_baselines = {
+            ["molten_soldering_alloy"] = { fluid_requirement = 1440 }, -- Must step in clean 1440L blocks
+            ["polyethylene"]           = { fluid_requirement = 1000 }  -- Must step in clean 1000L blocks
+        }
+    }
+}
+
+return Config
 ```
 
-### Desktop verification example (README §5 scenario)
+### Module: `subnet_broker/load_balancer.lua`
 
-```text
-=== Starting AutoOS Desktop Validation Emulator ===
---- SYSTEM TICK 1 ---
-[Process Control] Soldering Alloy stock=63000 -> ACTIVE (mode=craft craftable=yes)
-[Arbitrator] action: request_craft Soldering Alloy x79800
+An isolated math engine executing integer division logic to ensure zero fractional allocations.
 
---- SYSTEM TICK 5 ---
-[!] SIMULATOR EVENT: Multiblock broke down with a maintenance fault!
-[Maintenance] Fault detected: Machine needs a wrench!
-[Arbitrator] action: force_shutdown -> setWorkAllowed(false)
-=== Simulation Complete ===
+```lua
+local LoadBalancer = {}
+
+function LoadBalancer.calculate_distribution(active_pool, total_fluid, unit_requirement)
+    local M = #active_pool
+    if M == 0 then return nil, "No operational machines found." end
+
+    local O = math.floor(total_fluid / unit_requirement)
+    if O == 0 then return nil, "Batch volume falls short of minimum recipe boundaries." end
+    
+    local base_ops_per_machine = math.floor(O / M)
+    local remainder_ops = O % M
+    local distribution_map = {}
+    
+    for i, machine in ipairs(active_pool) do
+        local assigned_ops = base_ops_per_machine
+        
+        -- Distribute leftover operations as clean, whole numbers (+1 per machine)
+        if i <= remainder_ops then
+            assigned_ops = assigned_ops + 1
+        end
+        
+        distribution_map[machine.id] = {
+            address = machine.bus_in,
+            operations = assigned_ops,
+            allocated_volume = assigned_ops * unit_requirement
+        }
+    end
+    
+    return distribution_map, nil
+end
+
+return LoadBalancer
 ```
 
-Maintenance (Priority 1) overrides ME crafts and machine run signals. ME craft requests are throttled while an `AECraftingJob` is still computing.
+### Module: `subnet_broker/broker_core.lua`
+
+The primary operational orchestrator loop handling intercept and dispatch events.
+
+```lua
+local config   = require("config")
+local balancer = require("load_balancer")
+
+local BrokerCore = {}
+
+function BrokerCore.process_batch(circuit_token_id, current_buffer_volume)
+    print(string.format("\n[AutoOS] Subnet '%s' Initializing Universal Run...", config.subnet_id))
+    
+    local recipe_rules = config.constraints.recipe_baselines[circuit_token_id]
+    local minimum_unit = recipe_rules and recipe_rules.fluid_requirement or 1000
+    
+    -- Fetches operational status maps via machine_poll.lua
+    local active_pool = {}
+    for _, m in ipairs(config.machines) do
+        table.insert(active_pool, m) 
+    end
+    
+    -- Evaluate the quantized operation allocations
+    local allocations, err = balancer.calculate_distribution(active_pool, current_buffer_volume, minimum_unit)
+    if not allocations then
+        print("[Execution Halted] " .. tostring(err))
+        return false
+    end
+    
+    -- Dispatch Routine Interface Execution Loop
+    for m_id, target in pairs(allocations) do
+        if target.operations > 0 then
+            print(string.format(" -> [Dispatch -> %s] Routing %d Operations (%dL) to Input Bus [%s]", 
+                m_id, target.operations, target.allocated_volume, target.address))
+        else
+            print(string.format(" -> [Dispatch -> %s] 0 Ops allocated. Machine safe and clean.", m_id))
+        end
+    end
+end
+
+-- Verify 15,000L of Soldering Alloy over 4 machines.
+-- 15,000L / 1440L = 10 operations total. 
+-- 10 operations over 4 machines must resolve to: 3, 3, 2, 2. No fractions!
+BrokerCore.process_batch("molten_soldering_alloy", 15000)
+```
+
+---
+
+## 5. Development Model Prompts
+
+Copy and paste these prompts directly into your code generation models to build out the full application suite:
+
+### Phase 1 Prompt (Config & Math)
+
+Write two compliant Lua modules for an OpenComputers project named AutoOS running in GregTech New Horizons: `subnet_broker/config.lua` and `subnet_broker/load_balancer.lua`. Ensure `config.lua` returns a dictionary table mapping local machine structures and recipe baseline quantities. Ensure `load_balancer.lua` calculates allocations strictly via integer floor operations, avoiding any raw volume division.
+
+### Phase 2 Prompt (Hardware & Control)
+
+Write two modular Lua scripts for OpenComputers: `subnet_broker/machine_poll.lua` and `subnet_broker/circuit_manager.lua`. `machine_poll` must verify active multiblock maintenance flags via the OpenComputers component API to drop broken machines from the active pool. `circuit_manager` must push and recover physical Integrated Circuits from a local vault container directly to specified multiblock bus addresses on demand.
+
+### Phase 3 Prompt (Orchestrator Loop)
+
+Write the master execution script `subnet_broker/broker_core.lua` for an OpenComputers system. It must implement a passive background loop polling the subnet's local ME Interface. It must intercept arriving integrated circuit items as craft tokens, instantly clear them from the interface, resolve total batch fluid sizing via `load_balancer` math, trigger `circuit_manager` configuration changes, and handle the raw ingredient distribution without locking up.
+
+### Phase 4 Prompt (Macro Overseer Layer)
+
+Write `overseer/overseer_main.lua` and `overseer/hysteresis_engine.lua`. The hysteresis engine must analyze stock metrics to issue `TRIGGER_CRAFT` signals when inventories fall beneath minimum targets. `overseer_main` must query the central primary network stock lists, process rules using the engine, issue `requestCrafting` tasks to AE2, and push network alert packets to the dedicated Subnet Brokers.
+
+---
+
+## 6. Verification & In-Game Testing Protocol
+
+### The Drop-In Test
+
+Update `config.lua` addresses to map to an EBF or Assembly Line array. Verify that `broker_core.lua` runs the new hardware footprint smoothly without a single line of internal code modifications.
+
+### The Hand-Off Test
+
+Manually insert 3,000 L of Ethylene and an Integrated Circuit (Configuration 18) directly into the Subnet's ME Interface. Verify that the computer extracts the token, splits the batch cleanly into three 1,000 L operations across three separate machines, and leaves the fourth machine empty and completely clean.
+
+### The Safe Failure Test
+
+Trigger a maintenance fault on Machine #2 mid-craft. Verify that on the very next dispatch cycle, `machine_poll.lua` intercepts the fault code and the load-balancer dynamically scales operations onto the remaining healthy machines without halting execution.

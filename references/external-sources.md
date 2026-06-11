@@ -1,6 +1,6 @@
 # External Sources
 
-All online references used to compile this library.
+Online references and the local API stub tree. **Primary local API docs:** [`OC-GTNH-docs-main/`](OC-GTNH-docs-main/) (see [`references/README.md`](README.md) for the file index).
 
 ## Official OpenComputers Documentation
 
@@ -38,7 +38,8 @@ All online references used to compile this library.
 
 | Resource | URL | Notes |
 |----------|-----|-------|
-| GTNH-OC-Lua-Documentation | https://github.com/Navatusein/GTNH-OC-Lua-Documentation | VS Code Lua stubs; primary source for method signatures |
+| GTNH-OC-Lua-Documentation | https://github.com/Navatusein/GTNH-OC-Lua-Documentation | Upstream stubs (also vendored as `OC-GTNH-docs-main/`) |
+| OC-GTNH-docs (local) | `references/OC-GTNH-docs-main/` | **Use this in-repo** for method signatures and types |
 | gt_MachineOS | https://github.com/Zeruel13/gt_MachineOS | Reference implementation for multiblock monitoring |
 | opencomputer-monitor | https://github.com/52871299hzy/opencomputer-monitor | Web monitor for GT + AE |
 
