@@ -52,11 +52,28 @@ graph TD
     style Vault fill:#27ae60,stroke:#2ecc71,stroke-width:2px,color:#fff
 ```
 
+
+
 ### The Architectural Blueprint
 
 **Overseer Global Tier:** Performs high-level database scans against warehouse inventory. It functions purely as an asynchronous macro task dispatcher.
 
 **Isolated Subnet Broker Nodes:** Micro-controllers physically dedicated to localized machine groupings. They operate entirely off immediate localized conditions and are decoupled from the core base infrastructure.
+
+### Physical Wiring Assumption (v1)
+
+Each multiblock in a machine pool is wired **independently**:
+
+
+| Per multiblock        | Count | Role                                                                |
+| --------------------- | ----- | ------------------------------------------------------------------- |
+| **Item input bus**    | 1     | Receives programmed circuits and solid inputs for that machine only |
+| **Fluid input hatch** | 1     | Receives fluid batches routed to that machine only                  |
+
+
+There is **no shared input bus or shared fluid hatch** across machines in v1. A four-machine array means four buses, four hatches, and four `gt_machine` adapters (or MFU links). The broker’s load balancer assigns **integer operation budgets per machine**; physical routing delivers each machine’s share to **its** bus and hatch (via subnet ME export, transposer, or equivalent — defined per deployment in `config.lua`).
+
+Future experiments (e.g. a common feed tank with per-machine hatches still on separate multis) are out of scope until v1 is validated in-game.
 
 ---
 
@@ -73,7 +90,7 @@ To achieve a truly universal array where any multi-block can process any recipe 
 
 $$\text{Operations Per Machine} = \left\lfloor \frac{\text{Total Available Operations}}{\text{Active Machine Pool Size}} \right\rfloor$$
 
-5. **Dynamic Vault Dispatch:** The broker instructs its local Circuit Vault to push physical circuit configuration blocks into the input buses of the assigned machines before any raw materials are moved. Once processing concludes, circuits are swept back to the vault automatically.
+1. **Dynamic Vault Dispatch:** The broker instructs its local Circuit Vault to push physical circuit configuration blocks into **each machine’s dedicated input bus** before raw materials are moved to **that machine’s fluid hatch**. Once processing concludes, circuits are swept back to the vault automatically.
 
 ---
 
@@ -84,10 +101,12 @@ AutoOS/
 ├── overseer/
 │   ├── overseer_main.lua         # Global stock checking loop; handles bulk requests
 │   ├── inventory_cache.lua       # Caches global item and fluid metric snapshots
-│   └── hysteresis_engine.lua     # Evaluates high/low triggers for restocking rules
+│   ├── hysteresis_engine.lua     # Evaluates high/low triggers for restocking rules
+│   └── overseer_display.lua      # GPU panel: warehouse stock, crafts, broker links
 ├── subnet_broker/
 │   ├── config.lua                # LOCAL CONFIG: Unique subnet hardware & recipe baselines
 │   ├── broker_core.lua           # Main Subnet polling loop and processing coordinator
+│   ├── broker_display.lua        # GPU panel: batch job, machine pool, faults
 │   ├── machine_poll.lua          # Diagnostics and GTNH maintenance fault scanner
 │   ├── circuit_manager.lua       # Handles inventory manipulation of physical circuit blocks
 │   └── load_balancer.lua         # Pure math module executing quantized integer division
@@ -110,10 +129,11 @@ local Config = {
     circuit_vault_address = "vault-chest-00a12",
     
     machines = {
-        { id = "reactor_01", bus_in = "bus-in-address-01", bus_out = "bus-out-address-01" },
-        { id = "reactor_02", bus_in = "bus-in-address-02", bus_out = "bus-out-address-02" },
-        { id = "reactor_03", bus_in = "bus-in-address-03", bus_out = "bus-out-address-03" },
-        { id = "reactor_04", bus_in = "bus-in-address-04", bus_out = "bus-out-address-04" }
+        -- v1: one item input bus + one fluid input hatch per multiblock
+        { id = "reactor_01", gt_address = "gt-uuid-01", bus_in = "bus-in-01", hatch_fluid = "hatch-fluid-01" },
+        { id = "reactor_02", gt_address = "gt-uuid-02", bus_in = "bus-in-02", hatch_fluid = "hatch-fluid-02" },
+        { id = "reactor_03", gt_address = "gt-uuid-03", bus_in = "bus-in-03", hatch_fluid = "hatch-fluid-03" },
+        { id = "reactor_04", gt_address = "gt-uuid-04", bus_in = "bus-in-04", hatch_fluid = "hatch-fluid-04" },
     },
     
     constraints = {
@@ -215,7 +235,198 @@ BrokerCore.process_batch("molten_soldering_alloy", 15000)
 
 ---
 
-## 5. Development Model Prompts
+## 5. Operator Displays (GPU / Screen)
+
+Both the **Overseer** and each **Subnet Broker** ship a dedicated on-computer display. The player should be able to glance at either screen and immediately answer: *What is happening? Is anything wrong? What happens next?*
+
+### Design Rules (Both Displays)
+
+
+| Rule                      | Rationale                                                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Read-only**             | Displays render a snapshot built by the main loop. They never call `setWorkAllowed()`, ME craft APIs, or transposer/export hardware. A GPU fault must not stall control logic (`pcall` around render). |
+| **Plain language**        | Use player-facing labels (`Soldering Alloy`, `REFILLING`, `Maintenance needed`) — not internal keys (`molten_soldering_alloy`) unless shown as secondary detail.                                       |
+| **Status at a glance**    | Top line = overall health: `OK`, `WORKING`, `WAITING`, `FAULT`, or `OFFLINE`. Color when the GPU supports it (green / yellow / red).                                                                   |
+| **Change-aware refresh**  | Redraw when meaningful state changes, not every tick. Target ≤ 2 full panel redraws per second during steady state (see `references/performance-pitfalls.md`).                                         |
+| **One screen = one role** | Overseer PC shows warehouse macro view only. Broker PC shows its local machine pool only. No cross-role clutter.                                                                                       |
+
+
+**Hardware:** Tier 2+ GPU recommended for color; minimum 80×25 characters (or scaled resolution with clipped layout). Headless operation remains supported when no GPU/screen is attached.
+
+---
+
+### 5.1 Subnet Broker Display (`broker_display.lua`)
+
+**Audience:** Operator standing at the machine array — needs to see batch progress and per-machine health.
+
+#### Layout (single page, fixed sections)
+
+```text
+┌─ AutoOS Broker ── universal_chemical_mv_01 ────────────┐
+│ STATUS: WORKING          Uptime: 2h 14m    Tick: 4821 │
+├─ Current Job ──────────────────────────────────────────┤
+│ Recipe:    Soldering Alloy (Circuit 14)                │
+│ Batch:     15,000 L  →  10 operations total            │
+│ Progress:  6 / 10 ops complete (4 remaining)           │
+│ Phase:     Running machines — recovering circuits      │
+├─ Machine Pool ─────────────────────────────────────────┤
+│ ID         Ops      State        Circuit   Maintenance │
+│ reactor_01 1/3      PROCESSING   #14       OK         │
+│ reactor_02 2/3      PROCESSING   #14       OK         │
+│ reactor_03 2/2      IDLE         #14       OK         │
+│ reactor_04 1/2      FAULT        —         NEEDS TAPE │
+├─ Subnet Buffer ────────────────────────────────────────┤
+│ Fluid waiting:  0 L Soldering Alloy                    │
+│ Token:          none (last: Circuit 14, 3m ago)       │
+├─ Last Action ──────────────────────────────────────────┤
+│ reactor_04 removed from pool — maintenance detected    │
+│ Ops redistributed to 3 healthy machines (4,3,3)        │
+└────────────────────────────────────────────────────────┘
+```
+
+#### Fields (what each means for the player)
+
+
+| Section       | Field           | User-visible meaning                                                                                                                                                                                                                         |
+| ------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Header        | `STATUS`        | **OK** = idle, healthy. **WORKING** = batch in progress. **WAITING** = batch queued, no fluid yet. **FAULT** = at least one machine fault or unrecoverable error. **HALTED** = broker stopped the run (volume too low, no healthy machines). |
+| Current Job   | `Recipe`        | Human name + circuit number from the intercepted token.                                                                                                                                                                                      |
+| Current Job   | `Batch`         | Total fluid received and how many GT recipe cycles that represents.                                                                                                                                                                          |
+| Current Job   | `Progress`      | Ops finished vs total across the whole pool.                                                                                                                                                                                                 |
+| Current Job   | `Phase`         | Plain step name: `Detecting token`, `Allocating`, `Injecting circuits`, `Running machines`, `Recovering circuits`, `Complete`.                                                                                                               |
+| Machine Pool  | `Ops`           | `done/assigned` for this machine (e.g. `2/3` = two of three assigned cycles finished).                                                                                                                                                       |
+| Machine Pool  | `State`         | **IDLE**, **PROCESSING**, **DISABLED** (0 ops), **FAULT** (maintenance/structure), **OFF** (work not allowed).                                                                                                                               |
+| Machine Pool  | `Circuit`       | Programmed circuit in that machine’s input bus, or `—` if none.                                                                                                                                                                              |
+| Machine Pool  | `Maintenance`   | **OK** or short fault text from `getSensorInformation()` (e.g. `NEEDS WRENCH`).                                                                                                                                                              |
+| Subnet Buffer | `Fluid waiting` | Unassigned fluid still in the subnet ME / buffer.                                                                                                                                                                                            |
+| Subnet Buffer | `Token`         | Whether a craft token is present; when absent, show when the last one was seen.                                                                                                                                                              |
+| Last Action   | (message)       | Most recent broker decision in full sentences (redistribution, halt reason, craft complete).                                                                                                                                                 |
+
+
+#### Broker status colors
+
+
+| Status  | Color        | When                                        |
+| ------- | ------------ | ------------------------------------------- |
+| OK      | Green        | Idle, all machines healthy                  |
+| WORKING | White / cyan | Active batch                                |
+| WAITING | Yellow       | Expecting AE delivery                       |
+| FAULT   | Red          | Maintenance or hard error                   |
+| HALTED  | Red          | Run aborted with reason on Last Action line |
+
+
+---
+
+### 5.2 Overseer Display (`overseer_display.lua`)
+
+**Audience:** Operator at the main base — needs warehouse stocking health and whether subnet brokers are responding.
+
+#### Layout (summary page; arrow keys or number keys cycle **Stock** / **Brokers** / **Log** when screen height allows)
+
+**Page 1 — Stock (default)**
+
+```text
+┌─ AutoOS Overseer ── Main ME Network ───────────────────┐
+│ STATUS: REFILLING        Targets: 8    Brokers: 3/3    │
+├─ Stock Targets ────────────────────────────────────────┤
+│ Product              Stock      Band          State    │
+│ Soldering Alloy      142,800    100k–200k     OK       │
+│ Polyethylene         4,200 L    8k–32k L     LOW      │
+│ Ethylene             28,000 L   20k–80k L     OK       │
+│ Hydrochloric Acid    1,200      500–2,000    REFILLING│
+├─ Active Crafts (Main ME) ────────────────────────────────┤
+│ Polyethylene         requesting 28,000 L  (12s ago)    │
+│ Hydrochloric Acid    computing…          (CPU 1)       │
+├─ Next Check ───────────────────────────────────────────┤
+│ Inventory scan in 8s    Last tick: 312ms               │
+└────────────────────────────────────────────────────────┘
+```
+
+**Page 2 — Brokers**
+
+```text
+┌─ AutoOS Overseer ── Subnet Brokers ──────────────────────┐
+│ STATUS: OK               Modem port 105                │
+├─ Broker Links ─────────────────────────────────────────┤
+│ Subnet ID                 Link      Last Seen   Job    │
+│ universal_chemical_mv_01  ONLINE    2s ago      WORK  │
+│ dist_tower_array_02       ONLINE    5s ago      IDLE  │
+│ ebf_mv_south              OFFLINE   4m ago      —     │
+├─ Recent Dispatches ────────────────────────────────────┤
+│ TRIGGER_CRAFT Polyethylene → universal_chemical_mv_01  │
+│   3m ago — broker acknowledged                         │
+└────────────────────────────────────────────────────────┘
+```
+
+**Page 3 — Log (optional, last 5 lines)**
+
+```text
+┌─ AutoOS Overseer ── Event Log ─────────────────────────┐
+│ 14:02  Polyethylene below low — craft requested        │
+│ 14:02  Packet sent to universal_chemical_mv_01         │
+│ 14:05  ebf_mv_south heartbeat missed (3x) — OFFLINE    │
+│ 14:06  Hydrochloric Acid stock restored — IDLE         │
+└────────────────────────────────────────────────────────┘
+```
+
+#### Fields (what each means for the player)
+
+
+| Section       | Field       | User-visible meaning                                                                                                                |
+| ------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Header        | `STATUS`    | **OK** = all targets satisfied. **REFILLING** = at least one craft in flight. **ALERT** = broker offline or repeated craft failure. |
+| Header        | `Targets`   | Count of products under hysteresis rules.                                                                                           |
+| Header        | `Brokers`   | `online/total` subnet links.                                                                                                        |
+| Stock         | `Product`   | ME label (player-facing name).                                                                                                      |
+| Stock         | `Stock`     | Current amount (items or `L` for fluids).                                                                                           |
+| Stock         | `Band`      | Configured `low`–`high` hysteresis band.                                                                                            |
+| Stock         | `State`     | **OK** (inside band), **LOW** (below low, will trigger), **REFILLING** (craft active), **HIGH** (above high — idle).                |
+| Active Crafts | (rows)      | What the Overseer asked AE to craft and job phase (`requesting`, `computing`, `delivering`).                                        |
+| Brokers       | `Link`      | **ONLINE** if heartbeat within timeout; **OFFLINE** otherwise.                                                                      |
+| Brokers       | `Last Seen` | Time since last `pong` or `craft_done` from that broker.                                                                            |
+| Brokers       | `Job`       | Broker-reported phase: **IDLE**, **WORK**, **FAULT** (mirrors broker header STATUS).                                                |
+| Log           | (lines)     | Short, timestamped sentences — same tone as broker Last Action.                                                                     |
+
+
+#### Overseer status colors
+
+
+| Status    | Color  | When                                                          |
+| --------- | ------ | ------------------------------------------------------------- |
+| OK        | Green  | All stock in band, all brokers online                         |
+| REFILLING | Yellow | Crafts in progress, no hard faults                            |
+| ALERT     | Red    | Broker offline, craft failed, or stock critical with no craft |
+
+
+---
+
+### 5.3 Shared Display Contract
+
+Both modules expose the same pattern (matches the proven `legacy/display.lua` approach):
+
+```lua
+-- Built by overseer_main / broker_core each tick — display never polls hardware
+local snapshot = {
+  title = "AutoOS Broker",
+  status = "WORKING",           -- OK | WORKING | WAITING | FAULT | HALTED | REFILLING | ALERT
+  status_reason = "...",        -- one-line plain English
+  uptime = 8042,
+  tick = 4821,
+  job = { ... },                -- broker only
+  machines = { ... },           -- broker only
+  stock_targets = { ... },      -- overseer only
+  brokers = { ... },            -- overseer only
+  last_action = "...",
+}
+
+display:render(snapshot)        -- pcall wrapped by main loop
+```
+
+Keyboard (when implemented): **1 / 2 / 3** or **← / →** cycle Overseer pages; broker stays single-page in v1.
+
+---
+
+## 6. Development Model Prompts
 
 Copy and paste these prompts directly into your code generation models to build out the full application suite:
 
@@ -235,9 +446,13 @@ Write the master execution script `subnet_broker/broker_core.lua` for an OpenCom
 
 Write `overseer/overseer_main.lua` and `overseer/hysteresis_engine.lua`. The hysteresis engine must analyze stock metrics to issue `TRIGGER_CRAFT` signals when inventories fall beneath minimum targets. `overseer_main` must query the central primary network stock lists, process rules using the engine, issue `requestCrafting` tasks to AE2, and push network alert packets to the dedicated Subnet Brokers.
 
+### Phase 5 Prompt (Operator Displays)
+
+Write `subnet_broker/broker_display.lua` and `overseer/overseer_display.lua` per README §5. Each module is read-only, accepts a snapshot table from its parent main loop, uses plain-language labels, color-coded STATUS lines, and change-aware redraw. Broker: single-page batch + machine pool view. Overseer: Stock / Brokers / Log pages with keyboard navigation. Wrap render in `pcall` from the parent; headless when no GPU. Follow `references/OC-GTNH-docs-main/docs/components/gpu.lua` and `references/performance-pitfalls.md`.
+
 ---
 
-## 6. Verification & In-Game Testing Protocol
+## 7. Verification & In-Game Testing Protocol
 
 ### The Drop-In Test
 
@@ -245,7 +460,7 @@ Update `config.lua` addresses to map to an EBF or Assembly Line array. Verify th
 
 ### The Hand-Off Test
 
-Manually insert 3,000 L of Ethylene and an Integrated Circuit (Configuration 18) directly into the Subnet's ME Interface. Verify that the computer extracts the token, splits the batch cleanly into three 1,000 L operations across three separate machines, and leaves the fourth machine empty and completely clean.
+Manually insert 3,000 L of Ethylene and an Integrated Circuit (Configuration 18) directly into the Subnet's ME Interface. Verify that the computer extracts the token, routes each machine’s share to **its own fluid hatch** (1,000 L × three machines), leaves the fourth machine’s hatch empty, and the broker display shows `reactor_04` as **DISABLED** with `0/0` ops.
 
 ### The Safe Failure Test
 
