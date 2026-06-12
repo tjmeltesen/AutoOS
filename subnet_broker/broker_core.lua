@@ -1,16 +1,18 @@
 --[[
-  AutoOS — Broker Core
+  AutoOS — Broker Core (1:1:1 lane topology)
 
-  Batch dispatch planner. Phase 2: machine_poll active pool + optional circuit push.
-  Phase 3 adds ME interface poll loop.
+  Reads subnet batch volume (manual process_batch for now), quantizes ops,
+  polls healthy machines, then for each lane sequentially:
+    set ME interface stocking → transposer transfer → clear interface.
 
-  References: README.md §4
+  References: README.md Architecture Revision Addendum
 ]]
 
 local config = require("config")
 local balancer = require("load_balancer")
 
 local BrokerCore = {}
+BrokerCore.__index = BrokerCore
 
 local DEFAULT_UNIT = 1000
 local _deps = {}
@@ -21,19 +23,13 @@ end
 
 local function try_require_component()
   local ok, component = pcall(require, "component")
-  if ok then
-    return component
-  end
+  if ok then return component end
   return nil
 end
 
 local function get_machine_poll(opts)
-  if opts.machine_poll then
-    return opts.machine_poll
-  end
-  if _deps.machine_poll then
-    return _deps.machine_poll
-  end
+  if opts.machine_poll then return opts.machine_poll end
+  if _deps.machine_poll then return _deps.machine_poll end
   local component = try_require_component()
   if component then
     local ok, MachinePoll = pcall(require, "machine_poll")
@@ -44,14 +40,23 @@ local function get_machine_poll(opts)
   return nil
 end
 
+local function recipe_rules(recipe_key)
+  return config.constraints
+    and config.constraints.recipe_baselines
+    and config.constraints.recipe_baselines[recipe_key]
+end
+
+local function find_machine_row(machine_id)
+  for _, m in ipairs(config.machines) do
+    if m.id == machine_id then return m end
+  end
+  return nil
+end
+
 local function get_circuit_manager(opts)
-  if opts.circuit_manager then
-    return opts.circuit_manager
-  end
-  if _deps.circuit_manager then
-    return _deps.circuit_manager
-  end
-  local component = try_require_component()
+  if opts.circuit_manager then return opts.circuit_manager end
+  if _deps.circuit_manager then return _deps.circuit_manager end
+  local component = opts.component or _deps.component or try_require_component()
   if component then
     local ok, CircuitManager = pcall(require, "circuit_manager")
     if ok then
@@ -62,37 +67,191 @@ local function get_circuit_manager(opts)
 end
 
 local function circuit_damage_for(recipe_key, opts)
-  if opts.circuit_damage then
-    return opts.circuit_damage
-  end
+  if opts.circuit_damage then return opts.circuit_damage end
+  local rules = recipe_rules(recipe_key)
+  if rules and rules.circuit_damage then return rules.circuit_damage end
   local map = config.recipe_circuit_damage
-  if map and map[recipe_key] then
-    return map[recipe_key]
-  end
+  if map and map[recipe_key] then return map[recipe_key] end
   return nil
 end
 
----@param circuit_token_id string Recipe key in config.constraints.recipe_baselines
----@param current_buffer_volume number Total fluid (mB/L) available for the batch
----@param active_pool table[]|nil Defaults to polled healthy machines when omitted
----@param opts table|nil { machine_poll, circuit_manager, push_circuits, circuit_damage, poll_results }
+local function fluid_pull_side(machine_row)
+  if machine_row.fluid_pull_side ~= nil then return machine_row.fluid_pull_side end
+  return machine_row.pull_side
+end
+
+local function proxy(component, address, hint)
+  if not component or not component.proxy then return nil end
+  local ok, p = pcall(component.proxy, address, hint)
+  if ok and p then return p end
+  ok, p = pcall(component.proxy, address)
+  if ok then return p end
+  return nil
+end
+
+--- Configure lane ME interface, transposer transfer, clear interface.
+---@return boolean ok
+---@return string|nil err
+function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component, opts)
+  opts = opts or {}
+  local rules = recipe_rules(recipe_key)
+  if not rules then
+    return false, "no recipe baseline for " .. tostring(recipe_key)
+  end
+
+  local db = config.database_address
+  if not db or db == "" then
+    return false, "database_address not configured"
+  end
+
+  local iface = proxy(component, machine_row.interface_address, "me_interface")
+  if not iface then
+    return false, "me_interface not available at " .. tostring(machine_row.interface_address)
+  end
+
+  local tp = proxy(component, machine_row.transposer_address, "transposer")
+  if not tp then
+    return false, "transposer not available at " .. tostring(machine_row.transposer_address)
+  end
+
+  local volume = allocation.allocated_volume
+  local kind = rules.kind or "fluid"
+  local fluid_side = machine_row.interface_fluid_side or 1
+
+  local push_circuit = opts.push_circuit
+  if push_circuit == nil then push_circuit = opts.push_circuits end
+  local recover_circuit = opts.recover_circuit
+  if recover_circuit == nil then recover_circuit = opts.recover_circuits end
+
+  local damage = circuit_damage_for(recipe_key, opts)
+  if push_circuit and damage then
+    local cm = get_circuit_manager(opts)
+    if not cm then
+      return false, "circuit_manager unavailable"
+    end
+    local ok_push, push_err = cm:push_circuit(machine_row.id, damage)
+    if not ok_push then
+      return false, "push_circuit failed: " .. tostring(push_err)
+    end
+  end
+
+  if kind == "fluid" then
+    local db_slot = rules.fluid_db_slot
+    if not db_slot then
+      return false, "fluid_db_slot missing for recipe"
+    end
+
+    if iface.setFluidInterfaceConfiguration then
+      local ok_cfg = iface.setFluidInterfaceConfiguration(fluid_side, db, db_slot)
+      if not ok_cfg then
+        return false, "setFluidInterfaceConfiguration failed"
+      end
+    end
+
+    if tp.transferFluid then
+      local ok_xfer, moved = tp.transferFluid(
+        fluid_pull_side(machine_row),
+        machine_row.fluid_push_side,
+        volume
+      )
+      if not ok_xfer or (moved and moved < 1) then
+        if iface.setFluidInterfaceConfiguration then
+          iface.setFluidInterfaceConfiguration(fluid_side)
+        end
+        return false, "transferFluid failed: " .. tostring(moved)
+      end
+    elseif tp.transferItem then
+      return false, "fluid recipe but transposer has no transferFluid"
+    end
+
+    if iface.setFluidInterfaceConfiguration then
+      iface.setFluidInterfaceConfiguration(fluid_side)
+    end
+  else
+    return false, "unsupported recipe kind: " .. tostring(kind)
+  end
+
+  if recover_circuit and damage then
+    local cm = get_circuit_manager(opts)
+    if not cm then
+      return false, "circuit_manager unavailable for recovery"
+    end
+    local ok_rec, rec_err = cm:recover_circuit(machine_row.id, damage)
+    if not ok_rec then
+      return false, "recover_circuit failed: " .. tostring(rec_err)
+    end
+  end
+
+  return true
+end
+
+--- Manual in-game test: push circuit + fluid for one lane, optionally recover circuit.
 ---@return boolean success
-function BrokerCore.process_batch(circuit_token_id, current_buffer_volume, active_pool, opts)
+---@return string|nil err
+function BrokerCore.manual_lane_test(machine_id, recipe_key, volume, opts)
+  opts = opts or {}
+  opts.push_circuit = opts.push_circuit ~= false
+  opts.recover_circuit = opts.recover_circuit == true
+
+  local row = find_machine_row(machine_id)
+  if not row then
+    return false, "unknown machine_id " .. tostring(machine_id)
+  end
+
+  local rules = recipe_rules(recipe_key)
+  if not rules or not rules.fluid_requirement then
+    return false, "no recipe baseline for " .. tostring(recipe_key)
+  end
+
+  local ops = balancer.total_operations(volume, rules.fluid_requirement)
+  if ops < 1 then
+    return false, "volume too low for one operation"
+  end
+
+  local allocation = {
+    operations = ops,
+    allocated_volume = ops * rules.fluid_requirement,
+  }
+
+  print(string.format(
+    "[AutoOS] Manual lane test %s recipe=%s volume=%dL ops=%d recover=%s",
+    machine_id,
+    recipe_key,
+    volume,
+    ops,
+    tostring(opts.recover_circuit)
+  ))
+
+  local component = opts.component or _deps.component or try_require_component()
+  local execute_hw = opts.execute_hardware
+  if execute_hw == nil then execute_hw = component ~= nil end
+
+  if not execute_hw or not component then
+    print("[AutoOS] Manual lane test: print-only (no component)")
+    return true
+  end
+
+  return BrokerCore.execute_lane(row, allocation, recipe_key, component, opts)
+end
+
+---@param recipe_key string
+---@param current_buffer_volume number
+---@param active_pool table[]|nil
+---@param opts table|nil execute_hardware, machine_poll, poll_results
+---@return boolean success
+function BrokerCore.process_batch(recipe_key, current_buffer_volume, active_pool, opts)
   opts = opts or {}
 
-  print(string.format("\n[AutoOS] Subnet '%s' Initializing Universal Run...", config.subnet_id))
+  print(string.format("\n[AutoOS] Subnet '%s' Initializing lane dispatch...", config.subnet_id))
 
-  local recipe_rules = config.constraints
-    and config.constraints.recipe_baselines
-    and config.constraints.recipe_baselines[circuit_token_id]
-
+  local rules = recipe_rules(recipe_key)
   local minimum_unit = DEFAULT_UNIT
-  if recipe_rules and recipe_rules.fluid_requirement then
-    minimum_unit = recipe_rules.fluid_requirement
+  if rules and rules.fluid_requirement then
+    minimum_unit = rules.fluid_requirement
   else
     print(string.format(
       "[AutoOS] Warning: no recipe baseline for '%s'; using default %dL per operation",
-      tostring(circuit_token_id),
+      tostring(recipe_key),
       DEFAULT_UNIT
     ))
   end
@@ -122,8 +281,8 @@ function BrokerCore.process_batch(circuit_token_id, current_buffer_volume, activ
 
   local total_ops = balancer.total_operations(current_buffer_volume, minimum_unit)
   print(string.format(
-    "[AutoOS] Recipe '%s' — %dL batch, %dL per op → %d operations total (%d machines in pool)",
-    tostring(circuit_token_id),
+    "[AutoOS] Recipe '%s' — %dL in subnet, %dL per op → %d operations (%d healthy lanes)",
+    tostring(recipe_key),
     current_buffer_volume,
     minimum_unit,
     total_ops,
@@ -136,44 +295,58 @@ function BrokerCore.process_batch(circuit_token_id, current_buffer_volume, activ
     return false
   end
 
-  local damage = circuit_damage_for(circuit_token_id, opts)
-  local push_circuits = opts.push_circuits
-  if push_circuits == nil then
-    push_circuits = true
+  local component = opts.component or _deps.component or try_require_component()
+  local execute_hw = opts.execute_hardware
+  if execute_hw == nil then
+    execute_hw = component ~= nil
   end
-  local cm = push_circuits and damage and get_circuit_manager(opts) or nil
 
-  for _, machine in ipairs(config.machines) do
+  -- One-at-a-time: process each healthy lane in pool order before moving to next.
+  for _, machine in ipairs(active_pool) do
     local target = allocations[machine.id]
-    local in_pool = false
-    for _, m in ipairs(active_pool) do
-      if m.id == machine.id then
-        in_pool = true
-        break
-      end
-    end
-
-    if not in_pool then
-      print(string.format(" -> [Dispatch -> %s] 0 Ops allocated. Machine safe and clean.", machine.id))
-    elseif target and target.operations > 0 then
+    if target and target.operations > 0 then
       print(string.format(
-        " -> [Dispatch -> %s] Routing %d Operations (%dL) to bus [%s] hatch [%s]",
+        " -> [Lane -> %s] %d ops (%dL) interface [%s] transposer [%s] item %d→%d fluid %d→%d",
         machine.id,
         target.operations,
         target.allocated_volume,
-        target.bus_in,
-        target.hatch_fluid
+        machine.interface_address,
+        machine.transposer_address,
+        machine.pull_side,
+        machine.push_side,
+        fluid_pull_side(machine),
+        machine.fluid_push_side
       ))
-      if cm then
-        local ok_push, push_err = cm:push_circuit(machine.id, damage)
-        if ok_push then
-          print(string.format(" -> [Circuit -> %s] Pushed configuration %d", machine.id, damage))
+
+      if execute_hw and component then
+        local row = find_machine_row(machine.id) or machine
+        local lane_opts = {}
+        for k, v in pairs(opts) do lane_opts[k] = v end
+        if lane_opts.push_circuits == nil then
+          lane_opts.push_circuits = circuit_damage_for(recipe_key, opts) ~= nil
+        end
+        if lane_opts.recover_circuits == nil then
+          lane_opts.recover_circuits = false
+        end
+        local ok_lane, lane_err = BrokerCore.execute_lane(row, target, recipe_key, component, lane_opts)
+        if ok_lane then
+          print(string.format(" -> [Lane -> %s] Transfer complete", machine.id))
         else
-          print(string.format(" -> [Circuit -> %s] Push failed: %s", machine.id, tostring(push_err)))
+          print(string.format(" -> [Lane -> %s] Transfer failed: %s", machine.id, tostring(lane_err)))
+          return false
         end
       end
-    else
-      print(string.format(" -> [Dispatch -> %s] 0 Ops allocated. Machine safe and clean.", machine.id))
+    end
+  end
+
+  for _, machine in ipairs(config.machines) do
+    local in_pool = false
+    for _, m in ipairs(active_pool) do
+      if m.id == machine.id then in_pool = true break end
+    end
+    local target = allocations[machine.id]
+    if not in_pool or not target or target.operations == 0 then
+      print(string.format(" -> [Lane -> %s] 0 ops — idle", machine.id))
     end
   end
 

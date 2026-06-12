@@ -33,3 +33,27 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Added `tests/mock_broker_hardware.lua`, `tests/phase2_broker_test.lua`: 21 checks (maintenance, pool filter, 4,3,3 safe-failure math, export/transposer circuit paths, broker integration)
 - Desktop: `C:\Lua\lua55.exe tests\phase2_broker_test.lua` — 21/21; `phase1_broker_test.lua` — 27/27 regression
 - In-game: wget all `subnet_broker/*.lua`; fill `database_address`, `circuit_vault`, `bus_export_side`; stock vault + ME storage bus; `diag.lua` then Safe Failure `process_batch` twice; REPL `circuit_manager` push/recover round-trip
+
+## 2026-06-10 — Architecture revision: 1:1:1 transposer topology
+
+- Changed `README.md`: replaced centralized buffer/vault/circuit_manager design with per-lane ME Interface + Transposer + gt_machine (1:1:1); updated mermaid, lifecycle, config contract, Phase 2/3 prompts, hand-off test
+- Changed `subnet_broker/config.lua`: machines use `interface_address`, `transposer_address`, `pull_side`, `push_side`, `interface_fluid_side`; shared `database_address` + `fluid_db_slot` per recipe; removed `bus_in`, `hatch_fluid`, `circuit_vault`, export-bus fields
+- Changed `subnet_broker/broker_core.lua`: `execute_lane()` — setFluidInterfaceConfiguration → transferFluid → clear; sequential one-at-a-time dispatch; `process_batch()` manual volume trigger
+- Changed `subnet_broker/load_balancer.lua`: allocation map includes per-lane interface/transposer/sides
+- Deleted `subnet_broker/circuit_manager.lua`: circuits via subnet ME patterns, not vault
+- Changed `subnet_broker/diag.lua`, `subnet_broker/start.lua`: per-lane UUID walk; removed circuit dry-run
+- Changed `tests/mock_broker_hardware.lua`, `tests/phase1_broker_test.lua`, `tests/phase2_broker_test.lua`: new schema + lane execution mocks
+- Desktop: `phase1_broker_test.lua` + `phase2_broker_test.lua` regression after refactor
+
+## 2026-06-10 — Per-lane circuit push/recover (1:1:1)
+
+- Added `subnet_broker/circuit_manager.lua`: `push_circuit` / `recover_circuit` via lane ME Interface `setInterfaceConfiguration` + transposer `transferItem` (subnet storage, no vault)
+- Changed `subnet_broker/config.lua`: `circuit_db_slots`, `recipe_circuit_damage`, `circuit_item_name`, per-lane `interface_item_slot`/`input_slot`, `circuit_damage` on recipe baselines
+- Changed `subnet_broker/broker_core.lua`: circuit push before fluid in `execute_lane`; `manual_lane_test()` for in-game REPL; `recover_circuits` opt (default false on batch)
+- Changed `subnet_broker/diag.lua`: optional `CIRCUIT_TEST_LANE` live push+fluid+recover block; REPL examples in header
+- Changed `tests/mock_broker_hardware.lua`, `tests/phase2_broker_test.lua`: circuit push/recover + full lane cycle checks
+
+## 2026-06-10 — Split item bus vs fluid hatch transposer sides
+
+- Changed `subnet_broker/config.lua`: `pull_side`/`push_side` = item input bus; required `fluid_push_side`, optional `fluid_pull_side`
+- Changed `subnet_broker/broker_core.lua`, `load_balancer.lua`: `transferFluid` uses fluid sides; dispatch log `item X→Y fluid A→B`

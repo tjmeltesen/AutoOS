@@ -3,7 +3,8 @@
 
   HDD layout:
     /home/AutoOS/subnet_broker/
-      config.lua, load_balancer.lua, broker_core.lua, start.lua, diag.lua
+      config.lua, load_balancer.lua, broker_core.lua, circuit_manager.lua,
+      machine_poll.lua, maintenance_parse.lua, start.lua, diag.lua
 
   Optional top-level boot:
     /home/start.lua → loadfile("/home/AutoOS/subnet_broker/start.lua")()

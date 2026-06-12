@@ -10,46 +10,38 @@ AutoOS is a decoupled, highly modular automation framework designed for OpenComp
 
 ```mermaid
 graph TD
-    %% Overseer Macro Level
     subgraph Overseer_Tier [Overseer Global Tier]
         Overseer[overseer_main.lua] -->|Audits Global Stock Matrix| Global_Storage[(Main AE2 Network Storage)]
         Overseer -->|Calculates Hysteresis Triggers| Hysteresis[hysteresis_engine.lua]
         Hysteresis -->|Dispatches Network Packet| Net_Bridge[network_protocols.lua]
     end
 
-    %% Network Packet Routing
     Net_Bridge -->|Wireless / Serial Packet| Broker_Core
 
-    %% Subnet Architecture
     subgraph Subnet_Node [Isolated Subnet Broker Node]
-        Broker_Core[broker_core.lua] -->|1. Reads Config Mapping| Local_Config[(config.lua)]
-        Broker_Core -->|2. Scans Incoming Smart Buffer| ME_Int(Subnet ME Interface Buffer)
-        
-        %% Core Control Logic
-        Broker_Core -->|3. Identifies Token & Pulls Data| Math_Engine[load_balancer.lua]
-        Math_Engine -->|4. Quantizes Volumes to Whole Operations| Alloc_Map{Allocation Map}
-        
-        %% Physical Execution Paths
-        Alloc_Map -->|5a. Fetch Physical Circuits| Vault_Mgr[circuit_manager.lua]
-        Vault_Mgr -->|Active Routing| Vault[(Local Circuit Vault)]
-        
-        Alloc_Map -->|5b. Route Exact Integer Chunks| Machine_Pool[[Universal Machine Array]]
-        Vault -->|Injects Circuit Blocks| Machine_Pool
-        
-        %% Cleanup Cycle
-        Machine_Pool -->|6. Check Status| Status_Check[machine_poll.lua]
-        Machine_Pool -->|7. Cycle Complete: Recover Circuits| Vault_Mgr
-        Machine_Pool -->|8. Return Outputs| ME_Int
+        Broker_Core[broker_core.lua] -->|1. Reads lane mapping| Local_Config[(config.lua)]
+        Broker_Core -->|2. Manual batch volume| Subnet_Storage[(Subnet ME Storage)]
+        Broker_Core -->|3. Poll healthy lanes| Status_Check[machine_poll.lua]
+        Broker_Core -->|4. Quantize ops| Math_Engine[load_balancer.lua]
+        Math_Engine --> Alloc_Map{Allocation Map}
+
+        subgraph Lane_01 [Lane 1 — 1:1:1]
+            Alloc_Map -->|5. Set stocking config| IF1[ME Interface 01]
+            IF1 -->|6. Transposer pull→push| TP1[Transposer 01]
+            TP1 --> MB1[Multiblock 01]
+        end
+        subgraph Lane_02 [Lane 2 — 1:1:1]
+            Alloc_Map --> IF2[ME Interface 02]
+            IF2 --> TP2[Transposer 02]
+            TP2 --> MB2[Multiblock 02]
+        end
     end
 
-    %% Styling
     style Overseer fill:#2c3e50,stroke:#34495e,stroke-width:2px,color:#fff
     style Global_Storage fill:#7f8c8d,stroke:#95a5a6,stroke-width:2px,color:#fff
-    style ME_Int fill:#16a085,stroke:#1abc9c,stroke-width:2px,color:#fff
     style Broker_Core fill:#2980b9,stroke:#3498db,stroke-width:2px,color:#fff
     style Local_Config fill:#8e44ad,stroke:#9b59b6,stroke-width:2px,color:#fff
-    style Machine_Pool fill:#d35400,stroke:#e67e22,stroke-width:2px,color:#fff
-    style Vault fill:#27ae60,stroke:#2ecc71,stroke-width:2px,color:#fff
+    style Subnet_Storage fill:#16a085,stroke:#1abc9c,stroke-width:2px,color:#fff
 ```
 
 
@@ -60,37 +52,41 @@ graph TD
 
 **Isolated Subnet Broker Nodes:** Micro-controllers physically dedicated to localized machine groupings. They operate entirely off immediate localized conditions and are decoupled from the core base infrastructure.
 
-### Physical Wiring Assumption (v1)
+### Architecture Revision Addendum: 1:1:1 Transposer Topology
 
-Each multiblock in a machine pool is wired **independently**:
-
-
-| Per multiblock        | Count | Role                                                                |
-| --------------------- | ----- | ------------------------------------------------------------------- |
-| **Item input bus**    | 1     | Receives programmed circuits and solid inputs for that machine only |
-| **Fluid input hatch** | 1     | Receives fluid batches routed to that machine only                  |
+The centralized fluid/item routing buffer, export bus, and circuit vault are **abandoned**. Each of exactly **four** multiblocks uses strict hardware isolation:
 
 
-There is **no shared input bus or shared fluid hatch** across machines in v1. A four-machine array means four buses, four hatches, and four `gt_machine` adapters (or MFU links). The broker’s load balancer assigns **integer operation budgets per machine**; physical routing delivers each machine’s share to **its** bus and hatch (via subnet ME export, transposer, or equivalent — defined per deployment in `config.lua`).
+| Per lane (multiblock) | Count | Role |
+| --------------------- | ----- | ---- |
+| **Subnet ME Interface** | 1 | OC adapter sets `setFluidInterfaceConfiguration` to pull exact quantized amounts from subnet storage into the interface buffer |
+| **OC Transposer** | 1 | Item path: `pull_side`→`push_side` (input bus). Fluid path: `fluid_pull_side`→`fluid_push_side` (fluid hatch) |
+| **gt_machine adapter** | 1 | Maintenance poll via `getSensorInformation()` — never used for routing |
 
-Future experiments (e.g. a common feed tank with per-machine hatches still on separate multis) are out of scope until v1 is validated in-game.
+There is **no shared transposer, export bus, or circuit vault**. Circuits and solids arrive via AE2 patterns into subnet storage (not a separate vault). A four-machine array means four interfaces, four transposers, four `gt_machine` proxies.
+
+The broker assigns **integer operation budgets per machine** (`load_balancer.lua`), then executes **one lane at a time** in pool order: configure interface → transposer transfer → clear interface.
 
 ---
 
-## 2. Advanced Process Flow & The "Token-Based" Universal Loop
+## 2. Advanced Process Flow & Lane Dispatch Loop
 
-To achieve a truly universal array where any multi-block can process any recipe on demand without static hardcoded logic mappings, AutoOS intercepts execution through the **AE2 Pattern Encoding Trick**.
+Bulk crafts land in **subnet ME storage** (main net patterns deposit fluids/items/circuits into the isolated subnet). Phase 3 will automate stock polling and token intercept; **v1 uses manual `process_batch(recipe_key, volume)`**.
 
-### The Core Lifecycle
+### The Core Lifecycle (per batch)
 
-1. **Pattern Encoding:** Every automated recipe is programmed into your Main Net AE2 Pattern Terminal with its required Integrated Circuit included as a physical input item ingredient.
-2. **Batch Influx:** When a craft triggers (via automated restocking or a direct player terminal click), AE2 dumps the raw items, fluids, and the physical circuit "Token" into the Subnet's Main ME Interface Buffer.
-3. **Passive Intercept:** The Subnet Broker continuously polls this buffer interface. It doesn't care where the job originated. When it catches an incoming `gt.integrated_circuit` item, it intercepts its configuration tag value (e.g., Circuit 14) to identify the target recipe and immediately evacuates the physical token back to network storage.
-4. **Quantized Load-Balancing Math:** To prevent fractional-volume fluid splitting (which bricks GregTech multiblocks), the broker translates total incoming bulk volumes into clean, discrete integer operations ($O$) before allocating them down to individual machines:
+1. **Pattern Encoding:** Recipes are programmed on the main net (or subnet) with integrated circuits as pattern inputs where required. Craft output is stored on the subnet — no separate circuit vault.
+2. **Manual trigger (v1):** Operator or test harness calls `BrokerCore.process_batch("molten_soldering_alloy", 15000)` with the total fluid volume available in subnet storage.
+3. **Safe pool build:** `machine_poll.lua` drops lanes with maintenance faults (`Problems: N > 0`) from the active pool.
+4. **Quantized load-balancing:** Integer operations only — no fractional fluid division:
 
-$$\text{Operations Per Machine} = \left\lfloor \frac{\text{Total Available Operations}}{\text{Active Machine Pool Size}} \right\rfloor$$
+$$O = \left\lfloor \frac{\text{Total Volume}}{\text{fluid\_requirement}} \right\rfloor, \quad \text{ops per lane} = \left\lfloor \frac{O}{M} \right\rfloor + \text{remainder}$$
 
-1. **Dynamic Vault Dispatch:** The broker instructs its local Circuit Vault to push physical circuit configuration blocks into **each machine’s dedicated input bus** before raw materials are moved to **that machine’s fluid hatch**. Once processing concludes, circuits are swept back to the vault automatically.
+5. **Sequential lane execution (1:1:1):** For each healthy lane with `operations > 0`:
+   - `component.proxy(interface_address)` → `setFluidInterfaceConfiguration(fluid_side, database_address, fluid_db_slot)` — AE2 subnets stock exact amount into interface buffer
+   - `component.proxy(transposer_address)` → `transferFluid(fluid_pull_side, fluid_push_side, allocated_volume)`
+   - Clear interface configuration (`setFluidInterfaceConfiguration(fluid_side)` with no db/slot)
+6. **Phase 3 (future):** Passive ME interface polling, integrated-circuit token intercept, overseer craft triggers.
 
 ---
 
@@ -104,12 +100,14 @@ AutoOS/
 │   ├── hysteresis_engine.lua     # Evaluates high/low triggers for restocking rules
 │   └── overseer_display.lua      # GPU panel: warehouse stock, crafts, broker links
 ├── subnet_broker/
-│   ├── config.lua                # LOCAL CONFIG: Unique subnet hardware & recipe baselines
-│   ├── broker_core.lua           # Main Subnet polling loop and processing coordinator
+│   ├── config.lua                # Per-lane OC addresses (interface, transposer, gt) + recipe db slots
+│   ├── broker_core.lua           # Lane dispatch: interface config → transposer → clear
 │   ├── broker_display.lua        # GPU panel: batch job, machine pool, faults
-│   ├── machine_poll.lua          # Diagnostics and GTNH maintenance fault scanner
-│   ├── circuit_manager.lua       # Handles inventory manipulation of physical circuit blocks
-│   └── load_balancer.lua         # Pure math module executing quantized integer division
+│   ├── machine_poll.lua          # GT maintenance fault scanner; builds active pool
+│   ├── maintenance_parse.lua     # Parses getSensorInformation() fault strings
+│   ├── load_balancer.lua         # Pure integer operation distribution
+│   ├── diag.lua                  # In-game smoke test
+│   └── start.lua                 # Boot helper + README verification batch
 └── shared/
     └── network_protocols.lua     # Serialized JSON packet definitions for Inter-OS comms
 ```
@@ -126,23 +124,38 @@ Provides localized environmental context to the broker. This file is the only fi
 local Config = {
     subnet_id = "universal_chemical_mv_01",
     main_net_channel = 105,
-    circuit_vault_address = "vault-chest-00a12",
-    
+    database_address = "database-00a12",  -- shared OC database for fluid/item descriptors
+
     machines = {
-        -- v1: one item input bus + one fluid input hatch per multiblock
-        { id = "reactor_01", gt_address = "gt-uuid-01", bus_in = "bus-in-01", hatch_fluid = "hatch-fluid-01" },
-        { id = "reactor_02", gt_address = "gt-uuid-02", bus_in = "bus-in-02", hatch_fluid = "hatch-fluid-02" },
-        { id = "reactor_03", gt_address = "gt-uuid-03", bus_in = "bus-in-03", hatch_fluid = "hatch-fluid-03" },
-        { id = "reactor_04", gt_address = "gt-uuid-04", bus_in = "bus-in-04", hatch_fluid = "hatch-fluid-04" },
+        {
+            id = "machine_01",
+            gt_address = "gt-uuid-01",
+            interface_address = "me-interface-uuid-01",
+            transposer_address = "transposer-uuid-01",
+            pull_side = 0,        -- item: transposer side facing ME interface
+            push_side = 3,        -- item: transposer side facing input bus
+            fluid_pull_side = 0,  -- fluid: ME interface face (defaults to pull_side)
+            fluid_push_side = 2,  -- fluid: transposer side facing fluid hatch
+            interface_fluid_side = 1,  -- ME interface API face for fluid stocking
+        },
+        -- machine_02 .. machine_04: same fields, unique UUIDs per lane
     },
-    
+
     constraints = {
-        max_energy_tier = 2, -- MV Level Cap
+        max_energy_tier = 2,
         recipe_baselines = {
-            ["molten_soldering_alloy"] = { fluid_requirement = 1440 }, -- Must step in clean 1440L blocks
-            ["polyethylene"]           = { fluid_requirement = 1000 }  -- Must step in clean 1000L blocks
-        }
-    }
+            ["molten_soldering_alloy"] = {
+                fluid_requirement = 1440,
+                fluid_db_slot = 1,
+                kind = "fluid",
+            },
+            ["polyethylene"] = {
+                fluid_requirement = 1000,
+                fluid_db_slot = 2,
+                kind = "fluid",
+            },
+        },
+    },
 }
 
 return Config
@@ -175,9 +188,12 @@ function LoadBalancer.calculate_distribution(active_pool, total_fluid, unit_requ
         end
         
         distribution_map[machine.id] = {
-            address = machine.bus_in,
+            interface_address = machine.interface_address,
+            transposer_address = machine.transposer_address,
+            pull_side = machine.pull_side,
+            push_side = machine.push_side,
             operations = assigned_ops,
-            allocated_volume = assigned_ops * unit_requirement
+            allocated_volume = assigned_ops * unit_requirement,
         }
     end
     
@@ -189,48 +205,16 @@ return LoadBalancer
 
 ### Module: `subnet_broker/broker_core.lua`
 
-The primary operational orchestrator loop handling intercept and dispatch events.
+Orchestrates safe-pool build, integer allocation, and **sequential per-lane hardware execution**.
 
 ```lua
-local config   = require("config")
-local balancer = require("load_balancer")
+-- Per lane (when execute_hardware = true):
+--   1. iface.setFluidInterfaceConfiguration(fluid_side, database_address, fluid_db_slot)
+--   2. tp.transferFluid(pull_side, push_side, allocated_volume)
+--   3. iface.setFluidInterfaceConfiguration(fluid_side)  -- clear stocking slot
 
-local BrokerCore = {}
-
-function BrokerCore.process_batch(circuit_token_id, current_buffer_volume)
-    print(string.format("\n[AutoOS] Subnet '%s' Initializing Universal Run...", config.subnet_id))
-    
-    local recipe_rules = config.constraints.recipe_baselines[circuit_token_id]
-    local minimum_unit = recipe_rules and recipe_rules.fluid_requirement or 1000
-    
-    -- Fetches operational status maps via machine_poll.lua
-    local active_pool = {}
-    for _, m in ipairs(config.machines) do
-        table.insert(active_pool, m) 
-    end
-    
-    -- Evaluate the quantized operation allocations
-    local allocations, err = balancer.calculate_distribution(active_pool, current_buffer_volume, minimum_unit)
-    if not allocations then
-        print("[Execution Halted] " .. tostring(err))
-        return false
-    end
-    
-    -- Dispatch Routine Interface Execution Loop
-    for m_id, target in pairs(allocations) do
-        if target.operations > 0 then
-            print(string.format(" -> [Dispatch -> %s] Routing %d Operations (%dL) to Input Bus [%s]", 
-                m_id, target.operations, target.allocated_volume, target.address))
-        else
-            print(string.format(" -> [Dispatch -> %s] 0 Ops allocated. Machine safe and clean.", m_id))
-        end
-    end
-end
-
--- Verify 15,000L of Soldering Alloy over 4 machines.
--- 15,000L / 1440L = 10 operations total. 
--- 10 operations over 4 machines must resolve to: 3, 3, 2, 2. No fractions!
 BrokerCore.process_batch("molten_soldering_alloy", 15000)
+-- 15,000L / 1440L = 10 ops → 3, 3, 2, 2 across four healthy lanes
 ```
 
 ---
@@ -436,11 +420,11 @@ Write two compliant Lua modules for an OpenComputers project named AutoOS runnin
 
 ### Phase 2 Prompt (Hardware & Control)
 
-Write two modular Lua scripts for OpenComputers: `subnet_broker/machine_poll.lua` and `subnet_broker/circuit_manager.lua`. `machine_poll` must verify active multiblock maintenance flags via the OpenComputers component API to drop broken machines from the active pool. `circuit_manager` must push and recover physical Integrated Circuits from a local vault container directly to specified multiblock bus addresses on demand.
+Write `subnet_broker/machine_poll.lua` and `subnet_broker/maintenance_parse.lua`. `machine_poll` must verify active multiblock maintenance flags via `gt_machine.getSensorInformation()` and drop faulted lanes from the active pool. Rewrite `broker_core.lua` for the **1:1:1 topology**: per-lane `component.proxy` of ME Interface and Transposer, `setFluidInterfaceConfiguration` → `transferFluid` → clear interface. No `circuit_manager` or centralized vault.
 
 ### Phase 3 Prompt (Orchestrator Loop)
 
-Write the master execution script `subnet_broker/broker_core.lua` for an OpenComputers system. It must implement a passive background loop polling the subnet's local ME Interface. It must intercept arriving integrated circuit items as craft tokens, instantly clear them from the interface, resolve total batch fluid sizing via `load_balancer` math, trigger `circuit_manager` configuration changes, and handle the raw ingredient distribution without locking up.
+Extend `broker_core.lua` with a passive background loop: poll subnet ME storage volume, intercept integrated-circuit craft tokens on the subnet interface, map token → recipe baseline, then call existing `process_batch` lane dispatch. Overseer `TRIGGER_CRAFT` packets remain async; broker stays decoupled from main-net polling.
 
 ### Phase 4 Prompt (Macro Overseer Layer)
 
@@ -460,7 +444,7 @@ Update `config.lua` addresses to map to an EBF or Assembly Line array. Verify th
 
 ### The Hand-Off Test
 
-Manually insert 3,000 L of Ethylene and an Integrated Circuit (Configuration 18) directly into the Subnet's ME Interface. Verify that the computer extracts the token, routes each machine’s share to **its own fluid hatch** (1,000 L × three machines), leaves the fourth machine’s hatch empty, and the broker display shows `reactor_04` as **DISABLED** with `0/0` ops.
+With 3,000 L of Ethylene in subnet storage, run `process_batch("polyethylene", 3000)`. Verify integer ops **1, 1, 1, 0** (1,000 L per lane × three machines), each lane’s transposer moves only its share via its dedicated interface, and `machine_04` shows **0 ops — idle**.
 
 ### The Safe Failure Test
 
