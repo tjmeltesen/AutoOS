@@ -68,9 +68,23 @@ function Mock.new(opts)
         stats.setFluidInterfaceConfiguration = stats.setFluidInterfaceConfiguration + 1
         if db == nil then
           interfaces[m.interface_address]._fluid_cfg = nil
+          local tp_ref = transposers[m.transposer_address]
+          if tp_ref and tp_ref._fluid_side then
+            local inv = tp_ref._inv
+            if inv[tp_ref._fluid_side] then inv[tp_ref._fluid_side]._fluid_mb = nil end
+            tp_ref._fluid_side = nil
+          end
           return true
         end
         interfaces[m.interface_address]._fluid_cfg = { side = side, db = db, slot = slot }
+        local tp_ref = transposers[m.transposer_address]
+        if tp_ref then
+          local pull = m.fluid_pull_side or m.interface_item_side or 1
+          tp_ref._fluid_side = pull
+          local inv = tp_ref._inv
+          inv[pull] = inv[pull] or {}
+          inv[pull]._fluid_mb = 100000
+        end
         return true
       end,
       setInterfaceConfiguration = function(a, b, c, d)
@@ -125,11 +139,26 @@ function Mock.new(opts)
         if not side_inv then return nil end
         return side_inv[slot]
       end,
+      getTankLevel = function(side, tank)
+        local inv = inv[side]
+        if inv and inv._fluid_mb and inv._fluid_mb > 0 then
+          return inv._fluid_mb
+        end
+        return 0
+      end,
+      getTankCount = function() return 1 end,
       transferFluid = function(from_side, to_side, count)
         stats.transferFluid = stats.transferFluid + 1
-        transposers[m.transposer_address]._last_fluid = { from_side, to_side, count }
-        transposers[m.transposer_address]._last_fluid_sides = { from_side, to_side }
-        return true, count
+        local tp_ref = transposers[m.transposer_address]
+        tp_ref._last_fluid = { from_side, to_side, count }
+        tp_ref._last_fluid_sides = { from_side, to_side }
+        local from_inv = inv[from_side] or {}
+        if not from_inv._fluid_mb or from_inv._fluid_mb < 1 then
+          return false, "tank empty"
+        end
+        local moved = math.min(count or 1000, from_inv._fluid_mb)
+        from_inv._fluid_mb = from_inv._fluid_mb - moved
+        return true, moved
       end,
       transferItem = function(from_side, to_side, count, from_slot, to_slot)
         stats.transferItem = stats.transferItem + 1

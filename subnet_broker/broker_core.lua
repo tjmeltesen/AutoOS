@@ -11,6 +11,7 @@
 local config = require("config")
 local balancer = require("load_balancer")
 local DescriptorCache = require("descriptor_cache")
+local FluidLane = require("fluid_lane")
 local LaneSides = require("lane_sides")
 
 local BrokerCore = {}
@@ -199,25 +200,29 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
       return false, tostring(db_slot)
     end
 
-    if iface.setFluidInterfaceConfiguration then
-      local ok_cfg = iface.setFluidInterfaceConfiguration(fluid_side, db, db_slot)
-      if not ok_cfg then
-        return false, "setFluidInterfaceConfiguration failed"
-      end
+    local me_fluid_side = fluid_side
+    local pull_side = fluid_from
+    local stock_err
+    me_fluid_side, pull_side, stock_err = FluidLane.stock_and_locate(iface, tp, db, db_slot, fluid_side)
+    if not pull_side then
+      return false, string.format(
+        "%s (%s) — stock %q in subnet ME?",
+        stock_err or "fluid stocking failed",
+        FluidLane.transposer_tank_summary(tp),
+        tostring(rules.fluid_label or rules.fluid_registry)
+      )
     end
 
-    if os and os.sleep then os.sleep(0.25) end
-
     if tp.transferFluid then
-      local ok_xfer, moved, xfer_err = transfer_fluid_with_retries(tp, fluid_from, fluid_to, volume)
+      local ok_xfer, moved, xfer_err = transfer_fluid_with_retries(tp, pull_side, fluid_to, volume)
       if not ok_xfer then
         if iface.setFluidInterfaceConfiguration then
-          iface.setFluidInterfaceConfiguration(fluid_side)
+          iface.setFluidInterfaceConfiguration(me_fluid_side)
         end
-        local detail = xfer_err or fluid_tank_hint(tp, fluid_from)
+        local detail = xfer_err or fluid_tank_hint(tp, pull_side)
         return false, string.format(
-          "transferFluid failed (transposer %d→%d, ME fluid side %d, wanted %d mB): %s",
-          fluid_from, fluid_to, fluid_side, volume, detail
+          "transferFluid failed (transposer %d→%d, ME side %d, wanted %d mB): %s",
+          pull_side, fluid_to, me_fluid_side, volume, detail
         )
       end
     elseif tp.transferItem then
@@ -225,7 +230,7 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
     end
 
     if iface.setFluidInterfaceConfiguration then
-      iface.setFluidInterfaceConfiguration(fluid_side)
+      iface.setFluidInterfaceConfiguration(me_fluid_side)
     end
   else
     return false, "unsupported recipe kind: " .. tostring(kind)

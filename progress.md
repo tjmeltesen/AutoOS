@@ -115,4 +115,10 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Changed `lane_sides.lua`: `interface_fluid_side` = ME block face (default 0); `fluid_pull_side` = transposer face (default top)
 - Changed `config.lua`: `interface_fluid_side=0`, `fluid_pull_side=1`, `fluid_push_side=2`
 - Changed `broker_core.lua`: surface transposer transferFluid error + tank probe hint
+
+## 2026-06-10 — Auto-discover fluid on transposer after ME stocking
+
+- Added `subnet_broker/fluid_lane.lua`: probe transposer tanks; try ME interface faces 0–5 until fluid appears
+- Changed `broker_core.lua`: use `stock_and_locate` instead of fixed pull side
+- Changed `tests/mock_broker_hardware.lua`: `getTankLevel` for fluid probe tests
 - Changed `tests/mock_broker_hardware.lua`: stock interface slot on setInterfaceConfiguration for same-side transfer tests
