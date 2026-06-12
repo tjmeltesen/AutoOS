@@ -157,16 +157,23 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     return false, "setInterfaceConfiguration returned false (check database slot " .. tostring(db_slot) .. ")"
   end
 
+  local iface_side = LaneSides.interface_item_side(machine)
   local bus_side = LaneSides.item_bus_side(machine)
   if bus_side == nil then
     return false, "item_bus_side not configured"
   end
-  -- Interface + input bus share one transposer face: transfer within that side.
+
+  -- AE2 needs a tick to stock the interface buffer after setInterfaceConfiguration.
+  if os and os.sleep then os.sleep(0.25) end
+
   local from_slot = 1
-  local moved = tp.transferItem(bus_side, bus_side, 1, from_slot, input_slot)
+  local moved = tp.transferItem(iface_side, bus_side, 1, from_slot, input_slot)
   if not moved or moved < 1 then
     iface.setInterfaceConfiguration(item_slot)
-    return false, "transferItem interface→machine failed"
+    return false, string.format(
+      "transferItem interface→bus failed (sides %d→%d, moved=%s) — check interface_item_side / item_bus_side",
+      iface_side, bus_side, tostring(moved)
+    )
   end
 
   iface.setInterfaceConfiguration(item_slot)
@@ -188,6 +195,7 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
   end
   local tp = tp_or_err
 
+  local iface_side = LaneSides.interface_item_side(machine)
   local bus_side = LaneSides.item_bus_side(machine)
   if bus_side == nil then
     return false, "item_bus_side not configured"
@@ -195,12 +203,15 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
 
   local bus_slot = self:_find_circuit_on_side(tp, bus_side, circuit_damage)
   if not bus_slot then
-    return false, "no circuit found on machine input side for recovery"
+    return false, "no circuit found on item_bus_side " .. tostring(bus_side)
   end
 
-  local moved = tp.transferItem(bus_side, bus_side, 1, bus_slot, 1)
+  local moved = tp.transferItem(bus_side, iface_side, 1, bus_slot, 1)
   if not moved or moved < 1 then
-    return false, "transferItem machine→interface failed"
+    return false, string.format(
+      "transferItem bus→interface failed (sides %d→%d)",
+      bus_side, iface_side
+    )
   end
 
   return true

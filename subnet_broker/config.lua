@@ -22,7 +22,8 @@ local Config = {}
 
 
 
--- item_bus_side = transposer face for item input bus + ME interface (same face)
+-- interface_item_side = transposer face touching ME Interface (often 0 = bottom)
+-- item_bus_side = transposer face touching GT item input bus / pipe
 -- fluid_pull_side / fluid_push_side = fluid hatch (separate faces)
 local REQUIRED_MACHINE_FIELDS = {
 
@@ -201,6 +202,8 @@ Config.machines = {
 
     transposer_address = "58d6b8e5-b3d4-4062-9c51-2064b25e0b9e",
 
+    interface_item_side = 1,
+
     item_bus_side = 0,
 
     fluid_pull_side = 2,
@@ -222,6 +225,8 @@ Config.machines = {
     interface_address = "ca372808-6c3a-4023-a2ed-fa987ee8cd7e",
 
     transposer_address = "b311b7c4-cb6a-438d-b2ae-98ebdd3cf9d2",
+
+    interface_item_side = 1,
 
     item_bus_side = 0,
 
@@ -245,6 +250,8 @@ Config.machines = {
 
     transposer_address = "a1250086-ec9b-4ecd-87d3-587add148e27",
 
+    interface_item_side = 1,
+
     item_bus_side = 0,
 
     fluid_pull_side = 2,
@@ -266,6 +273,8 @@ Config.machines = {
     interface_address = "35df79f3-b65f-4efa-a133-bf382a343c4a",
 
     transposer_address = "fb4d836c-b0c4-433e-a790-fed03addab7d",
+
+    interface_item_side = 1,
 
     item_bus_side = 0,
 

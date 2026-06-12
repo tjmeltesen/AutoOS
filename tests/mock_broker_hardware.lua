@@ -39,6 +39,7 @@ function Mock.new(opts)
       gt_address = m.gt_address,
       interface_address = m.interface_address,
       transposer_address = m.transposer_address,
+      interface_item_side = m.interface_item_side,
       item_bus_side = m.item_bus_side or m.pull_side or 0,
       fluid_pull_side = m.fluid_pull_side,
       fluid_push_side = m.fluid_push_side or 2,
@@ -100,6 +101,7 @@ function Mock.new(opts)
 
     local inv = opts.transposer_inventory and opts.transposer_inventory[m.transposer_address]
       or {
+        [m.interface_item_side or 0] = {},
         [m.item_bus_side or m.pull_side or 0] = {},
         [m.fluid_pull_side or m.item_bus_side or 0] = {},
         [m.fluid_push_side or 2] = {},
@@ -132,13 +134,15 @@ function Mock.new(opts)
         if from_slot then
           local stack = from_inv[from_slot]
           if not stack or (stack.size or 0) < 1 then
-            -- Interface buffer after setInterfaceConfiguration (item not in transposer inv yet).
-            to_inv[dest] = {
-              name = "gregtech:gt.integrated_circuit",
-              damage = 14,
-              size = 1,
-            }
-            return 1
+            if from_side ~= to_side then
+              to_inv[dest] = {
+                name = "gregtech:gt.integrated_circuit",
+                damage = 14,
+                size = 1,
+              }
+              return 1
+            end
+            return 0
           end
           to_inv[dest] = {
             name = stack.name,

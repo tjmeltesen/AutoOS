@@ -78,3 +78,9 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Added `subnet_broker/lane_sides.lua`: `item_bus_side` for circuits; fluids stay `fluid_pull_side`/`fluid_push_side`
 - Changed `circuit_manager.lua`: `transferItem(bus, bus, ...)` push/recover on same face
 - Changed `config.lua`: `item_bus_side` replaces `pull_side`/`push_side` per machine
+
+## 2026-06-10 — Fix item routing: interface side vs bus side
+
+- Changed `lane_sides.lua`: `interface_item_side` (ME below transposer) + `item_bus_side` (pipe/bus face)
+- Changed `circuit_manager.lua`: `transferItem(iface_side, bus_side)`; 0.25s settle after stocking; clearer errors
+- Changed `config.lua`: template `interface_item_side=0`, `item_bus_side=4` (pipe on right of transposer)

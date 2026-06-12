@@ -317,12 +317,13 @@ function BrokerCore.process_batch(recipe_key, current_buffer_volume, active_pool
     local target = allocations[machine.id]
     if target and target.operations > 0 then
       print(string.format(
-        " -> [Lane -> %s] %d ops (%dL) interface [%s] transposer [%s] item_bus=%d fluid %d→%d",
+        " -> [Lane -> %s] %d ops (%dL) interface [%s] transposer [%s] item %d→%d fluid %d→%d",
         machine.id,
         target.operations,
         target.allocated_volume,
         machine.interface_address,
         machine.transposer_address,
+        LaneSides.interface_item_side(machine),
         LaneSides.item_bus_side(machine) or -1,
         LaneSides.fluid_pull_side(machine),
         machine.fluid_push_side
