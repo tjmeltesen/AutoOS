@@ -100,6 +100,43 @@ function CircuitManager:_find_circuit_on_side(tp, side, circuit_damage)
   return nil
 end
 
+function CircuitManager:_circuit_on_bus(tp, machine, circuit_damage)
+  local bus_side = LaneSides.item_bus_side(machine)
+  if bus_side == nil then return nil end
+  local input_slot = machine.input_slot
+  if input_slot == nil or input_slot < 1 then input_slot = 1 end
+  local stack = tp.getStackInSlot and tp.getStackInSlot(bus_side, input_slot)
+  if self:_stack_matches_circuit(stack, circuit_damage) then
+    return input_slot
+  end
+  return self:_find_circuit_on_side(tp, bus_side, circuit_damage)
+end
+
+function CircuitManager:_wait_interface_stock(tp, side, slot, attempts, delay)
+  attempts = attempts or 8
+  delay = delay or 0.25
+  for _ = 1, attempts do
+    local stack = tp.getStackInSlot and tp.getStackInSlot(side, slot)
+    if stack and (stack.size or 0) >= 1 then
+      return true
+    end
+    if os and os.sleep then os.sleep(delay) end
+  end
+  return false
+end
+
+function CircuitManager:_transfer_with_retries(tp, from_side, to_side, count, from_slot, to_slot, attempts)
+  attempts = attempts or 4
+  for i = 1, attempts do
+    local moved = tp.transferItem(from_side, to_side, count, from_slot, to_slot)
+    if moved and moved >= 1 then
+      return moved
+    end
+    if i < attempts and os and os.sleep then os.sleep(0.25) end
+  end
+  return 0
+end
+
 --- Stock circuit from subnet via lane ME interface, transposer to machine input, clear interface.
 ---@return boolean ok
 ---@return string|nil err
@@ -139,6 +176,29 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     return false, "transposer missing transferItem"
   end
 
+  local iface_side = LaneSides.interface_item_side(machine)
+  local bus_side = LaneSides.item_bus_side(machine)
+  if bus_side == nil then
+    return false, "item_bus_side not configured"
+  end
+
+  local existing_bus = self:_circuit_on_bus(tp, machine, circuit_damage)
+  if existing_bus then
+    return true
+  end
+
+  local wrong_bus = self:_find_circuit_on_side(tp, bus_side, nil)
+  if wrong_bus and circuit_damage then
+    local stack = tp.getStackInSlot(bus_side, wrong_bus)
+    if stack and stack.damage ~= circuit_damage then
+      return false, string.format(
+        "input bus has circuit damage %s but recipe needs %s — recover or clear bus first",
+        tostring(stack.damage),
+        tostring(circuit_damage)
+      )
+    end
+  end
+
   local ok_desc, db_slot = self.descriptors:ensure_circuit(iface, circuit_damage)
   if not ok_desc then
     return false, tostring(db_slot)
@@ -157,22 +217,33 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     return false, "setInterfaceConfiguration returned false (check database slot " .. tostring(db_slot) .. ")"
   end
 
-  local iface_side = LaneSides.interface_item_side(machine)
-  local bus_side = LaneSides.item_bus_side(machine)
-  if bus_side == nil then
-    return false, "item_bus_side not configured"
+  local from_slot = 1
+  if not self:_wait_interface_stock(tp, iface_side, from_slot, 8, 0.25) then
+    iface.setInterfaceConfiguration(item_slot)
+    local hint = string.format(
+      "interface side %d slot %d empty after stocking — circuit %s in subnet ME?",
+      iface_side, from_slot, tostring(circuit_damage)
+    )
+    if iface.getItemsInNetwork then
+      local filter = { name = self.circuit_item, damage = circuit_damage }
+      local net = iface.getItemsInNetwork(filter)
+      if not net or #net == 0 then
+        hint = hint .. " (getItemsInNetwork: 0)"
+      end
+    end
+    return false, hint
   end
 
-  -- AE2 needs a tick to stock the interface buffer after setInterfaceConfiguration.
-  if os and os.sleep then os.sleep(0.25) end
-
-  local from_slot = 1
-  local moved = tp.transferItem(iface_side, bus_side, 1, from_slot, input_slot)
+  local moved = self:_transfer_with_retries(tp, iface_side, bus_side, 1, from_slot, input_slot, 4)
   if not moved or moved < 1 then
     iface.setInterfaceConfiguration(item_slot)
+    local bus_block = "bus slot empty"
+    if self:_circuit_on_bus(tp, machine, circuit_damage) then
+      bus_block = "circuit already on bus (run recover_circuit or skip)"
+    end
     return false, string.format(
-      "transferItem interface→bus failed (sides %d→%d, moved=%s) — check interface_item_side / item_bus_side",
-      iface_side, bus_side, tostring(moved)
+      "transferItem interface→bus failed (sides %d→%d, moved=%s, %s) — check interface_item_side / item_bus_side",
+      iface_side, bus_side, tostring(moved), bus_block
     )
   end
 

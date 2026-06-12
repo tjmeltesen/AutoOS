@@ -80,6 +80,14 @@ function Mock.new(opts)
           return true
         end
         interfaces[m.interface_address]._item_cfg = { slot = a, db = b, index = c, count = d }
+        local iface_side = m.interface_item_side or 0
+        local inv = transposers[m.transposer_address]._inv
+        inv[iface_side] = inv[iface_side] or {}
+        inv[iface_side][1] = {
+          name = "gregtech:gt.integrated_circuit",
+          damage = 14,
+          size = 1,
+        }
         return true
       end,
       store = function(filter, db, slot, count)
@@ -233,6 +241,7 @@ function Mock.machines_from_config(config)
       gt_address = m.gt_address,
       interface_address = m.interface_address,
       transposer_address = m.transposer_address,
+      interface_item_side = m.interface_item_side,
       item_bus_side = m.item_bus_side,
       fluid_pull_side = m.fluid_pull_side,
       fluid_push_side = m.fluid_push_side,

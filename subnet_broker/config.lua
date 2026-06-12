@@ -22,8 +22,8 @@ local Config = {}
 
 
 
--- interface_item_side = transposer face touching ME Interface (often 0 = bottom)
--- item_bus_side = transposer face touching GT item input bus / pipe
+-- interface_item_side = ME Interface face (1 = top when transposer sits under interface)
+-- item_bus_side = GT item input bus face (0 = bottom)
 -- fluid_pull_side / fluid_push_side = fluid hatch (separate faces)
 local REQUIRED_MACHINE_FIELDS = {
 

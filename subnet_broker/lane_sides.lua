@@ -7,7 +7,7 @@
 
 local LaneSides = {}
 
---- ME Interface block face on the transposer (often bottom = 0 when transposer sits on interface).
+--- ME Interface block face on the transposer (1 = top when interface is above transposer).
 ---@param m table
 ---@return number
 function LaneSides.interface_item_side(m)

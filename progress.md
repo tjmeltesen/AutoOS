@@ -84,3 +84,14 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Changed `lane_sides.lua`: `interface_item_side` (ME below transposer) + `item_bus_side` (pipe/bus face)
 - Changed `circuit_manager.lua`: `transferItem(iface_side, bus_side)`; 0.25s settle after stocking; clearer errors
 - Changed `config.lua`: template `interface_item_side=0`, `item_bus_side=4` (pipe on right of transposer)
+
+## 2026-06-10 — Batch circuit push: skip-on-bus, stock wait, config sides
+
+- Changed `circuit_manager.lua`: skip push when correct circuit already on bus; wait for interface stock; retry transferItem; clearer errors (subnet stock / bus blocked)
+- Changed `config.lua`: all lanes `interface_item_side=0`, `item_bus_side=4` (was 1/0 causing 0→0 in-game)
+
+## 2026-06-10 — Config sides: interface top (1), bus bottom (0)
+
+- Changed `config.lua`: `interface_item_side=1`, `item_bus_side=0` per physical layout (ME above transposer, bus below)
+- Changed `lane_sides.lua` comment to match
+- Changed `tests/mock_broker_hardware.lua`: stock interface slot on setInterfaceConfiguration for same-side transfer tests
