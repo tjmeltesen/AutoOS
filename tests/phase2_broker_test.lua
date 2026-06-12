@@ -114,10 +114,19 @@ mock = fresh_mock()
 local dc = DescriptorCache.new({ config = Config, component = mock.component })
 local iface1 = mock.component.proxy(Config.machines[1].interface_address)
 
+local function slot_with(db_slots, predicate)
+  for slot = 1, (Config.database_slot_count or 25) do
+    local e = db_slots[slot]
+    if e and predicate(e) then return slot, e end
+  end
+  return nil
+end
+
 local rules = Config.constraints.recipe_baselines["polyethylene"]
 local ok_fd, fd_slot = dc:ensure_fluid(iface1, rules)
 check("ensure_fluid finds drop item", ok_fd == true, fd_slot)
-check("db slot holds fluid drop", mock.db_slots[2] ~= nil and mock.db_slots[2].name:find("fluid_drop") ~= nil)
+check("db slot holds fluid drop",
+  slot_with(mock.db_slots, function(e) return e.name:find("fluid_drop") ~= nil end) == fd_slot)
 
 local mock_nodisc = fresh_mock({ discretizer = false })
 local dc_nd = DescriptorCache.new({ config = Config, component = mock_nodisc.component })
@@ -184,6 +193,100 @@ local all_ok, s2 = BrokerCore.process_batch("polyethylene", 3000, Config.machine
 check("healthy batch all lanes ok", all_ok == true and s2.succeeded == 3, string.format("succeeded=%d", s2.succeeded))
 check("volumes delivered per lane",
   mock.hatch_mb("machine_01") == 1000 and mock.hatch_mb("machine_02") == 1000 and mock.hatch_mb("machine_03") == 1000)
+
+-- Database slot cache: hit / miss / LRU / stale / foreign -----------------------------------------
+io.write(dim("\n  Database slot cache\n"))
+
+-- Cache hit: two ensure_circuit(18) → same slot, single me.store.
+mock = fresh_mock()
+local dcc = DescriptorCache.new({ config = Config, component = mock.component })
+local ifc = mock.component.proxy(Config.machines[1].interface_address)
+local ok1, slot1 = dcc:ensure_circuit(ifc, 18)
+local store_after_first = mock.stats.store
+local ok2, slot2 = dcc:ensure_circuit(ifc, 18)
+check("cache hit reuses slot", ok1 and ok2 and slot1 == slot2, string.format("%s vs %s", tostring(slot1), tostring(slot2)))
+check("cache hit skips rewrite (no extra store)", mock.stats.store == store_after_first,
+  string.format("store=%d after=%d", mock.stats.store, store_after_first))
+
+-- Cache miss on empty DB → first empty slot (1).
+mock = fresh_mock()
+dcc = DescriptorCache.new({ config = Config, component = mock.component })
+ifc = mock.component.proxy(Config.machines[1].interface_address)
+local okm, slotm = dcc:ensure_circuit(ifc, 18)
+check("cache miss picks first empty slot", okm and slotm == 1, tostring(slotm))
+
+-- Stale DB hit: cache points at slot but DB content changed → invalidate + reallocate.
+mock = fresh_mock()
+dcc = DescriptorCache.new({ config = Config, component = mock.component })
+ifc = mock.component.proxy(Config.machines[1].interface_address)
+local oks, slots = dcc:ensure_circuit(ifc, 18)
+mock.db_slots[slots] = { name = "gregtech:gt.integrated_circuit", damage = 14 }  -- external tamper
+local oks2, slots2 = dcc:ensure_circuit(ifc, 18)
+check("stale slot invalidated + rewritten", oks and oks2
+  and mock.db_slots[slots2].damage == 18, string.format("slot=%s dmg=%s", tostring(slots2), tostring(mock.db_slots[slots2] and mock.db_slots[slots2].damage)))
+
+-- Foreign protection: every slot occupied by non-broker entries → fail, nothing cleared.
+mock = fresh_mock()
+dcc = DescriptorCache.new({ config = Config, component = mock.component })
+ifc = mock.component.proxy(Config.machines[1].interface_address)
+for s = 1, (Config.database_slot_count or 25) do
+  mock.db_slots[s] = { name = "minecraft:stone", damage = 0 }
+end
+local okf, ferr = dcc:ensure_circuit(ifc, 18)
+check("foreign-full DB rejected", okf == false and tostring(ferr):find("database full") ~= nil, ferr)
+check("foreign slots untouched", mock.db_slots[1].name == "minecraft:stone")
+
+-- LRU eviction: tiny DB, fill with broker entries, next miss evicts the coldest.
+local small_cfg = {}
+for k, v in pairs(Config) do small_cfg[k] = v end
+small_cfg.database_slot_count = 2
+mock = fresh_mock({
+  network_items = {
+    { name = CIRCUIT, damage = 14, label = "Programmed Circuit", size = 64 },
+    { name = CIRCUIT, damage = 18, label = "Programmed Circuit", size = 64 },
+    { name = CIRCUIT, damage = 22, label = "Programmed Circuit", size = 64 },
+  },
+})
+dcc = DescriptorCache.new({ config = small_cfg, component = mock.component })
+ifc = mock.component.proxy(Config.machines[1].interface_address)
+local _, lru_a = dcc:ensure_circuit(ifc, 14)   -- slot for 14
+dcc:ensure_circuit(ifc, 18)                     -- slot for 18 (DB now full)
+dcc:ensure_circuit(ifc, 14)                     -- touch 14 → 18 becomes coldest
+local oke, lru_c = dcc:ensure_circuit(ifc, 22)  -- miss, must evict coldest (18)
+check("LRU evict reuses coldest slot", oke == true and mock.db_slots[lru_c].damage == 22, tostring(lru_c))
+check("circuit 14 survived (was touched)",
+  slot_with(mock.db_slots, function(e) return e.damage == 14 end) ~= nil)
+check("circuit 18 evicted (was coldest)",
+  slot_with(mock.db_slots, function(e) return e.damage == 18 end) == nil)
+
+-- Recipe switch end to end: stale slot 1 must not feed circuit 14 to a polyethylene lane.
+mock = fresh_mock()
+mock.db_slots[1] = { name = "gregtech:gt.integrated_circuit", damage = 14 }  -- leftover from a prior recipe
+local rok, rsum = BrokerCore.process_batch("polyethylene", 1000, { Config.machines[1] }, {
+  component = mock.component,
+  execute_hardware = true,
+})
+local rbus = mock.bus_stack("machine_01", 1)
+check("recipe switch pushes correct circuit (18 not 14)",
+  rok == true and rbus ~= nil and rbus.damage == 18,
+  string.format("ok=%s bus=%s", tostring(rok), tostring(rbus and rbus.damage)))
+
+-- Verify guard: interface stocks wrong circuit → push_circuit fails before transfer.
+mock = fresh_mock({
+  network_items = { { name = CIRCUIT, damage = 14, label = "Programmed Circuit", size = 64 } },
+})
+local cmv = CircuitManager.new({
+  config = Config,
+  component = mock.component,
+  descriptor_cache = {
+    ensure_circuit = function() return true, 5 end,  -- pretend slot 5 is ready...
+  },
+})
+mock.db_slots[5] = { name = "gregtech:gt.integrated_circuit", damage = 14 }  -- ...but it holds 14
+local okv, verr = cmv:push_circuit("machine_01", 18)
+check("stocked-wrong-circuit guard trips", okv == false
+  and tostring(verr):find("expected 18") ~= nil, verr)
+check("wrong circuit not left on bus", mock.bus_stack("machine_01", 1) == nil)
 
 io.write(string.rep("-", 60) .. "\n")
 io.write(bold(string.format("Results: %d passed, %d failed\n", passed, failed)))

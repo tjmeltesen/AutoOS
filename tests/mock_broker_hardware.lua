@@ -106,6 +106,11 @@ function Mock.new(opts)
     get = function(slot)
       return db_slots[slot]
     end,
+    clear = function(slot)
+      local had = db_slots[slot] ~= nil
+      db_slots[slot] = nil
+      return had
+    end,
   }
 
   -- Lanes -----------------------------------------------------------------------

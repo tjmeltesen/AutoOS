@@ -26,6 +26,11 @@
     local F = require("fluid_lane")
     local tp = require("component").proxy(require("config").machines[1].transposer_address)
     print(F.transposer_tank_summary(tp))
+
+  Descriptor cache state (which db slot holds which circuit/fluid):
+    local D = require("descriptor_cache").new({ config = require("config"), component = require("component") })
+    -- after a lane test on the same D instance:
+    for k, e in pairs(D:debug_dump()) do print(k, "slot", e.slot, "last_used", e.last_used) end
 ]]
 
 local CIRCUIT_TEST_LANE = nil
@@ -86,6 +91,27 @@ if component_api and next(component_addrs) then
     Config.database_address, type_label(component_addrs[Config.database_address])))
 else
   print("[AutoOS] component.list unavailable — skipping UUID walk")
+end
+
+-- 2b. Database slot occupancy (descriptor cache scan) -------------------------
+if component_api and Config.database_address then
+  pcall(function()
+    local db = component_api.proxy(Config.database_address)
+    if not db or not db.get then return end
+    local count = Config.database_slot_count or 25
+    local used = 0
+    for slot = 1, count do
+      local ok_get, entry = pcall(db.get, slot)
+      if ok_get and type(entry) == "table" then
+        used = used + 1
+        if used <= 12 then
+          print(string.format("[AutoOS]   db slot %d: %s damage %s",
+            slot, tostring(entry.name), tostring(entry.damage)))
+        end
+      end
+    end
+    print(string.format("[AutoOS] database slots used: %d / %d", used, count))
+  end)
 end
 
 -- 3. Fluid drop visibility (Fluid Discretizer check) --------------------------

@@ -149,3 +149,20 @@ Structural cleanup:
 - `tests/mock_broker_hardware.lua` rewrite: realistic mocks — transfers only move stacks that exist, fluid stocking needs a valid drop descriptor + discretizer, small interface buffer exercises the pump loop, `getTankLevel` throws "invalid tank index" on tankless faces (was: mocks fabricated successes, masking every in-game failure)
 - `tests/phase2_broker_test.lua`: 30 checks incl. full-volume pumping, wrong-side auto-discovery, dry-subnet partial failure, no-discretizer error, batch continue-on-failure
 - Desktop regression: phase1 13/13, phase2 30/30 pass
+
+## 2026-06-11 — Dynamic database slots (cache hit/miss + LRU) + correct circuit pushing
+
+Fixed wrong circuit config number being pushed when switching recipes (e.g. 14 left over fed into an 18 batch):
+
+- `descriptor_cache.lua` rewrite: database slots are now a descriptor cache instead of fixed scratch slots 1/2.
+  - CACHE HIT: known slot still holds the right circuit/fluid → reuse, no rewrite.
+  - CACHE MISS: write to first empty slot; when the database is full, LRU-evict the broker-owned slot unused the longest (`database.clear` then rewrite). Foreign slots (manual GUI / other scripts) are never overwritten.
+  - Every write is verified by reading the slot back; stale slots are invalidated and reallocated. LRU uses a strictly monotonic logical clock so eviction is tie-free.
+  - Added `reset()` and `debug_dump()` helpers.
+- `circuit_manager.lua`: after the interface stocks, the stocked stack's damage is checked against the requested circuit BEFORE transfer (`"interface stocked circuit X, expected Y"`); post-transfer sanity check confirms the right circuit landed on the bus.
+- `config.lua`: replaced `descriptor_scratch` with `database_slot_count` (default 25; T1=9/T2=25/T3=81); `validate` checks it is a positive integer.
+- `broker_core.lua`: `process_batch` dispatch line now logs `circuit=<damage>` per lane.
+- `diag.lua`: prints database slot occupancy (used/total + first entries) and a `debug_dump()` REPL hint.
+- `tests/mock_broker_hardware.lua`: added `database.clear`.
+- `tests/phase2_broker_test.lua`: added cache hit, miss-to-empty, stale-slot invalidation, foreign-full rejection, LRU eviction, recipe-switch (18 not 14), and stocked-wrong-circuit guard tests.
+- Desktop regression: phase1 13/13, phase2 42/42 pass.

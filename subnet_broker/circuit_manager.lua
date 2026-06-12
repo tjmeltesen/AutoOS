@@ -170,12 +170,30 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     return false, hint
   end
 
+  -- Reject a stale descriptor: the interface must hold the exact circuit asked for.
+  local stocked = tp.getStackInSlot and tp.getStackInSlot(iface_side, from_slot)
+  if not self:_stack_is_circuit(stocked, circuit_damage) then
+    iface.setInterfaceConfiguration(item_slot)
+    return false, string.format(
+      "interface stocked circuit %s, expected %s — database slot stale or wrong circuit in subnet ME",
+      tostring(stocked and stocked.damage), tostring(circuit_damage)
+    )
+  end
+
   local moved = self:_transfer_with_retries(tp, iface_side, bus_side, from_slot, input_slot)
   iface.setInterfaceConfiguration(item_slot)
   if moved < 1 then
     return false, string.format(
       "transferItem interface→bus failed (sides %d→%d) — check interface_item_side / item_bus_side",
       iface_side, bus_side
+    )
+  end
+
+  -- Sanity check: the right circuit really landed on the bus.
+  if not self:_find_circuit_on_side(tp, bus_side, circuit_damage) then
+    return false, string.format(
+      "circuit moved but damage %s not found on bus side %d after push",
+      tostring(circuit_damage), bus_side
     )
   end
 

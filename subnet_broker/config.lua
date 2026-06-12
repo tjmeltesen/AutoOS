@@ -23,10 +23,10 @@ Config.main_net_channel = 105
 -- subnet ME (descriptor_cache.lua). No manual database GUI setup needed.
 Config.database_address = "bcacb1a7-ebe4-48e8-940c-d436545310c7"
 
-Config.descriptor_scratch = {
-  circuit_slot = 1,
-  fluid_slot = 2,
-}
+-- Database slots 1..N are managed as a descriptor cache (descriptor_cache.lua):
+-- broker-owned slots are reused on cache hits and LRU-evicted when full.
+-- Set this to your OC database tier's slot count (T1=9, T2=25, T3=81).
+Config.database_slot_count = 9
 
 Config.circuit_item_name = "gregtech:gt.integrated_circuit"
 
@@ -150,6 +150,11 @@ function Config.validate(cfg)
 
   if not cfg.database_address or cfg.database_address == "" then
     return nil, "database_address required for ME interface stocking"
+  end
+
+  if cfg.database_slot_count ~= nil
+    and (type(cfg.database_slot_count) ~= "number" or cfg.database_slot_count < 1) then
+    return nil, "database_slot_count must be a positive integer"
   end
 
   local baselines = cfg.constraints and cfg.constraints.recipe_baselines

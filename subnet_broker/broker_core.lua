@@ -291,9 +291,11 @@ function BrokerCore.process_batch(recipe_key, current_buffer_volume, active_pool
     local target = allocations[machine.id]
     if target and target.operations > 0 then
       local iface_side, bus_side, fluid_pull, fluid_push = LaneSides.format_sides(machine)
+      local lane_damage = circuit_damage_for(recipe_key, opts)
       print(string.format(
-        " -> [Lane -> %s] %d ops (%dL) interface [%s] transposer [%s] item %d→%d fluid %d→%d",
+        " -> [Lane -> %s] %d ops (%dL) circuit=%s interface [%s] transposer [%s] item %d→%d fluid %d→%d",
         machine.id, target.operations, target.allocated_volume,
+        tostring(lane_damage),
         tostring(machine.interface_address), tostring(machine.transposer_address),
         iface_side, bus_side, fluid_pull, fluid_push
       ))
