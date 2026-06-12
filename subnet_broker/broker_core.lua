@@ -127,25 +127,49 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
   local fluid_from = LaneSides.fluid_pull_side(machine_row)
   local fluid_to = LaneSides.fluid_push_side(machine_row)
 
-  local function transfer_fluid_with_retries(tp_proxy, from_side, to_side, amount)
-    for attempt = 1, 4 do
-      local r1, r2 = tp_proxy.transferFluid(from_side, to_side, amount)
-      local moved = r2
-      if type(r1) == "number" and r2 == nil then
-        moved = r1
-      elseif r1 == true then
-        moved = r2 or amount
-      elseif r1 == false then
-        moved = r2 or 0
-      else
-        moved = r1 or r2 or 0
+  local function fluid_tank_hint(tp_proxy, side)
+    if not tp_proxy.getTankLevel then
+      return "side " .. tostring(side)
+    end
+    local tanks = 1
+    if tp_proxy.getTankCount then
+      tanks = tp_proxy.getTankCount(side) or 1
+    end
+    for t = 1, tanks do
+      local lvl = tp_proxy.getTankLevel(side, t) or 0
+      if lvl > 0 then
+        local name = "fluid"
+        if tp_proxy.getFluidInTank then
+          local info = tp_proxy.getFluidInTank(side, t)
+          if type(info) == "table" and info.name then name = info.name end
+        end
+        return string.format("side %d has %d mB %s", side, lvl, name)
       end
-      if type(moved) == "number" and moved >= 1 then
-        return true, moved
+    end
+    return "side " .. tostring(side) .. " tank empty"
+  end
+
+  local function transfer_fluid_with_retries(tp_proxy, from_side, to_side, amount)
+    local last_err = nil
+    for attempt = 1, 6 do
+      local r1, r2 = tp_proxy.transferFluid(from_side, to_side, amount)
+      local moved = 0
+      if r1 == true and type(r2) == "number" then
+        moved = r2
+      elseif type(r1) == "number" and r2 == nil then
+        moved = r1
+      elseif r1 == false then
+        if type(r2) == "string" then last_err = r2 end
+        moved = type(r2) == "number" and r2 or 0
+      else
+        moved = (type(r1) == "number" and r1) or (type(r2) == "number" and r2) or 0
+      end
+      if moved >= 1 then
+        return true, moved, nil
       end
       if os and os.sleep then os.sleep(0.25) end
     end
-    return false, 0
+    return false, 0, last_err
   end
 
   local push_circuit = opts.push_circuit
@@ -185,14 +209,15 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
     if os and os.sleep then os.sleep(0.25) end
 
     if tp.transferFluid then
-      local ok_xfer, moved = transfer_fluid_with_retries(tp, fluid_from, fluid_to, volume)
+      local ok_xfer, moved, xfer_err = transfer_fluid_with_retries(tp, fluid_from, fluid_to, volume)
       if not ok_xfer then
         if iface.setFluidInterfaceConfiguration then
           iface.setFluidInterfaceConfiguration(fluid_side)
         end
+        local detail = xfer_err or fluid_tank_hint(tp, fluid_from)
         return false, string.format(
-          "transferFluid failed (sides %d→%d, moved=%s, wanted=%dL) — fluid_pull_side must match interface_fluid_side",
-          fluid_from, fluid_to, tostring(moved), volume
+          "transferFluid failed (transposer %d→%d, ME fluid side %d, wanted %d mB): %s",
+          fluid_from, fluid_to, fluid_side, volume, detail
         )
       end
     elseif tp.transferItem then

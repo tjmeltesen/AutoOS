@@ -109,4 +109,10 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Changed `config.lua`: `fluid_pull_side=1` (ME top), `fluid_push_side=2` (hatch); was pulling side 2 while stocking on side 1
 - Changed `lane_sides.lua`: `interface_fluid_side()`; `fluid_pull_side` defaults to interface fluid face
 - Changed `broker_core.lua`: settle + retry `transferFluid`; clearer error with sides
+
+## 2026-06-10 — Split ME fluid side vs transposer fluid sides
+
+- Changed `lane_sides.lua`: `interface_fluid_side` = ME block face (default 0); `fluid_pull_side` = transposer face (default top)
+- Changed `config.lua`: `interface_fluid_side=0`, `fluid_pull_side=1`, `fluid_push_side=2`
+- Changed `broker_core.lua`: surface transposer transferFluid error + tank probe hint
 - Changed `tests/mock_broker_hardware.lua`: stock interface slot on setInterfaceConfiguration for same-side transfer tests

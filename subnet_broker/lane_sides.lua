@@ -2,7 +2,8 @@
   AutoOS — Per-lane transposer side helpers (1:1:1 topology)
 
   Items: interface_item_side (ME interface) → item_bus_side (GT input bus).
-  Fluids: fluid_pull_side → fluid_push_side (separate hatch face).
+  Fluids: interface_fluid_side = ME block face for setFluidInterfaceConfiguration;
+           fluid_pull_side / fluid_push_side = transposer faces (pull → hatch).
 ]]
 
 local LaneSides = {}
@@ -28,20 +29,20 @@ function LaneSides.item_bus_side(m)
   return m.push_side
 end
 
---- ME Interface fluid face on the transposer (defaults to top = 1).
+--- ME Interface block face for setFluidInterfaceConfiguration (0 = bottom toward transposer).
 ---@param m table
 ---@return number
 function LaneSides.interface_fluid_side(m)
   if type(m.interface_fluid_side) == "number" then return m.interface_fluid_side end
-  return 1
+  return 0
 end
 
---- Side to pull fluid from (ME interface fluid buffer; usually same as interface_fluid_side).
+--- Transposer face to pull stocked fluid from (defaults to interface_item_side / top = 1).
 ---@param m table
 ---@return number
 function LaneSides.fluid_pull_side(m)
   if type(m.fluid_pull_side) == "number" then return m.fluid_pull_side end
-  return LaneSides.interface_fluid_side(m)
+  return LaneSides.interface_item_side(m)
 end
 
 ---@param m table
