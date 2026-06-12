@@ -28,11 +28,20 @@ function LaneSides.item_bus_side(m)
   return m.push_side
 end
 
+--- ME Interface fluid face on the transposer (defaults to top = 1).
 ---@param m table
----@return number|nil
+---@return number
+function LaneSides.interface_fluid_side(m)
+  if type(m.interface_fluid_side) == "number" then return m.interface_fluid_side end
+  return 1
+end
+
+--- Side to pull fluid from (ME interface fluid buffer; usually same as interface_fluid_side).
+---@param m table
+---@return number
 function LaneSides.fluid_pull_side(m)
   if type(m.fluid_pull_side) == "number" then return m.fluid_pull_side end
-  return 2
+  return LaneSides.interface_fluid_side(m)
 end
 
 ---@param m table

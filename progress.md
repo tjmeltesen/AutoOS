@@ -103,4 +103,10 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 ## 2026-06-10 — Clearer fluid-not-in-ME error
 
 - Changed `descriptor_cache.lua`: distinguish missing recipe fields vs fluid not stocked / label mismatch
+
+## 2026-06-10 — Fix fluid transfer: pull from interface side (1→2)
+
+- Changed `config.lua`: `fluid_pull_side=1` (ME top), `fluid_push_side=2` (hatch); was pulling side 2 while stocking on side 1
+- Changed `lane_sides.lua`: `interface_fluid_side()`; `fluid_pull_side` defaults to interface fluid face
+- Changed `broker_core.lua`: settle + retry `transferFluid`; clearer error with sides
 - Changed `tests/mock_broker_hardware.lua`: stock interface slot on setInterfaceConfiguration for same-side transfer tests

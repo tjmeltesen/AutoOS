@@ -22,9 +22,10 @@ local Config = {}
 
 
 
--- interface_item_side = ME Interface face (1 = top when transposer sits under interface)
--- item_bus_side = GT item input bus face (0 = bottom)
--- fluid_pull_side / fluid_push_side = fluid hatch (separate faces)
+-- interface_item_side = ME item face (1 = top); item_bus_side = GT bus (0 = bottom)
+-- interface_fluid_side = ME fluid face (usually same as item = top)
+-- fluid_pull_side = pull from interface (default → interface_fluid_side)
+-- fluid_push_side = GT fluid input hatch
 local REQUIRED_MACHINE_FIELDS = {
 
   "id",
@@ -206,7 +207,7 @@ Config.machines = {
 
     item_bus_side = 0,
 
-    fluid_pull_side = 2,
+    fluid_pull_side = 1,
 
     fluid_push_side = 2,
 
@@ -230,7 +231,7 @@ Config.machines = {
 
     item_bus_side = 0,
 
-    fluid_pull_side = 2,
+    fluid_pull_side = 1,
 
     fluid_push_side = 2,
 
@@ -254,7 +255,7 @@ Config.machines = {
 
     item_bus_side = 0,
 
-    fluid_pull_side = 2,
+    fluid_pull_side = 1,
 
     fluid_push_side = 2,
 
@@ -278,7 +279,7 @@ Config.machines = {
 
     item_bus_side = 0,
 
-    fluid_pull_side = 2,
+    fluid_pull_side = 1,
 
     fluid_push_side = 2,
 

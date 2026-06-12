@@ -123,7 +123,30 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
 
   local volume = allocation.allocated_volume
   local kind = rules.kind or "fluid"
-  local fluid_side = machine_row.interface_fluid_side or 1
+  local fluid_side = LaneSides.interface_fluid_side(machine_row)
+  local fluid_from = LaneSides.fluid_pull_side(machine_row)
+  local fluid_to = LaneSides.fluid_push_side(machine_row)
+
+  local function transfer_fluid_with_retries(tp_proxy, from_side, to_side, amount)
+    for attempt = 1, 4 do
+      local r1, r2 = tp_proxy.transferFluid(from_side, to_side, amount)
+      local moved = r2
+      if type(r1) == "number" and r2 == nil then
+        moved = r1
+      elseif r1 == true then
+        moved = r2 or amount
+      elseif r1 == false then
+        moved = r2 or 0
+      else
+        moved = r1 or r2 or 0
+      end
+      if type(moved) == "number" and moved >= 1 then
+        return true, moved
+      end
+      if os and os.sleep then os.sleep(0.25) end
+    end
+    return false, 0
+  end
 
   local push_circuit = opts.push_circuit
   if push_circuit == nil then push_circuit = opts.push_circuits end
@@ -159,17 +182,18 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
       end
     end
 
+    if os and os.sleep then os.sleep(0.25) end
+
     if tp.transferFluid then
-      local ok_xfer, moved = tp.transferFluid(
-        LaneSides.fluid_pull_side(machine_row),
-        LaneSides.fluid_push_side(machine_row),
-        volume
-      )
-      if not ok_xfer or (moved and moved < 1) then
+      local ok_xfer, moved = transfer_fluid_with_retries(tp, fluid_from, fluid_to, volume)
+      if not ok_xfer then
         if iface.setFluidInterfaceConfiguration then
           iface.setFluidInterfaceConfiguration(fluid_side)
         end
-        return false, "transferFluid failed: " .. tostring(moved)
+        return false, string.format(
+          "transferFluid failed (sides %d→%d, moved=%s, wanted=%dL) — fluid_pull_side must match interface_fluid_side",
+          fluid_from, fluid_to, tostring(moved), volume
+        )
       end
     elseif tp.transferItem then
       return false, "fluid recipe but transposer has no transferFluid"
