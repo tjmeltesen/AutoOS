@@ -11,7 +11,8 @@ local LaneSides = {}
 ---@param m table
 ---@return number
 function LaneSides.interface_item_side(m)
-  if m.interface_item_side ~= nil then return m.interface_item_side end
+  if type(m.interface_item_side) == "number" then return m.interface_item_side end
+  if type(m.pull_side) == "number" then return m.pull_side end
   return 0
 end
 
@@ -30,8 +31,28 @@ end
 ---@param m table
 ---@return number|nil
 function LaneSides.fluid_pull_side(m)
-  if m.fluid_pull_side ~= nil then return m.fluid_pull_side end
-  return LaneSides.interface_item_side(m)
+  if type(m.fluid_pull_side) == "number" then return m.fluid_pull_side end
+  return 2
+end
+
+---@param m table
+---@return number
+function LaneSides.fluid_push_side(m)
+  if type(m.fluid_push_side) == "number" then return m.fluid_push_side end
+  return 2
+end
+
+--- Safe integers for string.format (%d rejects nil).
+---@param m table
+---@return number iface_side, number bus_side, number fluid_pull, number fluid_push
+function LaneSides.format_sides(m)
+  local bus = LaneSides.item_bus_side(m)
+  if type(bus) ~= "number" then bus = -1 end
+  return
+    LaneSides.interface_item_side(m),
+    bus,
+    LaneSides.fluid_pull_side(m),
+    LaneSides.fluid_push_side(m)
 end
 
 return LaneSides

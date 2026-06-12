@@ -94,4 +94,9 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 
 - Changed `config.lua`: `interface_item_side=1`, `item_bus_side=0` per physical layout (ME above transposer, bus below)
 - Changed `lane_sides.lua` comment to match
+
+## 2026-06-10 — Fix process_batch format crash (nil side)
+
+- Changed `lane_sides.lua`: `format_sides()`, `fluid_push_side()`; type-safe side getters
+- Changed `broker_core.lua`: use `format_sides` for lane log; `fluid_push_side` helper in execute_lane
 - Changed `tests/mock_broker_hardware.lua`: stock interface slot on setInterfaceConfiguration for same-side transfer tests

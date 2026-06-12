@@ -162,7 +162,7 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
     if tp.transferFluid then
       local ok_xfer, moved = tp.transferFluid(
         LaneSides.fluid_pull_side(machine_row),
-        machine_row.fluid_push_side,
+        LaneSides.fluid_push_side(machine_row),
         volume
       )
       if not ok_xfer or (moved and moved < 1) then
@@ -316,17 +316,18 @@ function BrokerCore.process_batch(recipe_key, current_buffer_volume, active_pool
   for _, machine in ipairs(active_pool) do
     local target = allocations[machine.id]
     if target and target.operations > 0 then
+      local iface_side, bus_side, fluid_pull, fluid_push = LaneSides.format_sides(machine)
       print(string.format(
         " -> [Lane -> %s] %d ops (%dL) interface [%s] transposer [%s] item %d→%d fluid %d→%d",
         machine.id,
-        target.operations,
-        target.allocated_volume,
-        machine.interface_address,
-        machine.transposer_address,
-        LaneSides.interface_item_side(machine),
-        LaneSides.item_bus_side(machine) or -1,
-        LaneSides.fluid_pull_side(machine),
-        machine.fluid_push_side
+        target.operations or 0,
+        target.allocated_volume or 0,
+        tostring(machine.interface_address),
+        tostring(machine.transposer_address),
+        iface_side,
+        bus_side,
+        fluid_pull,
+        fluid_push
       ))
 
       if execute_hw and component then
