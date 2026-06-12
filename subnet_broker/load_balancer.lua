@@ -7,14 +7,20 @@
   References: README.md §4
 ]]
 
-local LaneSides = require("lane_sides")
-
 local LoadBalancer = {}
 
+---@param total_fluid number
+---@param unit_requirement number mB per operation
+---@return integer
 function LoadBalancer.total_operations(total_fluid, unit_requirement)
   return math.floor(total_fluid / unit_requirement)
 end
 
+---@param active_pool table[] machine config rows
+---@param total_fluid number
+---@param unit_requirement number
+---@return table|nil distribution_map keyed by machine id
+---@return string|nil err
 function LoadBalancer.calculate_distribution(active_pool, total_fluid, unit_requirement)
   if type(unit_requirement) ~= "number" or unit_requirement <= 0 then
     return nil, "Invalid unit requirement."
@@ -43,9 +49,6 @@ function LoadBalancer.calculate_distribution(active_pool, total_fluid, unit_requ
     distribution_map[machine.id] = {
       interface_address = machine.interface_address,
       transposer_address = machine.transposer_address,
-      item_bus_side = LaneSides.item_bus_side(machine),
-      fluid_pull_side = LaneSides.fluid_pull_side(machine),
-      fluid_push_side = machine.fluid_push_side,
       gt_address = machine.gt_address,
       operations = assigned_ops,
       allocated_volume = assigned_ops * unit_requirement,

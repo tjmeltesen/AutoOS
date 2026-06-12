@@ -1,35 +1,36 @@
 --[[
-  AutoOS — Per-lane transposer side helpers (1:1:1 topology)
+  AutoOS — Per-lane side helpers (1:1:1 topology)
 
-  Items: interface_item_side (ME interface) → item_bus_side (GT input bus).
-  Fluids: interface_fluid_side = ME block face for setFluidInterfaceConfiguration;
-           fluid_pull_side / fluid_push_side = transposer faces (pull → hatch).
+  Two distinct side systems:
+    * Transposer faces (0-5 from the transposer's point of view):
+        interface_item_side  — face touching the ME interface (items)
+        item_bus_side        — face touching the GT item input bus
+        fluid_pull_side      — face the stocked fluid is pulled from
+        fluid_push_side      — face touching the GT fluid input hatch
+    * ME interface block faces (0-5 from the interface's point of view):
+        interface_fluid_side — face whose internal tank gets the fluid config
+          (interface above the transposer → its bottom face, 0)
 ]]
 
 local LaneSides = {}
 
---- ME Interface block face on the transposer (1 = top when interface is above transposer).
----@param m table
+--- Transposer face touching the ME interface (items). Default top = 1.
+---@param m table machine row
 ---@return number
 function LaneSides.interface_item_side(m)
   if type(m.interface_item_side) == "number" then return m.interface_item_side end
-  if type(m.pull_side) == "number" then return m.pull_side end
+  return 1
+end
+
+--- Transposer face touching the GT item input bus. Default bottom = 0.
+---@param m table
+---@return number
+function LaneSides.item_bus_side(m)
+  if type(m.item_bus_side) == "number" then return m.item_bus_side end
   return 0
 end
 
---- GT item input bus / pipe face (one side for both push and recover on the bus).
----@param m table
----@return number|nil
-function LaneSides.item_bus_side(m)
-  if m.item_bus_side ~= nil then return m.item_bus_side end
-  if m.pull_side ~= nil and m.push_side ~= nil and m.pull_side == m.push_side then
-    return m.pull_side
-  end
-  if m.pull_side ~= nil then return m.pull_side end
-  return m.push_side
-end
-
---- ME Interface block face for setFluidInterfaceConfiguration (0 = bottom toward transposer).
+--- ME interface block face used for setFluidInterfaceConfiguration. Default bottom = 0.
 ---@param m table
 ---@return number
 function LaneSides.interface_fluid_side(m)
@@ -37,7 +38,7 @@ function LaneSides.interface_fluid_side(m)
   return 0
 end
 
---- Transposer face to pull stocked fluid from (defaults to interface_item_side / top = 1).
+--- Transposer face to pull stocked fluid from. Defaults to the interface item face.
 ---@param m table
 ---@return number
 function LaneSides.fluid_pull_side(m)
@@ -45,6 +46,7 @@ function LaneSides.fluid_pull_side(m)
   return LaneSides.interface_item_side(m)
 end
 
+--- Transposer face touching the GT fluid input hatch. Default back = 2.
 ---@param m table
 ---@return number
 function LaneSides.fluid_push_side(m)
@@ -52,15 +54,13 @@ function LaneSides.fluid_push_side(m)
   return 2
 end
 
---- Safe integers for string.format (%d rejects nil).
+--- All four transposer-relevant sides as plain integers (safe for string.format %d).
 ---@param m table
 ---@return number iface_side, number bus_side, number fluid_pull, number fluid_push
 function LaneSides.format_sides(m)
-  local bus = LaneSides.item_bus_side(m)
-  if type(bus) ~= "number" then bus = -1 end
   return
     LaneSides.interface_item_side(m),
-    bus,
+    LaneSides.item_bus_side(m),
     LaneSides.fluid_pull_side(m),
     LaneSides.fluid_push_side(m)
 end

@@ -2,20 +2,25 @@
   AutoOS — Circuit Manager (1:1:1 lane topology)
 
   Push and recover programmed integrated circuits per lane:
-    ME Interface setInterfaceConfiguration → transposer transferItem → clear interface.
+    ME interface item stocking → transposer transferItem → clear interface.
 
-  Circuits are stocked from subnet ME storage (database descriptor), not a vault chest.
+  Circuits are non-consumable: push before the batch, recover after the
+  machine finishes. Pushing is idempotent — if the right circuit is already
+  on the bus the push is skipped; a different circuit is a hard error.
 
   References: references/OC-GTNH-docs-main/docs/components/me_interface.lua
 ]]
 
 local DescriptorCache = require("descriptor_cache")
+local HW = require("hw")
 local LaneSides = require("lane_sides")
 
 local CircuitManager = {}
 CircuitManager.__index = CircuitManager
 
-local CIRCUIT_ITEM = "gregtech:gt.integrated_circuit"
+local STOCK_WAIT_ATTEMPTS = 8
+local STOCK_WAIT_SLEEP = 0.25
+local TRANSFER_ATTEMPTS = 4
 
 local function find_machine(config, machine_id)
   for _, m in ipairs(config.machines) do
@@ -29,8 +34,7 @@ function CircuitManager.new(deps)
   local self = setmetatable({}, CircuitManager)
   self.config = deps.config or error("CircuitManager.new: config required")
   self.component = deps.component or error("CircuitManager.new: component required")
-  self.circuit_item = self.config.circuit_item_name or CIRCUIT_ITEM
-  self.proxies = {}
+  self.circuit_item = self.config.circuit_item_name or "gregtech:gt.integrated_circuit"
   self.descriptors = deps.descriptor_cache or DescriptorCache.new({
     config = self.config,
     component = self.component,
@@ -38,48 +42,7 @@ function CircuitManager.new(deps)
   return self
 end
 
-function CircuitManager:_proxy(address, hint)
-  if self.proxies[address] then return self.proxies[address] end
-  local ok, proxy = pcall(self.component.proxy, address, hint)
-  if not ok then
-    return nil, proxy
-  end
-  if proxy then
-    self.proxies[address] = proxy
-    return proxy
-  end
-  ok, proxy = pcall(self.component.proxy, address)
-  if not ok then
-    return nil, proxy
-  end
-  if proxy then
-    self.proxies[address] = proxy
-    return proxy
-  end
-  return nil, "proxy returned nil"
-end
-
-function CircuitManager:_on_network(address)
-  local list = self.component.list and self.component.list() or {}
-  return list[address] ~= nil
-end
-
-function CircuitManager:_check_address(label, address, hint)
-  if not self:_on_network(address) then
-    return false, string.format(
-      "%s address %q not on OC network (run component.list())",
-      label,
-      tostring(address)
-    )
-  end
-  local p, err = self:_proxy(address, hint)
-  if not p then
-    return false, string.format("%s proxy failed at %q: %s", label, tostring(address), tostring(err))
-  end
-  return true, p
-end
-
-function CircuitManager:_stack_matches_circuit(stack, circuit_damage)
+function CircuitManager:_stack_is_circuit(stack, circuit_damage)
   if type(stack) ~= "table" then return false end
   local name = stack.name or ""
   if name ~= self.circuit_item and not name:find("integrated_circuit", 1, true) then
@@ -89,55 +52,44 @@ function CircuitManager:_stack_matches_circuit(stack, circuit_damage)
   return stack.damage == circuit_damage
 end
 
+--- First slot on `side` holding a matching circuit (nil = none).
 function CircuitManager:_find_circuit_on_side(tp, side, circuit_damage)
   local size = tp.getInventorySize and tp.getInventorySize(side) or 0
   for slot = 1, size do
     local stack = tp.getStackInSlot and tp.getStackInSlot(side, slot)
-    if self:_stack_matches_circuit(stack, circuit_damage) then
-      return slot
+    if self:_stack_is_circuit(stack, circuit_damage) then
+      return slot, stack
     end
   end
   return nil
 end
 
-function CircuitManager:_circuit_on_bus(tp, machine, circuit_damage)
-  local bus_side = LaneSides.item_bus_side(machine)
-  if bus_side == nil then return nil end
-  local input_slot = machine.input_slot
-  if input_slot == nil or input_slot < 1 then input_slot = 1 end
-  local stack = tp.getStackInSlot and tp.getStackInSlot(bus_side, input_slot)
-  if self:_stack_matches_circuit(stack, circuit_damage) then
-    return input_slot
-  end
-  return self:_find_circuit_on_side(tp, bus_side, circuit_damage)
-end
-
-function CircuitManager:_wait_interface_stock(tp, side, slot, attempts, delay)
-  attempts = attempts or 8
-  delay = delay or 0.25
-  for _ = 1, attempts do
+--- Wait for AE2 to stock the interface buffer after setInterfaceConfiguration.
+function CircuitManager:_wait_interface_stock(tp, side, slot)
+  for _ = 1, STOCK_WAIT_ATTEMPTS do
     local stack = tp.getStackInSlot and tp.getStackInSlot(side, slot)
     if stack and (stack.size or 0) >= 1 then
       return true
     end
-    if os and os.sleep then os.sleep(delay) end
+    HW.sleep(STOCK_WAIT_SLEEP)
   end
   return false
 end
 
-function CircuitManager:_transfer_with_retries(tp, from_side, to_side, count, from_slot, to_slot, attempts)
-  attempts = attempts or 4
-  for i = 1, attempts do
-    local moved = tp.transferItem(from_side, to_side, count, from_slot, to_slot)
+function CircuitManager:_transfer_with_retries(tp, from_side, to_side, from_slot, to_slot)
+  for i = 1, TRANSFER_ATTEMPTS do
+    local moved = tp.transferItem(from_side, to_side, 1, from_slot, to_slot)
     if moved and moved >= 1 then
       return moved
     end
-    if i < attempts and os and os.sleep then os.sleep(0.25) end
+    if i < TRANSFER_ATTEMPTS then HW.sleep(0.25) end
   end
   return 0
 end
 
---- Stock circuit from subnet via lane ME interface, transposer to machine input, clear interface.
+--- Stock a circuit from subnet ME and move it onto the machine input bus.
+---@param machine_id string
+---@param circuit_damage integer
 ---@return boolean ok
 ---@return string|nil err
 function CircuitManager:push_circuit(machine_id, circuit_damage)
@@ -150,53 +102,39 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
   if not db_addr or db_addr == "" then
     return false, "database_address required"
   end
-
-  if not self:_on_network(db_addr) then
+  if not HW.on_network(self.component, db_addr) then
     return false, string.format(
       "database address %q not on OC network — set Config.database_address to your real database UUID",
       tostring(db_addr)
     )
   end
 
-  local ok_if, iface_or_err = self:_check_address("me_interface", machine.interface_address, "me_interface")
-  if not ok_if then
-    return false, iface_or_err
-  end
-  local iface = iface_or_err
+  local iface, if_err = HW.require_proxy(self.component, "me_interface", machine.interface_address, "me_interface")
+  if not iface then return false, if_err end
   if not iface.setInterfaceConfiguration then
     return false, "me_interface missing setInterfaceConfiguration"
   end
 
-  local ok_tp, tp_or_err = self:_check_address("transposer", machine.transposer_address, "transposer")
-  if not ok_tp then
-    return false, tp_or_err
-  end
-  local tp = tp_or_err
+  local tp, tp_err = HW.require_proxy(self.component, "transposer", machine.transposer_address, "transposer")
+  if not tp then return false, tp_err end
   if not tp.transferItem then
     return false, "transposer missing transferItem"
   end
 
   local iface_side = LaneSides.interface_item_side(machine)
   local bus_side = LaneSides.item_bus_side(machine)
-  if bus_side == nil then
-    return false, "item_bus_side not configured"
-  end
 
-  local existing_bus = self:_circuit_on_bus(tp, machine, circuit_damage)
-  if existing_bus then
+  -- Idempotent: correct circuit already on the bus → done.
+  if self:_find_circuit_on_side(tp, bus_side, circuit_damage) then
     return true
   end
-
-  local wrong_bus = self:_find_circuit_on_side(tp, bus_side, nil)
-  if wrong_bus and circuit_damage then
-    local stack = tp.getStackInSlot(bus_side, wrong_bus)
-    if stack and stack.damage ~= circuit_damage then
-      return false, string.format(
-        "input bus has circuit damage %s but recipe needs %s — recover or clear bus first",
-        tostring(stack.damage),
-        tostring(circuit_damage)
-      )
-    end
+  -- A different circuit on the bus would corrupt the recipe.
+  local other_slot, other = self:_find_circuit_on_side(tp, bus_side, nil)
+  if other_slot and other and other.damage ~= circuit_damage then
+    return false, string.format(
+      "input bus has circuit %s but recipe needs %s — recover or clear the bus first",
+      tostring(other.damage), tostring(circuit_damage)
+    )
   end
 
   local ok_desc, db_slot = self.descriptors:ensure_circuit(iface, circuit_damage)
@@ -205,9 +143,8 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
   end
 
   local item_slot = machine.interface_item_slot or 1
-  -- OC transposer slots are 1-based; config 0 means "first machine input slot".
-  local input_slot = machine.input_slot
-  if input_slot == nil or input_slot < 1 then input_slot = 1 end
+  local input_slot = machine.input_slot or 1
+  if input_slot < 1 then input_slot = 1 end
 
   local ok_cfg, cfg_err = pcall(iface.setInterfaceConfiguration, item_slot, db_addr, db_slot, 1)
   if not ok_cfg then
@@ -217,41 +154,37 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     return false, "setInterfaceConfiguration returned false (check database slot " .. tostring(db_slot) .. ")"
   end
 
-  local from_slot = 1
-  if not self:_wait_interface_stock(tp, iface_side, from_slot, 8, 0.25) then
+  local from_slot = item_slot
+  if not self:_wait_interface_stock(tp, iface_side, from_slot) then
     iface.setInterfaceConfiguration(item_slot)
     local hint = string.format(
-      "interface side %d slot %d empty after stocking — circuit %s in subnet ME?",
+      "interface face %d slot %d empty after stocking — is circuit %s in subnet ME?",
       iface_side, from_slot, tostring(circuit_damage)
     )
     if iface.getItemsInNetwork then
-      local filter = { name = self.circuit_item, damage = circuit_damage }
-      local net = iface.getItemsInNetwork(filter)
+      local net = iface.getItemsInNetwork({ name = self.circuit_item, damage = circuit_damage })
       if not net or #net == 0 then
-        hint = hint .. " (getItemsInNetwork: 0)"
+        hint = hint .. " (getItemsInNetwork found 0)"
       end
     end
     return false, hint
   end
 
-  local moved = self:_transfer_with_retries(tp, iface_side, bus_side, 1, from_slot, input_slot, 4)
-  if not moved or moved < 1 then
-    iface.setInterfaceConfiguration(item_slot)
-    local bus_block = "bus slot empty"
-    if self:_circuit_on_bus(tp, machine, circuit_damage) then
-      bus_block = "circuit already on bus (run recover_circuit or skip)"
-    end
+  local moved = self:_transfer_with_retries(tp, iface_side, bus_side, from_slot, input_slot)
+  iface.setInterfaceConfiguration(item_slot)
+  if moved < 1 then
     return false, string.format(
-      "transferItem interface→bus failed (sides %d→%d, moved=%s, %s) — check interface_item_side / item_bus_side",
-      iface_side, bus_side, tostring(moved), bus_block
+      "transferItem interface→bus failed (sides %d→%d) — check interface_item_side / item_bus_side",
+      iface_side, bus_side
     )
   end
 
-  iface.setInterfaceConfiguration(item_slot)
   return true
 end
 
---- Recover non-consumable circuit from machine input back to interface side (subnet storage).
+--- Recover a non-consumable circuit from the machine input bus back into subnet ME.
+---@param machine_id string
+---@param circuit_damage integer|nil nil recovers any circuit found
 ---@return boolean ok
 ---@return string|nil err
 function CircuitManager:recover_circuit(machine_id, circuit_damage)
@@ -260,25 +193,19 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
     return false, "unknown machine_id " .. tostring(machine_id)
   end
 
-  local ok_tp, tp_or_err = self:_check_address("transposer", machine.transposer_address, "transposer")
-  if not ok_tp then
-    return false, tp_or_err
-  end
-  local tp = tp_or_err
+  local tp, tp_err = HW.require_proxy(self.component, "transposer", machine.transposer_address, "transposer")
+  if not tp then return false, tp_err end
 
   local iface_side = LaneSides.interface_item_side(machine)
   local bus_side = LaneSides.item_bus_side(machine)
-  if bus_side == nil then
-    return false, "item_bus_side not configured"
-  end
 
   local bus_slot = self:_find_circuit_on_side(tp, bus_side, circuit_damage)
   if not bus_slot then
     return false, "no circuit found on item_bus_side " .. tostring(bus_side)
   end
 
-  local moved = tp.transferItem(bus_side, iface_side, 1, bus_slot, 1)
-  if not moved or moved < 1 then
+  local moved = self:_transfer_with_retries(tp, bus_side, iface_side, bus_slot, 1)
+  if moved < 1 then
     return false, string.format(
       "transferItem bus→interface failed (sides %d→%d)",
       bus_side, iface_side
@@ -288,6 +215,7 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
   return true
 end
 
+--- Recover circuits on several lanes; returns per-lane { ok, err }.
 function CircuitManager:recover_all(machine_ids)
   local summary = {}
   for _, id in ipairs(machine_ids) do

@@ -127,3 +127,25 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Changed `fluid_lane.lua`: `fluid_mb_on_side` uses `getTankCount` + `pcall` (no crash on empty sides)
 - Changed `broker_core.lua`, `diag.lua`: use safe fluid probe helpers
 - Changed `tests/mock_broker_hardware.lua`: stock interface slot on setInterfaceConfiguration for same-side transfer tests
+
+## 2026-06-11 — Full subnet_broker cleanup (bug sweep + refactor)
+
+Fixed correctness bugs:
+
+- `fluid_lane.lua` rewrite: lanes now PUMP `transferFluid` in a loop until the FULL allocated volume reaches the hatch (was: ≥1 mB counted as success → silent under-delivery on multi-op lanes); partial delivery fails with "delivered X of Y mB"
+- `fluid_lane.lua`: side discovery probes with `transferFluid` itself (moved > 0), excludes the hatch face, and caches the working ME-side/pull-side combo per lane (`reset_cache()` to forget); tank APIs only used pcall-guarded for diagnostics
+- `descriptor_cache.lua` rewrite: fluid descriptors now look up the AE2FC drop item ("drop of <Fluid>") via `getItemsInNetwork({name="ae2fc:fluid_drop"})` instead of fluid registry names that `me.store()` can't match; verifies the database slot afterward; explicit "needs a Fluid Discretizer" error when no drops exist
+- `broker_core.lua`: `process_batch` continues past failed lanes and returns `(all_ok, summary)` with per-lane results (was: aborted whole batch on first failure)
+- `circuit_manager.lua`: `recover_circuit` keeps transfer retries; push is idempotent and rejects mismatched circuits before touching the interface
+
+Structural cleanup:
+
+- Added `hw.lua`: shared proxy/network/sleep helpers (removed 3 duplicate implementations)
+- `lane_sides.lua`: dropped legacy `pull_side`/`push_side` fallbacks; documented transposer-face vs ME-face side systems
+- `config.lua`: tidied (single-spaced); `input_slot = 1` (dropped 0-means-1); removed duplicate `recipe_circuit_damage` map (use `recipe_baselines.circuit_damage`); side fields validated as 0-5
+- `broker_core.lua`: unified option names to `push_circuits`/`recover_circuits` (dropped singular variants)
+- `start.lua`: no longer auto-runs a hardware batch on boot — validates config and prints usage; wget list includes `hw.lua` + `fluid_lane.lua`
+- `diag.lua`: added Fluid Discretizer check (counts `ae2fc:fluid_drop` kinds in subnet ME); default path `/home/subnet_broker`
+- `tests/mock_broker_hardware.lua` rewrite: realistic mocks — transfers only move stacks that exist, fluid stocking needs a valid drop descriptor + discretizer, small interface buffer exercises the pump loop, `getTankLevel` throws "invalid tank index" on tankless faces (was: mocks fabricated successes, masking every in-game failure)
+- `tests/phase2_broker_test.lua`: 30 checks incl. full-volume pumping, wrong-side auto-discovery, dry-subnet partial failure, no-discretizer error, batch continue-on-failure
+- Desktop regression: phase1 13/13, phase2 30/30 pass

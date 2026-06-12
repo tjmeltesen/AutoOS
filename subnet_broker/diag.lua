@@ -2,54 +2,61 @@
   AutoOS Subnet Broker — in-game diagnostic (1:1:1 lane topology)
 
   Run from OC shell:
-    loadfile("/home/AutoOS/subnet_broker/diag.lua")()
+    loadfile("/home/subnet_broker/diag.lua")()
 
-  Manual circuit + fluid lane test (edit flags below, re-run):
+  Checks, in order:
+    1. Config validation
+    2. Every configured UUID is on the OC network with the right type
+    3. Fluid drops visible per lane ("drop of ..." items need a Fluid Discretizer)
+    4. Maintenance poll per lane
+    5. Load balancer math scenarios
+
+  Optional live lane test (edit flags below, re-run):
     CIRCUIT_TEST_LANE = "machine_01"
-    CIRCUIT_TEST_RECOVER = true  -- sweep circuit back after push+fluid
+    CIRCUIT_TEST_RECOVER = true   -- sweep circuit back after push+fluid
 
   REPL one-liners:
     local B = require("broker_core")
-    B.manual_lane_test("machine_01", "molten_soldering_alloy", 1440, { recover_circuit = true })
+    B.manual_lane_test("machine_01", "polyethylene", 1000, { recover_circuits = true })
     local C = require("circuit_manager").new({ config = require("config"), component = require("component") })
-    C:push_circuit("machine_01", 14)
-    C:recover_circuit("machine_01", 14)
+    C:push_circuit("machine_01", 18)
+    C:recover_circuit("machine_01", 18)
 
-  Fluid side probe (find which transposer face has fluid):
+  Fluid probe (mB visible per transposer face):
     local F = require("fluid_lane")
-    local tp = component.proxy(require("config").machines[1].transposer_address)
-    for s = 0, 5 do print(s, F.fluid_mb_on_side(tp, s)) end
+    local tp = require("component").proxy(require("config").machines[1].transposer_address)
+    print(F.transposer_tank_summary(tp))
 ]]
 
--- Set to a machine id to run live push+fluid (+ optional recover) after smoke checks.
 local CIRCUIT_TEST_LANE = nil
-local CIRCUIT_TEST_RECIPE = "molten_soldering_alloy"
-local CIRCUIT_TEST_VOLUME = 1440
+local CIRCUIT_TEST_RECIPE = "polyethylene"
+local CIRCUIT_TEST_VOLUME = 1000
 local CIRCUIT_TEST_RECOVER = false
 
 local sep = package.config:sub(1, 1)
-local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/AutoOS/subnet_broker"
+local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
 
 local Config = require("config")
 local LoadBalancer = require("load_balancer")
 
 local all_pass = true
-local phase2_warn = false
+local warn = false
 
 local function fail(msg)
   all_pass = false
   print("[AutoOS] FAIL: " .. msg)
 end
 
+-- 1. Config validation -------------------------------------------------------
 local ok, err = Config.validate(Config)
 if ok then
   print("[AutoOS] Config validate: OK")
 else
-  print("[AutoOS] Config validate: " .. tostring(err))
-  all_pass = false
+  fail("Config validate: " .. tostring(err))
 end
 
+-- 2. UUID walk ----------------------------------------------------------------
 local component_addrs = {}
 local component_api
 pcall(function()
@@ -75,30 +82,50 @@ if component_api and next(component_addrs) then
     print(string.format("[AutoOS] %s transposer_address %s %s",
       m.id, m.transposer_address, type_label(component_addrs[m.transposer_address])))
   end
-  if Config.database_address then
-    print(string.format("[AutoOS] database %s %s",
-      Config.database_address, type_label(component_addrs[Config.database_address])))
-  end
+  print(string.format("[AutoOS] database %s %s",
+    Config.database_address, type_label(component_addrs[Config.database_address])))
 else
   print("[AutoOS] component.list unavailable — skipping UUID walk")
 end
 
+-- 3. Fluid drop visibility (Fluid Discretizer check) --------------------------
+if component_api then
+  pcall(function()
+    local m = Config.machines[1]
+    local iface = component_api.proxy(m.interface_address)
+    if iface and iface.getItemsInNetwork then
+      local drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop" })
+      local n = type(drops) == "table" and #drops or 0
+      if n > 0 then
+        print(string.format("[AutoOS] Fluid drops visible in subnet ME: %d kinds", n))
+        for i = 1, math.min(n, 6) do
+          print(string.format("[AutoOS]   %s", tostring(drops[i].label)))
+        end
+      else
+        warn = true
+        print("[AutoOS] WARNING: no 'ae2fc:fluid_drop' items in subnet ME — fluid stocking needs a Fluid Discretizer on the subnet")
+      end
+    end
+  end)
+end
+
+-- 4. Maintenance poll ---------------------------------------------------------
 local healthy_count = 0
 pcall(function()
-  local MachinePoll = require("machine_poll")
   if not component_api then return end
+  local MachinePoll = require("machine_poll")
   local poll = MachinePoll.new({ config = Config, component = component_api })
   local results = poll:poll_all()
   for _, m in ipairs(Config.machines) do
     local st = results[m.id]
     if not st or not st.available then
-      phase2_warn = true
+      warn = true
       print(string.format("[AutoOS] %s poll: UNAVAILABLE", m.id))
     elseif st.healthy then
       healthy_count = healthy_count + 1
       print(string.format("[AutoOS] %s poll: OK", m.id))
     else
-      phase2_warn = true
+      warn = true
       print(string.format("[AutoOS] %s poll: FAULT — %s", m.id, tostring(st.fault_message)))
     end
   end
@@ -107,6 +134,7 @@ pcall(function()
   end
 end)
 
+-- 5. Load balancer scenarios ----------------------------------------------------
 local function check_scenario(name, volume, unit, expected)
   local map, map_err = LoadBalancer.calculate_distribution(Config.machines, volume, unit)
   if not map then
@@ -119,13 +147,7 @@ local function check_scenario(name, volume, unit, expected)
   end
   local got = table.concat(list, ",")
   local want = table.concat(expected, ",")
-  local match = #list == #expected
-  if match then
-    for i, v in ipairs(expected) do
-      if list[i] ~= v then match = false break end
-    end
-  end
-  if match then
+  if got == want then
     print(string.format("[AutoOS] %s: %dL / %dL → ops %s  PASS", name, volume, unit, got))
   else
     fail(name .. ": expected " .. want .. " got " .. got)
@@ -135,26 +157,27 @@ end
 check_scenario("Scenario A", 15000, 1440, { 3, 3, 2, 2 })
 check_scenario("Scenario B", 3000, 1000, { 1, 1, 1, 0 })
 
+-- Optional live lane test -------------------------------------------------------
 if CIRCUIT_TEST_LANE and component_api then
   print(string.format(
     "[AutoOS] CIRCUIT TEST lane=%s recipe=%s volume=%d recover=%s",
     CIRCUIT_TEST_LANE, CIRCUIT_TEST_RECIPE, CIRCUIT_TEST_VOLUME, tostring(CIRCUIT_TEST_RECOVER)))
   local ok_test, test_err = pcall(function()
     local BrokerCore = require("broker_core")
-    local ok, err = BrokerCore.manual_lane_test(
+    local ok_lane, lane_err = BrokerCore.manual_lane_test(
       CIRCUIT_TEST_LANE,
       CIRCUIT_TEST_RECIPE,
       CIRCUIT_TEST_VOLUME,
       {
         component = component_api,
         execute_hardware = true,
-        recover_circuit = CIRCUIT_TEST_RECOVER,
+        recover_circuits = CIRCUIT_TEST_RECOVER,
       }
     )
-    if ok then
+    if ok_lane then
       print("[AutoOS] CIRCUIT TEST: PASS")
     else
-      fail("CIRCUIT TEST: " .. tostring(err))
+      fail("CIRCUIT TEST: " .. tostring(lane_err))
     end
   end)
   if not ok_test then
@@ -164,14 +187,13 @@ elseif CIRCUIT_TEST_LANE then
   print("[AutoOS] CIRCUIT TEST skipped — no component API")
 end
 
+-- Verdict -----------------------------------------------------------------------
 if all_pass then
-  print("[AutoOS] PHASE 1 IN-GAME: PASS")
-  if phase2_warn then
-    print("[AutoOS] PHASE 2 IN-GAME: PASS (warnings — see poll lines)")
+  if warn then
+    print("[AutoOS] DIAG: PASS (warnings above)")
   else
-    print("[AutoOS] PHASE 2 IN-GAME: PASS")
+    print("[AutoOS] DIAG: PASS")
   end
 else
-  print("[AutoOS] PHASE 1 IN-GAME: FAIL")
-  print("[AutoOS] PHASE 2 IN-GAME: FAIL")
+  print("[AutoOS] DIAG: FAIL")
 end

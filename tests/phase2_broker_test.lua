@@ -1,6 +1,6 @@
 #!/usr/bin/env lua
 --[[
-  AutoOS — Phase 2 broker desktop tests (machine_poll + lane execution)
+  AutoOS — Phase 2 broker desktop tests (lane hardware against realistic mocks)
 
   Run: C:\Lua\lua55.exe tests\phase2_broker_test.lua
 ]]
@@ -19,6 +19,8 @@ local MaintenanceParse = require("maintenance_parse")
 local MachinePoll = require("machine_poll")
 local LoadBalancer = require("load_balancer")
 local CircuitManager = require("circuit_manager")
+local DescriptorCache = require("descriptor_cache")
+local FluidLane = require("fluid_lane")
 local BrokerCore = require("broker_core")
 local Config = require("config")
 
@@ -39,25 +41,45 @@ end
 
 local function lists_equal(a, b)
   if #a ~= #b then return false end
-  for i, v in ipairs(a) do if a[i] ~= b[i] then return false end end
+  for i in ipairs(a) do if a[i] ~= b[i] then return false end end
   return true
+end
+
+local CIRCUIT = "gregtech:gt.integrated_circuit"
+
+local function fresh_mock(overrides)
+  overrides = overrides or {}
+  FluidLane.reset_cache()
+  return Mock.new({
+    machines = Mock.machines_from_config(Config),
+    database_address = Config.database_address,
+    network_items = overrides.network_items or {
+      { name = CIRCUIT, damage = 14, label = "Programmed Circuit", size = 64 },
+      { name = CIRCUIT, damage = 18, label = "Programmed Circuit", size = 64 },
+    },
+    network_fluids = overrides.network_fluids or {
+      ["Molten Soldering Alloy"] = 50000,
+      ["Ethylene"] = 50000,
+    },
+    discretizer = overrides.discretizer,
+    fluid_buffer = overrides.fluid_buffer,
+  })
 end
 
 io.write("\n" .. bold("AutoOS Phase 2 — Lane Hardware Tests") .. "\n")
 io.write(string.rep("-", 60) .. "\n")
 
+-- Maintenance parse -----------------------------------------------------------
 check("Problems: 0 healthy", not MaintenanceParse.has_fault({ "Problems: 0 Efficiency: 100.0 %" }))
 check("Problems: 1 fault", MaintenanceParse.has_fault({ "Problems: 1" }))
 
-local mock4 = Mock.new({
-  machines = Mock.machines_from_config(Config),
-  database_address = Config.database_address,
-})
-local poll4 = MachinePoll.new({ config = Config, component = mock4.component })
-check("4 healthy → pool of 4", #poll4:build_active_pool(poll4:poll_all()) == 4)
+-- Pool building ----------------------------------------------------------------
+local mock = fresh_mock()
+local poll = MachinePoll.new({ config = Config, component = mock.component })
+check("4 healthy → pool of 4", #poll:build_active_pool(poll:poll_all()) == 4)
 
-mock4.set_machine_fault("machine_02", true)
-local pool3 = poll4:build_active_pool(poll4:poll_all())
+mock.set_machine_fault("machine_02", true)
+local pool3 = poll:build_active_pool(poll:poll_all())
 check("fault machine_02 → pool of 3", #pool3 == 3)
 
 local list_safe = {}
@@ -65,48 +87,103 @@ local map_safe = LoadBalancer.calculate_distribution(pool3, 14400, 1440)
 for _, m in ipairs(pool3) do list_safe[#list_safe + 1] = map_safe[m.id].operations end
 check("safe failure 4,3,3", lists_equal(list_safe, { 4, 3, 3 }), table.concat(list_safe, ","))
 
-local alloc = map_safe.machine_01
-local row = Config.machines[1]
-local cm = CircuitManager.new({ config = Config, component = mock4.component })
+-- Circuit push / recover --------------------------------------------------------
+mock = fresh_mock()
+local cm = CircuitManager.new({ config = Config, component = mock.component })
+
 local ok_push, push_err = cm:push_circuit("machine_01", 14)
 check("push_circuit ok", ok_push == true, push_err)
-check("dynamic descriptor store", mock4.stats.store >= 1)
-check("setInterfaceConfiguration called", mock4.stats.setInterfaceConfiguration >= 2)
+local bus = mock.bus_stack("machine_01", 1)
+check("circuit really on bus", bus ~= nil and bus.damage == 14)
 
-mock4.transposers[Config.machines[1].transposer_address]._inv[Config.machines[1].item_bus_side] = {
-  { name = "gregtech:gt.integrated_circuit", damage = 14, size = 1 },
-}
+check("push idempotent (already on bus)", cm:push_circuit("machine_01", 14) == true)
+
+local ok_wrong, wrong_err = cm:push_circuit("machine_01", 18)
+check("wrong circuit on bus rejected", ok_wrong == false and tostring(wrong_err):find("recover or clear") ~= nil, wrong_err)
+
 local ok_rec, rec_err = cm:recover_circuit("machine_01", 14)
 check("recover_circuit ok", ok_rec == true, rec_err)
-check("transferItem on recover", mock4.stats.transferItem >= 2)
+check("bus empty after recover", mock.bus_stack("machine_01", 1) == nil)
 
-local ok_lane = BrokerCore.execute_lane(row, alloc, "molten_soldering_alloy", mock4.component, {
-  push_circuits = false,
+local ok_missing, missing_err = cm:push_circuit("machine_01", 22)
+check("push fails when circuit not in ME",
+  ok_missing == false and tostring(missing_err):find("empty after stocking") ~= nil, missing_err)
+
+-- Fluid descriptors ---------------------------------------------------------------
+mock = fresh_mock()
+local dc = DescriptorCache.new({ config = Config, component = mock.component })
+local iface1 = mock.component.proxy(Config.machines[1].interface_address)
+
+local rules = Config.constraints.recipe_baselines["polyethylene"]
+local ok_fd, fd_slot = dc:ensure_fluid(iface1, rules)
+check("ensure_fluid finds drop item", ok_fd == true, fd_slot)
+check("db slot holds fluid drop", mock.db_slots[2] ~= nil and mock.db_slots[2].name:find("fluid_drop") ~= nil)
+
+local mock_nodisc = fresh_mock({ discretizer = false })
+local dc_nd = DescriptorCache.new({ config = Config, component = mock_nodisc.component })
+local iface_nd = mock_nodisc.component.proxy(Config.machines[1].interface_address)
+local ok_nd, nd_err = dc_nd:ensure_fluid(iface_nd, rules)
+check("no discretizer → clear error", ok_nd == false and tostring(nd_err):find("Discretizer") ~= nil, nd_err)
+
+-- Full-volume fluid pump ------------------------------------------------------------
+mock = fresh_mock({ fluid_buffer = 1000 })
+local row1 = Config.machines[1]
+local alloc = { operations = 4, allocated_volume = 5760 }
+local ok_lane, lane_err = BrokerCore.execute_lane(row1, alloc, "molten_soldering_alloy", mock.component, {})
+check("execute_lane circuit+fluid ok", ok_lane == true, lane_err)
+check("full volume delivered (5760 mB, buffer 1000)", mock.hatch_mb("machine_01") == 5760,
+  mock.hatch_mb("machine_01") .. " mB")
+check("pump looped (multiple transferFluid)", mock.stats.transferFluid >= 6, mock.stats.transferFluid .. " calls")
+check("circuit on bus after lane", mock.bus_stack("machine_01", 1) ~= nil)
+
+-- Wrong configured sides → probe recovers ---------------------------------------------
+mock = fresh_mock({ fluid_buffer = 1000 })
+local wrong_row = {}
+for k, v in pairs(Config.machines[1]) do wrong_row[k] = v end
+wrong_row.fluid_pull_side = 5      -- physically wrong
+wrong_row.interface_fluid_side = 3 -- physically wrong
+local ok_probe, probe_err = BrokerCore.execute_lane(wrong_row, { operations = 1, allocated_volume = 1440 },
+  "molten_soldering_alloy", mock.component, { push_circuits = false })
+check("wrong sides auto-discovered", ok_probe == true, probe_err)
+check("probe delivered full volume", mock.hatch_mb("machine_01") == 1440, mock.hatch_mb("machine_01") .. " mB")
+local cached = FluidLane.cached_sides("machine_01")
+check("working sides cached", cached ~= nil and cached.pull_side == 1 and cached.me_side == 0)
+
+-- Subnet runs dry -----------------------------------------------------------------------
+mock = fresh_mock({ network_fluids = { ["Molten Soldering Alloy"] = 1500 }, fluid_buffer = 1000 })
+local ok_dry, dry_err = BrokerCore.execute_lane(Config.machines[1], { operations = 2, allocated_volume = 2880 },
+  "molten_soldering_alloy", mock.component, { push_circuits = false })
+check("dry subnet → partial delivery error",
+  ok_dry == false and tostring(dry_err):find("1500") ~= nil, dry_err)
+
+-- Recover after lane ------------------------------------------------------------------------
+mock = fresh_mock()
+local ok_full, full_err = BrokerCore.execute_lane(Config.machines[1], { operations = 1, allocated_volume = 1440 },
+  "molten_soldering_alloy", mock.component, { recover_circuits = true })
+check("execute_lane with recover ok", ok_full == true, full_err)
+check("bus empty after recover_circuits", mock.bus_stack("machine_01", 1) == nil)
+
+-- Batch continues after a lane failure --------------------------------------------------------
+mock = fresh_mock()
+mock.break_component(Config.machines[2].transposer_address)
+local batch_ok, summary = BrokerCore.process_batch("polyethylene", 3000, Config.machines, {
+  component = mock.component,
+  execute_hardware = true,
 })
-check("execute_lane fluid ok", ok_lane == true)
-check("setFluidInterfaceConfiguration called", mock4.stats.setFluidInterfaceConfiguration >= 2)
-check("transferFluid called", mock4.stats.transferFluid >= 1)
-local tp = mock4.transposers[Config.machines[1].transposer_address]
-local fs = tp._last_fluid_sides
-local fpull = row.fluid_pull_side or row.item_bus_side
-check("fluid uses fluid_pull/fluid_push sides", fs and fs[1] == fpull and fs[2] == row.fluid_push_side,
-  fs and (tostring(fs[1]) .. "→" .. tostring(fs[2])) or "nil")
+check("batch reports failure", batch_ok == false)
+check("failed lane counted", summary.failed == 1 and summary.lanes.machine_02 and summary.lanes.machine_02.ok == false)
+check("later lanes still ran", summary.succeeded == 2 and mock.hatch_mb("machine_03") == 1000,
+  string.format("succeeded=%d m3=%dmB", summary.succeeded, mock.hatch_mb("machine_03")))
 
-local tp_inv = mock4.transposers[Config.machines[1].transposer_address]._inv
-tp_inv[row.item_bus_side] = {}
-local ok_full, full_err = BrokerCore.execute_lane(row, alloc, "molten_soldering_alloy", mock4.component, {
-  push_circuits = true,
-  recover_circuits = true,
-  circuit_manager = cm,
+-- Healthy batch end-to-end ----------------------------------------------------------------------
+mock = fresh_mock()
+local all_ok, s2 = BrokerCore.process_batch("polyethylene", 3000, Config.machines, {
+  component = mock.component,
+  execute_hardware = true,
 })
-check("execute_lane circuit+fluid+recover", ok_full == true, full_err)
-
-BrokerCore.set_deps({ component = mock4.component })
-check("process_batch with hardware",
-  BrokerCore.process_batch("molten_soldering_alloy", 14400, pool3, {
-    execute_hardware = true,
-    component = mock4.component,
-  }) == true)
+check("healthy batch all lanes ok", all_ok == true and s2.succeeded == 3, string.format("succeeded=%d", s2.succeeded))
+check("volumes delivered per lane",
+  mock.hatch_mb("machine_01") == 1000 and mock.hatch_mb("machine_02") == 1000 and mock.hatch_mb("machine_03") == 1000)
 
 io.write(string.rep("-", 60) .. "\n")
 io.write(bold(string.format("Results: %d passed, %d failed\n", passed, failed)))

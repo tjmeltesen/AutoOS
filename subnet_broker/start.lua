@@ -1,38 +1,50 @@
 --[[
-  AutoOS Subnet Broker — in-game boot helper (Phase 1)
+  AutoOS Subnet Broker — in-game boot helper
 
   HDD layout:
-    /home/AutoOS/subnet_broker/
-      config.lua, load_balancer.lua, descriptor_cache.lua, broker_core.lua, circuit_manager.lua,
-      machine_poll.lua, maintenance_parse.lua, start.lua, diag.lua
-
-  Optional top-level boot:
-    /home/start.lua → loadfile("/home/AutoOS/subnet_broker/start.lua")()
+    /home/subnet_broker/
+      config.lua, hw.lua, lane_sides.lua, load_balancer.lua,
+      maintenance_parse.lua, machine_poll.lua, descriptor_cache.lua,
+      fluid_lane.lua, circuit_manager.lua, broker_core.lua,
+      start.lua, diag.lua
 
   Deploy via floppy/USB or wget raw URLs (do NOT wget the HTML repo page):
-    wget -f .../subnet_broker/config.lua /home/AutoOS/subnet_broker/config.lua
-    wget -f .../subnet_broker/load_balancer.lua /home/AutoOS/subnet_broker/load_balancer.lua
-    wget -f .../subnet_broker/maintenance_parse.lua /home/AutoOS/subnet_broker/maintenance_parse.lua
-    wget -f .../subnet_broker/machine_poll.lua /home/AutoOS/subnet_broker/machine_poll.lua
-    wget -f .../subnet_broker/lane_sides.lua /home/AutoOS/subnet_broker/lane_sides.lua
-    wget -f .../subnet_broker/descriptor_cache.lua /home/AutoOS/subnet_broker/descriptor_cache.lua
-    wget -f .../subnet_broker/fluid_lane.lua /home/AutoOS/subnet_broker/fluid_lane.lua
-    wget -f .../subnet_broker/circuit_manager.lua /home/AutoOS/subnet_broker/circuit_manager.lua
-    wget -f .../subnet_broker/broker_core.lua /home/AutoOS/subnet_broker/broker_core.lua
-    wget -f .../subnet_broker/diag.lua /home/AutoOS/subnet_broker/diag.lua
-    wget -f .../subnet_broker/start.lua /home/AutoOS/subnet_broker/start.lua
+    wget -f .../subnet_broker/config.lua /home/subnet_broker/config.lua
+    wget -f .../subnet_broker/hw.lua /home/subnet_broker/hw.lua
+    wget -f .../subnet_broker/lane_sides.lua /home/subnet_broker/lane_sides.lua
+    wget -f .../subnet_broker/load_balancer.lua /home/subnet_broker/load_balancer.lua
+    wget -f .../subnet_broker/maintenance_parse.lua /home/subnet_broker/maintenance_parse.lua
+    wget -f .../subnet_broker/machine_poll.lua /home/subnet_broker/machine_poll.lua
+    wget -f .../subnet_broker/descriptor_cache.lua /home/subnet_broker/descriptor_cache.lua
+    wget -f .../subnet_broker/fluid_lane.lua /home/subnet_broker/fluid_lane.lua
+    wget -f .../subnet_broker/circuit_manager.lua /home/subnet_broker/circuit_manager.lua
+    wget -f .../subnet_broker/broker_core.lua /home/subnet_broker/broker_core.lua
+    wget -f .../subnet_broker/diag.lua /home/subnet_broker/diag.lua
+    wget -f .../subnet_broker/start.lua /home/subnet_broker/start.lua
 
   Edit config.lua with real component UUIDs from:
-    local c = require("component"); for a,n in c.list() do print(n,a) end
+    local c = require("component"); for a, n in c.list() do print(n, a) end
 
-  Run diag first: loadfile("/home/AutoOS/subnet_broker/diag.lua")()
+  This file only loads modules and prints usage — it does NOT touch hardware.
 ]]
 
 local sep = package.config:sub(1, 1)
-local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/AutoOS/subnet_broker"
+local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
 
+local Config = require("config")
 local BrokerCore = require("broker_core")
 
--- README §4 verification: 15,000L / 1440L = 10 ops → 3, 3, 2, 2
-BrokerCore.process_batch("molten_soldering_alloy", 15000)
+local ok, err = Config.validate(Config)
+if ok then
+  print("[AutoOS] Config validate: OK — subnet '" .. tostring(Config.subnet_id) .. "'")
+else
+  print("[AutoOS] Config validate FAILED: " .. tostring(err))
+end
+
+print("[AutoOS] Broker loaded. Usage:")
+print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
+print("  One lane:    require('broker_core').manual_lane_test('machine_01', 'polyethylene', 1000)")
+print("  Full batch:  require('broker_core').process_batch('polyethylene', 3000)")
+
+return BrokerCore
