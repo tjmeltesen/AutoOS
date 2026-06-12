@@ -187,7 +187,14 @@ function DescriptorCache:ensure_fluid(iface, rules)
   local slot = select(2, self:_scratch_slots())
   local filter = self:_fluid_filter_from_rules(iface, rules)
   if not filter then
-    return false, "could not build fluid filter (set fluid_label or fluid_registry on recipe)"
+    if not rules.fluid_label and not rules.fluid_registry and not rules.fluid_filter then
+      return false, "recipe missing fluid_label or fluid_registry"
+    end
+    local hint = rules.fluid_label or rules.fluid_registry or "?"
+    return false, string.format(
+      "fluid %q not found in subnet ME — stock it on this lane's network or fix fluid_label in config",
+      hint
+    )
   end
 
   if not iface or not iface.store then

@@ -99,4 +99,8 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 
 - Changed `lane_sides.lua`: `format_sides()`, `fluid_push_side()`; type-safe side getters
 - Changed `broker_core.lua`: use `format_sides` for lane log; `fluid_push_side` helper in execute_lane
+
+## 2026-06-10 — Clearer fluid-not-in-ME error
+
+- Changed `descriptor_cache.lua`: distinguish missing recipe fields vs fluid not stocked / label mismatch
 - Changed `tests/mock_broker_hardware.lua`: stock interface slot on setInterfaceConfiguration for same-side transfer tests
