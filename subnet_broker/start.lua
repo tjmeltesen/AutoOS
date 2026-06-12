@@ -6,7 +6,7 @@
       config.lua, hw.lua, lane_sides.lua, load_balancer.lua,
       maintenance_parse.lua, machine_poll.lua, descriptor_cache.lua,
       fluid_lane.lua, circuit_manager.lua, broker_core.lua,
-      start.lua, diag.lua
+      start.lua, diag.lua, test.lua
 
   Deploy via floppy/USB or wget raw URLs (do NOT wget the HTML repo page):
     wget -f .../subnet_broker/config.lua /home/subnet_broker/config.lua
@@ -20,6 +20,7 @@
     wget -f .../subnet_broker/circuit_manager.lua /home/subnet_broker/circuit_manager.lua
     wget -f .../subnet_broker/broker_core.lua /home/subnet_broker/broker_core.lua
     wget -f .../subnet_broker/diag.lua /home/subnet_broker/diag.lua
+    wget -f .../subnet_broker/test.lua /home/subnet_broker/test.lua
     wget -f .../subnet_broker/start.lua /home/subnet_broker/start.lua
 
   Edit config.lua with real component UUIDs from:
@@ -44,6 +45,7 @@ end
 
 print("[AutoOS] Broker loaded. Usage:")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
+print("  Full lines:  loadfile('" .. here .. "/test.lua')()")
 print("  One lane:    require('broker_core').manual_lane_test('machine_01', 'polyethylene', 1000)")
 print("  Full batch:  require('broker_core').process_batch('polyethylene', 3000)")
 

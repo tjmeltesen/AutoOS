@@ -176,3 +176,8 @@ Fixed database filling with duplicate circuit descriptors (one per lane on slots
 - `diag.lua`: slot scan is explicitly read-only; labels note entries are from prior batch runs, not diag.
 - `tests/phase2_broker_test.lua`: batch reuses 1 circuit + 1 fluid slot across 3 lanes (`store` ≤ 2); DB discovery test for pre-seeded slot 7.
 - Desktop regression: phase1 13/13, phase2 47/47 pass.
+
+## 2026-06-11 — In-game full line test script
+
+- Added `subnet_broker/test.lua`: per-lane circuit+fluid test on all healthy machines, optional batch, cache/DB summary
+- Changed `subnet_broker/start.lua`: wget + usage line for test.lua

@@ -25,7 +25,7 @@ Config.database_address = "9c22064e-7ddc-4d9a-a6a5-b732d1cba18a"
 
 -- Slots 1..N scanned for empty / matching descriptors; broker-owned slots are
 -- LRU-evicted when full. Match your OC database tier (T1=9, T2=25, T3=81).
-Config.database_slot_count = 9e
+Config.database_slot_count = 9
 
 Config.circuit_item_name = "gregtech:gt.integrated_circuit"
 
