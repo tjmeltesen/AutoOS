@@ -7,6 +7,41 @@
 
 local FluidLane = {}
 
+--- Millibuckets on one transposer face (safe when side has no tank handler).
+---@param tp table
+---@param side number
+---@return number
+function FluidLane.fluid_mb_on_side(tp, side)
+  if not tp or not tp.getTankLevel then return 0 end
+
+  local tank_count = 1
+  if tp.getTankCount then
+    local ok, n = pcall(tp.getTankCount, side)
+    if ok and type(n) == "number" then
+      tank_count = n
+    end
+  end
+  if tank_count < 1 then return 0 end
+
+  local max_mb = 0
+  -- OC transposer tanks are 1-based on GTNH; also try 0-based if needed.
+  for t = 1, tank_count do
+    local ok, lvl = pcall(tp.getTankLevel, side, t)
+    if ok and type(lvl) == "number" and lvl > max_mb then
+      max_mb = lvl
+    end
+  end
+  if max_mb < 1 and tank_count > 0 then
+    for t = 0, tank_count - 1 do
+      local ok, lvl = pcall(tp.getTankLevel, side, t)
+      if ok and type(lvl) == "number" and lvl > max_mb then
+        max_mb = lvl
+      end
+    end
+  end
+  return max_mb
+end
+
 ---@param tp table transposer proxy
 ---@param min_mb number
 ---@param max_attempts integer
@@ -17,14 +52,14 @@ function FluidLane.find_fluid_on_transposer(tp, min_mb, max_attempts)
   max_attempts = max_attempts or 12
   for _ = 1, max_attempts do
     for s = 0, 5 do
-      if (tp.getTankLevel(s, 1) or 0) >= min_mb then
+      if FluidLane.fluid_mb_on_side(tp, s) >= min_mb then
         return s
       end
     end
     if os and os.sleep then os.sleep(0.25) end
   end
   for s = 0, 5 do
-    if (tp.getTankLevel(s, 1) or 0) > 0 then
+    if FluidLane.fluid_mb_on_side(tp, s) > 0 then
       return s
     end
   end
@@ -72,7 +107,7 @@ function FluidLane.transposer_tank_summary(tp)
   end
   local parts = {}
   for s = 0, 5 do
-    local lvl = tp.getTankLevel(s, 1) or 0
+    local lvl = FluidLane.fluid_mb_on_side(tp, s)
     if lvl > 0 then
       parts[#parts + 1] = string.format("%d=%dmB", s, lvl)
     end
@@ -81,6 +116,17 @@ function FluidLane.transposer_tank_summary(tp)
     return "all transposer sides empty"
   end
   return table.concat(parts, ", ")
+end
+
+---@param tp table
+---@param side number
+---@return string
+function FluidLane.fluid_tank_hint(tp, side)
+  local lvl = FluidLane.fluid_mb_on_side(tp, side)
+  if lvl > 0 then
+    return string.format("side %d has %d mB", side, lvl)
+  end
+  return "side " .. tostring(side) .. " tank empty"
 end
 
 return FluidLane

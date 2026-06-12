@@ -128,28 +128,6 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
   local fluid_from = LaneSides.fluid_pull_side(machine_row)
   local fluid_to = LaneSides.fluid_push_side(machine_row)
 
-  local function fluid_tank_hint(tp_proxy, side)
-    if not tp_proxy.getTankLevel then
-      return "side " .. tostring(side)
-    end
-    local tanks = 1
-    if tp_proxy.getTankCount then
-      tanks = tp_proxy.getTankCount(side) or 1
-    end
-    for t = 1, tanks do
-      local lvl = tp_proxy.getTankLevel(side, t) or 0
-      if lvl > 0 then
-        local name = "fluid"
-        if tp_proxy.getFluidInTank then
-          local info = tp_proxy.getFluidInTank(side, t)
-          if type(info) == "table" and info.name then name = info.name end
-        end
-        return string.format("side %d has %d mB %s", side, lvl, name)
-      end
-    end
-    return "side " .. tostring(side) .. " tank empty"
-  end
-
   local function transfer_fluid_with_retries(tp_proxy, from_side, to_side, amount)
     local last_err = nil
     for attempt = 1, 6 do
@@ -219,7 +197,7 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
         if iface.setFluidInterfaceConfiguration then
           iface.setFluidInterfaceConfiguration(me_fluid_side)
         end
-        local detail = xfer_err or fluid_tank_hint(tp, pull_side)
+        local detail = xfer_err or FluidLane.fluid_tank_hint(tp, pull_side)
         return false, string.format(
           "transferFluid failed (transposer %d→%d, ME side %d, wanted %d mB): %s",
           pull_side, fluid_to, me_fluid_side, volume, detail

@@ -16,8 +16,9 @@
     C:recover_circuit("machine_01", 14)
 
   Fluid side probe (find which transposer face has fluid):
+    local F = require("fluid_lane")
     local tp = component.proxy(require("config").machines[1].transposer_address)
-    for s = 0, 5 do print(s, tp.getTankLevel(s, 1) or 0) end
+    for s = 0, 5 do print(s, F.fluid_mb_on_side(tp, s)) end
 ]]
 
 -- Set to a machine id to run live push+fluid (+ optional recover) after smoke checks.

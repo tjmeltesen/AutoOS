@@ -121,4 +121,9 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Added `subnet_broker/fluid_lane.lua`: probe transposer tanks; try ME interface faces 0–5 until fluid appears
 - Changed `broker_core.lua`: use `stock_and_locate` instead of fixed pull side
 - Changed `tests/mock_broker_hardware.lua`: `getTankLevel` for fluid probe tests
+
+## 2026-06-10 — Fix invalid tank index on transposer probe
+
+- Changed `fluid_lane.lua`: `fluid_mb_on_side` uses `getTankCount` + `pcall` (no crash on empty sides)
+- Changed `broker_core.lua`, `diag.lua`: use safe fluid probe helpers
 - Changed `tests/mock_broker_hardware.lua`: stock interface slot on setInterfaceConfiguration for same-side transfer tests
