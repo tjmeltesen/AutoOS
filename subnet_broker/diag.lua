@@ -93,24 +93,30 @@ else
   print("[AutoOS] component.list unavailable — skipping UUID walk")
 end
 
--- 2b. Database slot occupancy (descriptor cache scan) -------------------------
+-- 2b. Database slot occupancy (read-only scan — diag never writes descriptors) --
 if component_api and Config.database_address then
   pcall(function()
     local db = component_api.proxy(Config.database_address)
     if not db or not db.get then return end
     local count = Config.database_slot_count or 25
     local used = 0
+    print("[AutoOS] database slot scan (read-only):")
     for slot = 1, count do
       local ok_get, entry = pcall(db.get, slot)
       if ok_get and type(entry) == "table" then
         used = used + 1
         if used <= 12 then
-          print(string.format("[AutoOS]   db slot %d: %s damage %s",
-            slot, tostring(entry.name), tostring(entry.damage)))
+          local label = entry.label and (" label=" .. entry.label) or ""
+          print(string.format("[AutoOS]   slot %d: %s damage %s%s",
+            slot, tostring(entry.name), tostring(entry.damage), label))
         end
       end
     end
-    print(string.format("[AutoOS] database slots used: %d / %d", used, count))
+    if used == 0 then
+      print("[AutoOS]   (empty — broker will allocate on first batch)")
+    else
+      print(string.format("[AutoOS] database slots used: %d / %d (from prior batch runs, not diag)", used, count))
+    end
   end)
 end
 

@@ -166,3 +166,13 @@ Fixed wrong circuit config number being pushed when switching recipes (e.g. 14 l
 - `tests/mock_broker_hardware.lua`: added `database.clear`.
 - `tests/phase2_broker_test.lua`: added cache hit, miss-to-empty, stale-slot invalidation, foreign-full rejection, LRU eviction, recipe-switch (18 not 14), and stocked-wrong-circuit guard tests.
 - Desktop regression: phase1 13/13, phase2 42/42 pass.
+
+## 2026-06-11 — Shared descriptor cache + DB discovery scan
+
+Fixed database filling with duplicate circuit descriptors (one per lane on slots 1,3,5,7…):
+
+- `broker_core.lua`: one session-wide `DescriptorCache` shared by circuit push and fluid stocking; `CircuitManager` receives the same instance; added `reset_descriptor_cache()`.
+- `descriptor_cache.lua`: on cache miss, scan all slots for an existing matching descriptor before writing (`_find_matching_slot` — adopts prior-session / old-code entries without `me.store`).
+- `diag.lua`: slot scan is explicitly read-only; labels note entries are from prior batch runs, not diag.
+- `tests/phase2_broker_test.lua`: batch reuses 1 circuit + 1 fluid slot across 3 lanes (`store` ≤ 2); DB discovery test for pre-seeded slot 7.
+- Desktop regression: phase1 13/13, phase2 47/47 pass.

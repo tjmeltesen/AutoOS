@@ -101,6 +101,17 @@ function DescriptorCache:_forget_slot(slot)
   self._slot_owner[slot] = nil
 end
 
+--- Scan the database for a slot that already holds a matching descriptor.
+--- Adopts descriptors written by a prior session or older broker code.
+function DescriptorCache:_find_matching_slot(verify_fn)
+  for slot = 1, self:_slot_count() do
+    if verify_fn(self:_db_get(slot)) then
+      return slot
+    end
+  end
+  return nil
+end
+
 --- Find an empty database slot (not currently holding anything).
 function DescriptorCache:_first_empty_slot()
   for slot = 1, self:_slot_count() do
@@ -152,7 +163,14 @@ function DescriptorCache:_resolve_slot(cache_key, write_fn, verify_fn)
     self:_forget_slot(cached.slot)  -- stale → fall through to miss
   end
 
-  -- CACHE MISS: choose a slot to (over)write.
+  -- CACHE MISS: adopt an existing DB slot with the right descriptor, if any.
+  local existing = self:_find_matching_slot(verify_fn)
+  if existing then
+    self:_register(cache_key, existing)
+    return true, existing
+  end
+
+  -- No match — choose a slot to write.
   local slot = self:_first_empty_slot()
   local evicted = false
   if not slot then

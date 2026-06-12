@@ -95,6 +95,7 @@ check("empty pool error", select(1, LoadBalancer.calculate_distribution({}, 1500
 check("short batch error", select(1, LoadBalancer.calculate_distribution(pool4, 500, 1440)) == nil)
 
 BrokerCore.set_deps({})
+BrokerCore.reset_descriptor_cache()
 check("process_batch print-only (no component)", BrokerCore.process_batch("molten_soldering_alloy", 15000, Config.machines, { execute_hardware = false }) == true)
 check("process_batch 500L halted", BrokerCore.process_batch("molten_soldering_alloy", 500, Config.machines, { execute_hardware = false }) == false)
 

@@ -19,13 +19,12 @@ local Config = {}
 Config.subnet_id = "universal_chemical_mv_01"
 Config.main_net_channel = 105
 
--- Empty OC database on the cable — scratch slots are filled at runtime from
--- subnet ME (descriptor_cache.lua). No manual database GUI setup needed.
+-- Empty OC database on the cable — descriptors allocated at runtime by
+-- descriptor_cache.lua (cache hit/miss + LRU scan). No manual GUI setup.
 Config.database_address = "bcacb1a7-ebe4-48e8-940c-d436545310c7"
 
--- Database slots 1..N are managed as a descriptor cache (descriptor_cache.lua):
--- broker-owned slots are reused on cache hits and LRU-evicted when full.
--- Set this to your OC database tier's slot count (T1=9, T2=25, T3=81).
+-- Slots 1..N scanned for empty / matching descriptors; broker-owned slots are
+-- LRU-evicted when full. Match your OC database tier (T1=9, T2=25, T3=81).
 Config.database_slot_count = 9
 
 Config.circuit_item_name = "gregtech:gt.integrated_circuit"

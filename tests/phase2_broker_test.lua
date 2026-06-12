@@ -50,6 +50,8 @@ local CIRCUIT = "gregtech:gt.integrated_circuit"
 local function fresh_mock(overrides)
   overrides = overrides or {}
   FluidLane.reset_cache()
+  BrokerCore.set_deps({})
+  BrokerCore.reset_descriptor_cache()
   return Mock.new({
     machines = Mock.machines_from_config(Config),
     database_address = Config.database_address,
@@ -194,6 +196,32 @@ check("healthy batch all lanes ok", all_ok == true and s2.succeeded == 3, string
 check("volumes delivered per lane",
   mock.hatch_mb("machine_01") == 1000 and mock.hatch_mb("machine_02") == 1000 and mock.hatch_mb("machine_03") == 1000)
 
+-- Shared cache: 3-lane batch reuses one circuit slot + one fluid slot (not 6 writes).
+mock = fresh_mock()
+mock.stats.store = 0
+BrokerCore.process_batch("polyethylene", 3000, Config.machines, {
+  component = mock.component,
+  execute_hardware = true,
+})
+local circuit_slots, fluid_slots = {}, {}
+for slot, entry in pairs(mock.db_slots) do
+  if entry.name and entry.name:find("integrated_circuit", 1, true) then
+    circuit_slots[slot] = entry.damage
+  elseif entry.name and entry.name:find("fluid_drop", 1, true) then
+    fluid_slots[slot] = true
+  end
+end
+local n_circuits, n_fluids = 0, 0
+local shared_circuit_damage
+for _, d in pairs(circuit_slots) do n_circuits = n_circuits + 1; shared_circuit_damage = d end
+for _ in pairs(fluid_slots) do n_fluids = n_fluids + 1 end
+check("batch shares one circuit descriptor slot", n_circuits == 1 and shared_circuit_damage == 18,
+  string.format("%d circuit slots", n_circuits))
+check("batch shares one fluid descriptor slot", n_fluids == 1,
+  string.format("%d fluid slots", n_fluids))
+check("batch cache limits me.store calls", mock.stats.store <= 2,
+  string.format("store=%d", mock.stats.store))
+
 -- Database slot cache: hit / miss / LRU / stale / foreign -----------------------------------------
 io.write(dim("\n  Database slot cache\n"))
 
@@ -224,6 +252,16 @@ mock.db_slots[slots] = { name = "gregtech:gt.integrated_circuit", damage = 14 } 
 local oks2, slots2 = dcc:ensure_circuit(ifc, 18)
 check("stale slot invalidated + rewritten", oks and oks2
   and mock.db_slots[slots2].damage == 18, string.format("slot=%s dmg=%s", tostring(slots2), tostring(mock.db_slots[slots2] and mock.db_slots[slots2].damage)))
+
+-- DB discovery: pre-seeded slot 7 with circuit 18 → new cache adopts without store.
+mock = fresh_mock()
+mock.db_slots[7] = { name = CIRCUIT, damage = 18 }
+dcc = DescriptorCache.new({ config = Config, component = mock.component })
+ifc = mock.component.proxy(Config.machines[1].interface_address)
+mock.stats.store = 0
+local okd, slotd = dcc:ensure_circuit(ifc, 18)
+check("DB discovery adopts existing slot", okd and slotd == 7, tostring(slotd))
+check("DB discovery skips me.store", mock.stats.store == 0)
 
 -- Foreign protection: every slot occupied by non-broker entries → fail, nothing cleared.
 mock = fresh_mock()

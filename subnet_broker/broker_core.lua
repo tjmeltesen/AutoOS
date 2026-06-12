@@ -29,9 +29,18 @@ local LaneSides = require("lane_sides")
 local BrokerCore = {}
 
 local _deps = {}
+local _shared_descriptor_cache = nil
 
 function BrokerCore.set_deps(deps)
   _deps = deps or {}
+  if deps.descriptor_cache then
+    _shared_descriptor_cache = deps.descriptor_cache
+  end
+end
+
+--- Drop the session descriptor cache (tests / fresh batch). Does not clear hardware DB.
+function BrokerCore.reset_descriptor_cache()
+  _shared_descriptor_cache = nil
 end
 
 local function try_require_component()
@@ -70,6 +79,18 @@ local function get_machine_poll(opts)
   return nil
 end
 
+local function get_descriptor_cache(opts, component)
+  if opts.descriptor_cache then return opts.descriptor_cache end
+  if _deps.descriptor_cache then return _deps.descriptor_cache end
+  if _shared_descriptor_cache then return _shared_descriptor_cache end
+  component = component or get_component(opts)
+  if component then
+    _shared_descriptor_cache = DescriptorCache.new({ config = config, component = component })
+    return _shared_descriptor_cache
+  end
+  return nil
+end
+
 local function get_circuit_manager(opts, component)
   if opts.circuit_manager then return opts.circuit_manager end
   if _deps.circuit_manager then return _deps.circuit_manager end
@@ -77,18 +98,12 @@ local function get_circuit_manager(opts, component)
   if component then
     local ok, CircuitManager = pcall(require, "circuit_manager")
     if ok then
-      return CircuitManager.new({ config = config, component = component })
+      return CircuitManager.new({
+        config = config,
+        component = component,
+        descriptor_cache = get_descriptor_cache(opts, component),
+      })
     end
-  end
-  return nil
-end
-
-local function get_descriptor_cache(opts, component)
-  if opts.descriptor_cache then return opts.descriptor_cache end
-  if _deps.descriptor_cache then return _deps.descriptor_cache end
-  component = component or get_component(opts)
-  if component then
-    return DescriptorCache.new({ config = config, component = component })
   end
   return nil
 end
