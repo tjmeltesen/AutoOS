@@ -21,11 +21,11 @@ Config.main_net_channel = 105
 
 -- Empty OC database on the cable — descriptors allocated at runtime by
 -- descriptor_cache.lua (cache hit/miss + LRU scan). No manual GUI setup.
-Config.database_address = "bcacb1a7-ebe4-48e8-940c-d436545310c7"
+Config.database_address = "9c22064e-7ddc-4d9a-a6a5-b732d1cba18a"
 
 -- Slots 1..N scanned for empty / matching descriptors; broker-owned slots are
 -- LRU-evicted when full. Match your OC database tier (T1=9, T2=25, T3=81).
-Config.database_slot_count = 9
+Config.database_slot_count = 9e
 
 Config.circuit_item_name = "gregtech:gt.integrated_circuit"
 
