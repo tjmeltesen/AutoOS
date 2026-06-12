@@ -10,6 +10,7 @@
 ]]
 
 local DescriptorCache = require("descriptor_cache")
+local LaneSides = require("lane_sides")
 
 local CircuitManager = {}
 CircuitManager.__index = CircuitManager
@@ -156,10 +157,13 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     return false, "setInterfaceConfiguration returned false (check database slot " .. tostring(db_slot) .. ")"
   end
 
-  -- pull_side / push_side are the item input bus faces (not the fluid hatch).
-  -- OC requires integer slot indices — nil crashes with "bad argument #4".
+  local bus_side = LaneSides.item_bus_side(machine)
+  if bus_side == nil then
+    return false, "item_bus_side not configured"
+  end
+  -- Interface + input bus share one transposer face: transfer within that side.
   local from_slot = 1
-  local moved = tp.transferItem(machine.pull_side, machine.push_side, 1, from_slot, input_slot)
+  local moved = tp.transferItem(bus_side, bus_side, 1, from_slot, input_slot)
   if not moved or moved < 1 then
     iface.setInterfaceConfiguration(item_slot)
     return false, "transferItem interface→machine failed"
@@ -184,12 +188,17 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
   end
   local tp = tp_or_err
 
-  local bus_slot = self:_find_circuit_on_side(tp, machine.push_side, circuit_damage)
+  local bus_side = LaneSides.item_bus_side(machine)
+  if bus_side == nil then
+    return false, "item_bus_side not configured"
+  end
+
+  local bus_slot = self:_find_circuit_on_side(tp, bus_side, circuit_damage)
   if not bus_slot then
     return false, "no circuit found on machine input side for recovery"
   end
 
-  local moved = tp.transferItem(machine.push_side, machine.pull_side, 1, bus_slot, 1)
+  local moved = tp.transferItem(bus_side, bus_side, 1, bus_slot, 1)
   if not moved or moved < 1 then
     return false, "transferItem machine→interface failed"
   end

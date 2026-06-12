@@ -72,3 +72,9 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 ## 2026-06-10 — Fix transferItem nil from_slot (OC arg #4)
 
 - Changed `subnet_broker/circuit_manager.lua`: use `from_slot = 1` on circuit push (OC rejects nil for argument #4)
+
+## 2026-06-10 — item_bus_side (shared transposer face for input bus)
+
+- Added `subnet_broker/lane_sides.lua`: `item_bus_side` for circuits; fluids stay `fluid_pull_side`/`fluid_push_side`
+- Changed `circuit_manager.lua`: `transferItem(bus, bus, ...)` push/recover on same face
+- Changed `config.lua`: `item_bus_side` replaces `pull_side`/`push_side` per machine

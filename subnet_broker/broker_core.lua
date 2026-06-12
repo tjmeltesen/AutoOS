@@ -11,6 +11,7 @@
 local config = require("config")
 local balancer = require("load_balancer")
 local DescriptorCache = require("descriptor_cache")
+local LaneSides = require("lane_sides")
 
 local BrokerCore = {}
 BrokerCore.__index = BrokerCore
@@ -74,11 +75,6 @@ local function circuit_damage_for(recipe_key, opts)
   local map = config.recipe_circuit_damage
   if map and map[recipe_key] then return map[recipe_key] end
   return nil
-end
-
-local function fluid_pull_side(machine_row)
-  if machine_row.fluid_pull_side ~= nil then return machine_row.fluid_pull_side end
-  return machine_row.pull_side
 end
 
 local function get_descriptor_cache(opts, component)
@@ -165,7 +161,7 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
 
     if tp.transferFluid then
       local ok_xfer, moved = tp.transferFluid(
-        fluid_pull_side(machine_row),
+        LaneSides.fluid_pull_side(machine_row),
         machine_row.fluid_push_side,
         volume
       )
@@ -321,15 +317,14 @@ function BrokerCore.process_batch(recipe_key, current_buffer_volume, active_pool
     local target = allocations[machine.id]
     if target and target.operations > 0 then
       print(string.format(
-        " -> [Lane -> %s] %d ops (%dL) interface [%s] transposer [%s] item %d→%d fluid %d→%d",
+        " -> [Lane -> %s] %d ops (%dL) interface [%s] transposer [%s] item_bus=%d fluid %d→%d",
         machine.id,
         target.operations,
         target.allocated_volume,
         machine.interface_address,
         machine.transposer_address,
-        machine.pull_side,
-        machine.push_side,
-        fluid_pull_side(machine),
+        LaneSides.item_bus_side(machine) or -1,
+        LaneSides.fluid_pull_side(machine),
         machine.fluid_push_side
       ))
 

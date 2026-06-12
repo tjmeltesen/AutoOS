@@ -73,7 +73,7 @@ check("push_circuit ok", ok_push == true, push_err)
 check("dynamic descriptor store", mock4.stats.store >= 1)
 check("setInterfaceConfiguration called", mock4.stats.setInterfaceConfiguration >= 2)
 
-mock4.transposers[Config.machines[1].transposer_address]._inv[Config.machines[1].push_side] = {
+mock4.transposers[Config.machines[1].transposer_address]._inv[Config.machines[1].item_bus_side] = {
   { name = "gregtech:gt.integrated_circuit", damage = 14, size = 1 },
 }
 local ok_rec, rec_err = cm:recover_circuit("machine_01", 14)
@@ -88,13 +88,12 @@ check("setFluidInterfaceConfiguration called", mock4.stats.setFluidInterfaceConf
 check("transferFluid called", mock4.stats.transferFluid >= 1)
 local tp = mock4.transposers[Config.machines[1].transposer_address]
 local fs = tp._last_fluid_sides
-local fpull = row.fluid_pull_side or row.pull_side
+local fpull = row.fluid_pull_side or row.item_bus_side
 check("fluid uses fluid_pull/fluid_push sides", fs and fs[1] == fpull and fs[2] == row.fluid_push_side,
   fs and (tostring(fs[1]) .. "→" .. tostring(fs[2])) or "nil")
 
 local tp_inv = mock4.transposers[Config.machines[1].transposer_address]._inv
-tp_inv[row.push_side] = {}
-tp_inv[row.pull_side] = {}
+tp_inv[row.item_bus_side] = {}
 local ok_full, full_err = BrokerCore.execute_lane(row, alloc, "molten_soldering_alloy", mock4.component, {
   push_circuits = true,
   recover_circuits = true,

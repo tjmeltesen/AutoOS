@@ -7,6 +7,8 @@
   References: README.md §4
 ]]
 
+local LaneSides = require("lane_sides")
+
 local LoadBalancer = {}
 
 function LoadBalancer.total_operations(total_fluid, unit_requirement)
@@ -41,9 +43,8 @@ function LoadBalancer.calculate_distribution(active_pool, total_fluid, unit_requ
     distribution_map[machine.id] = {
       interface_address = machine.interface_address,
       transposer_address = machine.transposer_address,
-      pull_side = machine.pull_side,
-      push_side = machine.push_side,
-      fluid_pull_side = machine.fluid_pull_side or machine.pull_side,
+      item_bus_side = LaneSides.item_bus_side(machine),
+      fluid_pull_side = LaneSides.fluid_pull_side(machine),
       fluid_push_side = machine.fluid_push_side,
       gt_address = machine.gt_address,
       operations = assigned_ops,

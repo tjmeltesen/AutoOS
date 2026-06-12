@@ -54,8 +54,8 @@ check("Config.validate passes on default template", Config.validate(Config) == t
 local dup_cfg = {
   database_address = "db",
   machines = {
-    { id = "a", gt_address = "1", interface_address = "i1", transposer_address = "t1", pull_side = 0, push_side = 3, fluid_push_side = 2 },
-    { id = "a", gt_address = "2", interface_address = "i2", transposer_address = "t2", pull_side = 0, push_side = 3, fluid_push_side = 2 },
+    { id = "a", gt_address = "1", interface_address = "i1", transposer_address = "t1", item_bus_side = 0, fluid_push_side = 2 },
+    { id = "a", gt_address = "2", interface_address = "i2", transposer_address = "t2", item_bus_side = 0, fluid_push_side = 2 },
   },
   constraints = { recipe_baselines = { x = { fluid_requirement = 100, fluid_label = "Test Fluid" } } },
 }
@@ -63,10 +63,10 @@ check("duplicate id rejected", select(1, Config.validate(dup_cfg)) == nil)
 
 local miss_cfg = {
   database_address = "db",
-  machines = { { id = "a", gt_address = "1", interface_address = "i", transposer_address = "t", pull_side = 0 } },
+  machines = { { id = "a", gt_address = "1", interface_address = "i", transposer_address = "t", item_bus_side = 0 } },
   constraints = { recipe_baselines = { x = { fluid_requirement = 100, fluid_label = "Test Fluid" } } },
 }
-check("missing push_side rejected", select(1, Config.validate(miss_cfg)) == nil)
+check("missing item_bus_side rejected", select(1, Config.validate(miss_cfg)) == nil)
 
 local miss_fluid = {
   database_address = "db",

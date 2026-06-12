@@ -22,8 +22,8 @@ local Config = {}
 
 
 
--- pull_side / push_side = item input bus (circuits, solids)
--- fluid_pull_side / fluid_push_side = fluid hatch (defaults: fluid_pull_side → pull_side)
+-- item_bus_side = transposer face for item input bus + ME interface (same face)
+-- fluid_pull_side / fluid_push_side = fluid hatch (separate faces)
 local REQUIRED_MACHINE_FIELDS = {
 
   "id",
@@ -34,9 +34,7 @@ local REQUIRED_MACHINE_FIELDS = {
 
   "transposer_address",
 
-  "pull_side",
-
-  "push_side",
+  "item_bus_side",
 
   "fluid_push_side",
 
@@ -84,9 +82,9 @@ function Config.validate(cfg)
 
     end
 
-    if type(m.pull_side) ~= "number" or type(m.push_side) ~= "number" then
+    if type(m.item_bus_side) ~= "number" then
 
-      return nil, "machines[" .. i .. "] pull_side and push_side must be integers"
+      return nil, "machines[" .. i .. "] item_bus_side must be an integer"
 
     end
 
@@ -203,9 +201,7 @@ Config.machines = {
 
     transposer_address = "58d6b8e5-b3d4-4062-9c51-2064b25e0b9e",
 
-    pull_side = 0,
-
-    push_side = 0,
+    item_bus_side = 0,
 
     fluid_pull_side = 2,
 
@@ -227,9 +223,7 @@ Config.machines = {
 
     transposer_address = "b311b7c4-cb6a-438d-b2ae-98ebdd3cf9d2",
 
-    pull_side = 0,
-
-    push_side = 0,
+    item_bus_side = 0,
 
     fluid_pull_side = 2,
 
@@ -251,9 +245,7 @@ Config.machines = {
 
     transposer_address = "a1250086-ec9b-4ecd-87d3-587add148e27",
 
-    pull_side = 0,
-
-    push_side = 0,
+    item_bus_side = 0,
 
     fluid_pull_side = 2,
 
@@ -275,9 +267,7 @@ Config.machines = {
 
     transposer_address = "fb4d836c-b0c4-433e-a790-fed03addab7d",
 
-    pull_side = 0,
-
-    push_side = 0,
+    item_bus_side = 0,
 
     fluid_pull_side = 2,
 

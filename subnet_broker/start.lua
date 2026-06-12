@@ -14,6 +14,7 @@
     wget -f .../subnet_broker/load_balancer.lua /home/AutoOS/subnet_broker/load_balancer.lua
     wget -f .../subnet_broker/maintenance_parse.lua /home/AutoOS/subnet_broker/maintenance_parse.lua
     wget -f .../subnet_broker/machine_poll.lua /home/AutoOS/subnet_broker/machine_poll.lua
+    wget -f .../subnet_broker/lane_sides.lua /home/AutoOS/subnet_broker/lane_sides.lua
     wget -f .../subnet_broker/descriptor_cache.lua /home/AutoOS/subnet_broker/descriptor_cache.lua
     wget -f .../subnet_broker/circuit_manager.lua /home/AutoOS/subnet_broker/circuit_manager.lua
     wget -f .../subnet_broker/broker_core.lua /home/AutoOS/subnet_broker/broker_core.lua

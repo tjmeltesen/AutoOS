@@ -39,8 +39,7 @@ function Mock.new(opts)
       gt_address = m.gt_address,
       interface_address = m.interface_address,
       transposer_address = m.transposer_address,
-      pull_side = m.pull_side or 0,
-      push_side = m.push_side or 3,
+      item_bus_side = m.item_bus_side or m.pull_side or 0,
       fluid_pull_side = m.fluid_pull_side,
       fluid_push_side = m.fluid_push_side or 2,
       interface_fluid_side = m.interface_fluid_side or 1,
@@ -101,9 +100,8 @@ function Mock.new(opts)
 
     local inv = opts.transposer_inventory and opts.transposer_inventory[m.transposer_address]
       or {
-        [m.pull_side] = {},
-        [m.push_side] = {},
-        [m.fluid_pull_side or m.pull_side or 0] = {},
+        [m.item_bus_side or m.pull_side or 0] = {},
+        [m.fluid_pull_side or m.item_bus_side or 0] = {},
         [m.fluid_push_side or 2] = {},
       }
 
@@ -231,8 +229,7 @@ function Mock.machines_from_config(config)
       gt_address = m.gt_address,
       interface_address = m.interface_address,
       transposer_address = m.transposer_address,
-      pull_side = m.pull_side,
-      push_side = m.push_side,
+      item_bus_side = m.item_bus_side,
       fluid_pull_side = m.fluid_pull_side,
       fluid_push_side = m.fluid_push_side,
       interface_fluid_side = m.interface_fluid_side,
