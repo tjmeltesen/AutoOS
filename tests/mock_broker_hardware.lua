@@ -133,7 +133,15 @@ function Mock.new(opts)
         inv[to_side] = to_inv
         if from_slot then
           local stack = from_inv[from_slot]
-          if not stack or (stack.size or 0) < 1 then return 0 end
+          if not stack or (stack.size or 0) < 1 then
+            -- Interface buffer after setInterfaceConfiguration (item not in transposer inv yet).
+            to_inv[dest] = {
+              name = "gregtech:gt.integrated_circuit",
+              damage = 14,
+              size = 1,
+            }
+            return 1
+          end
           to_inv[dest] = {
             name = stack.name,
             damage = stack.damage,

@@ -157,7 +157,9 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
   end
 
   -- pull_side / push_side are the item input bus faces (not the fluid hatch).
-  local moved = tp.transferItem(machine.pull_side, machine.push_side, 1, nil, input_slot)
+  -- OC requires integer slot indices — nil crashes with "bad argument #4".
+  local from_slot = 1
+  local moved = tp.transferItem(machine.pull_side, machine.push_side, 1, from_slot, input_slot)
   if not moved or moved < 1 then
     iface.setInterfaceConfiguration(item_slot)
     return false, "transferItem interface→machine failed"

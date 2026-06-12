@@ -68,3 +68,7 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 - Changed `subnet_broker/config.lua`: removed `circuit_db_slots`/`fluid_db_slot`; added `descriptor_scratch`, `fluid_label` on recipes
 - Changed `subnet_broker/circuit_manager.lua`, `broker_core.lua`: use descriptor_cache before set*InterfaceConfiguration
 - Changed `tests/mock_broker_hardware.lua`: mock `store`, `getItemsInNetwork`, database `set`
+
+## 2026-06-10 — Fix transferItem nil from_slot (OC arg #4)
+
+- Changed `subnet_broker/circuit_manager.lua`: use `from_slot = 1` on circuit push (OC rejects nil for argument #4)
