@@ -148,9 +148,9 @@ function Config.validate(cfg)
 
     end
 
-    if not rule.fluid_db_slot then
+    if not rule.fluid_label and not rule.fluid_registry and not rule.fluid_filter and not rule.fluid_db_slot then
 
-      return nil, "recipe_baselines[" .. tostring(key) .. "] needs fluid_db_slot (OC database index)"
+      return nil, "recipe_baselines[" .. tostring(key) .. "] needs fluid_label, fluid_registry, or fluid_filter"
 
     end
 
@@ -170,17 +170,16 @@ Config.main_net_channel = 105
 
 
 
--- Shared OC database: fluid drops + circuit item descriptors for set*InterfaceConfiguration.
+-- Empty OC database on the cable — scratch slots filled at runtime from subnet ME (descriptor_cache.lua).
+Config.database_address = "bcacb1a7-ebe4-48e8-940c-d436545310c7"
 
-Config.database_address = "database-00a12"
-
--- circuit_damage (configuration number) → database slot for setInterfaceConfiguration.
-Config.circuit_db_slots = {
-  [14] = 3,
-  [18] = 4,
+-- Reused scratch slots each lane cycle (no manual DB GUI setup).
+Config.descriptor_scratch = {
+  circuit_slot = 1,
+  fluid_slot = 2,
 }
 
--- recipe key → integrated circuit configuration number (damage/metadata).
+-- Optional recipe key → circuit config when not on recipe_baselines.circuit_damage.
 Config.recipe_circuit_damage = {
   ["molten_soldering_alloy"] = 14,
   ["polyethylene"] = 18,
@@ -304,7 +303,7 @@ Config.constraints = {
 
       fluid_requirement = 1440,
 
-      fluid_db_slot = 1,
+      fluid_label = "Molten Soldering Alloy",
 
       circuit_damage = 14,
 
@@ -316,7 +315,7 @@ Config.constraints = {
 
       fluid_requirement = 1000,
 
-      fluid_db_slot = 2,
+      fluid_label = "Ethylene",
 
       circuit_damage = 18,
 

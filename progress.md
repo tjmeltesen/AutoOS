@@ -57,3 +57,14 @@ Append-only changelog. New entries go at the bottom — never rewrite or delete 
 
 - Changed `subnet_broker/config.lua`: `pull_side`/`push_side` = item input bus; required `fluid_push_side`, optional `fluid_pull_side`
 - Changed `subnet_broker/broker_core.lua`, `load_balancer.lua`: `transferFluid` uses fluid sides; dispatch log `item X→Y fluid A→B`
+
+## 2026-06-10 — circuit_manager clearer proxy/database errors
+
+- Changed `subnet_broker/circuit_manager.lua`: preflight `component.list()` check; pcall around `setInterfaceConfiguration` so bad `database_address` reports clearly
+
+## 2026-06-10 — Dynamic database descriptors (no manual DB slots)
+
+- Added `subnet_broker/descriptor_cache.lua`: runtime `me.store()` from subnet ME + `database.set` circuit fallback; scratch slots 1/2
+- Changed `subnet_broker/config.lua`: removed `circuit_db_slots`/`fluid_db_slot`; added `descriptor_scratch`, `fluid_label` on recipes
+- Changed `subnet_broker/circuit_manager.lua`, `broker_core.lua`: use descriptor_cache before set*InterfaceConfiguration
+- Changed `tests/mock_broker_hardware.lua`: mock `store`, `getItemsInNetwork`, database `set`

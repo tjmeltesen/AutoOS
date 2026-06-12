@@ -10,6 +10,7 @@
 
 local config = require("config")
 local balancer = require("load_balancer")
+local DescriptorCache = require("descriptor_cache")
 
 local BrokerCore = {}
 BrokerCore.__index = BrokerCore
@@ -80,6 +81,16 @@ local function fluid_pull_side(machine_row)
   return machine_row.pull_side
 end
 
+local function get_descriptor_cache(opts, component)
+  if opts.descriptor_cache then return opts.descriptor_cache end
+  if _deps.descriptor_cache then return _deps.descriptor_cache end
+  component = component or opts.component or _deps.component or try_require_component()
+  if component then
+    return DescriptorCache.new({ config = config, component = component })
+  end
+  return nil
+end
+
 local function proxy(component, address, hint)
   if not component or not component.proxy then return nil end
   local ok, p = pcall(component.proxy, address, hint)
@@ -136,9 +147,13 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
   end
 
   if kind == "fluid" then
-    local db_slot = rules.fluid_db_slot
-    if not db_slot then
-      return false, "fluid_db_slot missing for recipe"
+    local dc = get_descriptor_cache(opts, component)
+    if not dc then
+      return false, "descriptor_cache unavailable"
+    end
+    local ok_desc, db_slot = dc:ensure_fluid(iface, rules)
+    if not ok_desc then
+      return false, tostring(db_slot)
     end
 
     if iface.setFluidInterfaceConfiguration then

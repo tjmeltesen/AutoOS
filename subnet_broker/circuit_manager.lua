@@ -9,6 +9,8 @@
   References: references/OC-GTNH-docs-main/docs/components/me_interface.lua
 ]]
 
+local DescriptorCache = require("descriptor_cache")
+
 local CircuitManager = {}
 CircuitManager.__index = CircuitManager
 
@@ -28,30 +30,52 @@ function CircuitManager.new(deps)
   self.component = deps.component or error("CircuitManager.new: component required")
   self.circuit_item = self.config.circuit_item_name or CIRCUIT_ITEM
   self.proxies = {}
+  self.descriptors = deps.descriptor_cache or DescriptorCache.new({
+    config = self.config,
+    component = self.component,
+  })
   return self
 end
 
 function CircuitManager:_proxy(address, hint)
   if self.proxies[address] then return self.proxies[address] end
   local ok, proxy = pcall(self.component.proxy, address, hint)
-  if ok and proxy then
+  if not ok then
+    return nil, proxy
+  end
+  if proxy then
     self.proxies[address] = proxy
     return proxy
   end
   ok, proxy = pcall(self.component.proxy, address)
-  if ok and proxy then
+  if not ok then
+    return nil, proxy
+  end
+  if proxy then
     self.proxies[address] = proxy
     return proxy
   end
-  return nil
+  return nil, "proxy returned nil"
 end
 
-function CircuitManager:db_slot_for(circuit_damage)
-  local slots = self.config.circuit_db_slots
-  if slots and slots[circuit_damage] then
-    return slots[circuit_damage]
+function CircuitManager:_on_network(address)
+  local list = self.component.list and self.component.list() or {}
+  return list[address] ~= nil
+end
+
+function CircuitManager:_check_address(label, address, hint)
+  if not self:_on_network(address) then
+    return false, string.format(
+      "%s address %q not on OC network (run component.list())",
+      label,
+      tostring(address)
+    )
   end
-  return nil, "no circuit_db_slots entry for damage " .. tostring(circuit_damage)
+  local p, err = self:_proxy(address, hint)
+  if not p then
+    return false, string.format("%s proxy failed at %q: %s", label, tostring(address), tostring(err))
+  end
+  return true, p
 end
 
 function CircuitManager:_stack_matches_circuit(stack, circuit_damage)
@@ -89,19 +113,34 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     return false, "database_address required"
   end
 
-  local db_slot, slot_err = self:db_slot_for(circuit_damage)
-  if not db_slot then
-    return false, slot_err
+  if not self:_on_network(db_addr) then
+    return false, string.format(
+      "database address %q not on OC network — set Config.database_address to your real database UUID",
+      tostring(db_addr)
+    )
   end
 
-  local iface = self:_proxy(machine.interface_address, "me_interface")
-  if not iface or not iface.setInterfaceConfiguration then
-    return false, "me_interface not available at " .. tostring(machine.interface_address)
+  local ok_if, iface_or_err = self:_check_address("me_interface", machine.interface_address, "me_interface")
+  if not ok_if then
+    return false, iface_or_err
+  end
+  local iface = iface_or_err
+  if not iface.setInterfaceConfiguration then
+    return false, "me_interface missing setInterfaceConfiguration"
   end
 
-  local tp = self:_proxy(machine.transposer_address, "transposer")
-  if not tp or not tp.transferItem then
-    return false, "transposer not available at " .. tostring(machine.transposer_address)
+  local ok_tp, tp_or_err = self:_check_address("transposer", machine.transposer_address, "transposer")
+  if not ok_tp then
+    return false, tp_or_err
+  end
+  local tp = tp_or_err
+  if not tp.transferItem then
+    return false, "transposer missing transferItem"
+  end
+
+  local ok_desc, db_slot = self.descriptors:ensure_circuit(iface, circuit_damage)
+  if not ok_desc then
+    return false, tostring(db_slot)
   end
 
   local item_slot = machine.interface_item_slot or 1
@@ -109,9 +148,12 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
   local input_slot = machine.input_slot
   if input_slot == nil or input_slot < 1 then input_slot = 1 end
 
-  local ok_cfg = iface.setInterfaceConfiguration(item_slot, db_addr, db_slot, 1)
+  local ok_cfg, cfg_err = pcall(iface.setInterfaceConfiguration, item_slot, db_addr, db_slot, 1)
   if not ok_cfg then
-    return false, "setInterfaceConfiguration failed"
+    return false, "setInterfaceConfiguration error: " .. tostring(cfg_err)
+  end
+  if cfg_err == false then
+    return false, "setInterfaceConfiguration returned false (check database slot " .. tostring(db_slot) .. ")"
   end
 
   -- pull_side / push_side are the item input bus faces (not the fluid hatch).
@@ -134,10 +176,11 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
     return false, "unknown machine_id " .. tostring(machine_id)
   end
 
-  local tp = self:_proxy(machine.transposer_address, "transposer")
-  if not tp or not tp.transferItem then
-    return false, "transposer not available at " .. tostring(machine.transposer_address)
+  local ok_tp, tp_or_err = self:_check_address("transposer", machine.transposer_address, "transposer")
+  if not ok_tp then
+    return false, tp_or_err
   end
+  local tp = tp_or_err
 
   local bus_slot = self:_find_circuit_on_side(tp, machine.push_side, circuit_damage)
   if not bus_slot then

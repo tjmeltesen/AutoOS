@@ -11,9 +11,26 @@ function Mock.new(opts)
     getSensorInformation = 0,
     setFluidInterfaceConfiguration = 0,
     setInterfaceConfiguration = 0,
+    store = 0,
     transferFluid = 0,
     transferItem = 0,
   }
+
+  local network_items = opts.network_items or {
+    { name = "gregtech:gt.integrated_circuit", damage = 14, label = "Integrated Circuit (14)", size = 64 },
+  }
+  local network_fluids = opts.network_fluids or {
+    { label = "Molten Soldering Alloy", name = "molten_soldering_alloy", amount = 50000 },
+  }
+
+  local function filter_match(stack, filter)
+    if type(filter) ~= "table" then return true end
+    if filter.name and stack.name ~= filter.name then return false end
+    if filter.damage ~= nil and stack.damage ~= filter.damage then return false end
+    if filter.label and (stack.label or ""):lower() ~= filter.label:lower() then return false end
+    if filter.tag and stack.tag ~= filter.tag then return false end
+    return true
+  end
 
   local machines = {}
   for _, m in ipairs(opts.machines or {}) do
@@ -64,6 +81,21 @@ function Mock.new(opts)
         end
         interfaces[m.interface_address]._item_cfg = { slot = a, db = b, index = c, count = d }
         return true
+      end,
+      store = function(filter, db, slot, count)
+        stats.store = stats.store + 1
+        interfaces[m.interface_address]._last_store = { filter = filter, db = db, slot = slot }
+        return true
+      end,
+      getItemsInNetwork = function(filter)
+        local out = {}
+        for _, it in ipairs(network_items) do
+          if filter_match(it, filter) then out[#out + 1] = it end
+        end
+        return out
+      end,
+      getFluidsInNetwork = function()
+        return network_fluids
       end,
     }
 
@@ -121,8 +153,19 @@ function Mock.new(opts)
     }
   end
 
+  local db_proxy
   if opts.database_address then
     component_types[opts.database_address] = "database"
+    db_proxy = {
+      _slots = {},
+      set = function(slot, id, damage)
+        db_proxy._slots[slot] = { name = id, damage = damage }
+        return true
+      end,
+      get = function(slot)
+        return db_proxy._slots[slot]
+      end,
+    }
   end
 
   local proxies = {}
@@ -140,6 +183,9 @@ function Mock.new(opts)
   end
   for addr, iface in pairs(interfaces) do proxies[addr] = iface end
   for addr, tp in pairs(transposers) do proxies[addr] = tp end
+  if opts.database_address and db_proxy then
+    proxies[opts.database_address] = db_proxy
+  end
 
   local component = {
     list = function()

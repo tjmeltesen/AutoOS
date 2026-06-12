@@ -3,7 +3,7 @@
 
   HDD layout:
     /home/AutoOS/subnet_broker/
-      config.lua, load_balancer.lua, broker_core.lua, circuit_manager.lua,
+      config.lua, load_balancer.lua, descriptor_cache.lua, broker_core.lua, circuit_manager.lua,
       machine_poll.lua, maintenance_parse.lua, start.lua, diag.lua
 
   Optional top-level boot:
@@ -14,6 +14,7 @@
     wget -f .../subnet_broker/load_balancer.lua /home/AutoOS/subnet_broker/load_balancer.lua
     wget -f .../subnet_broker/maintenance_parse.lua /home/AutoOS/subnet_broker/maintenance_parse.lua
     wget -f .../subnet_broker/machine_poll.lua /home/AutoOS/subnet_broker/machine_poll.lua
+    wget -f .../subnet_broker/descriptor_cache.lua /home/AutoOS/subnet_broker/descriptor_cache.lua
     wget -f .../subnet_broker/circuit_manager.lua /home/AutoOS/subnet_broker/circuit_manager.lua
     wget -f .../subnet_broker/broker_core.lua /home/AutoOS/subnet_broker/broker_core.lua
     wget -f .../subnet_broker/diag.lua /home/AutoOS/subnet_broker/diag.lua

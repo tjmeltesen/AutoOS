@@ -70,6 +70,7 @@ local row = Config.machines[1]
 local cm = CircuitManager.new({ config = Config, component = mock4.component })
 local ok_push, push_err = cm:push_circuit("machine_01", 14)
 check("push_circuit ok", ok_push == true, push_err)
+check("dynamic descriptor store", mock4.stats.store >= 1)
 check("setInterfaceConfiguration called", mock4.stats.setInterfaceConfiguration >= 2)
 
 mock4.transposers[Config.machines[1].transposer_address]._inv[Config.machines[1].push_side] = {
@@ -87,7 +88,8 @@ check("setFluidInterfaceConfiguration called", mock4.stats.setFluidInterfaceConf
 check("transferFluid called", mock4.stats.transferFluid >= 1)
 local tp = mock4.transposers[Config.machines[1].transposer_address]
 local fs = tp._last_fluid_sides
-check("fluid uses fluid_push_side", fs and fs[1] == row.pull_side and fs[2] == row.fluid_push_side,
+local fpull = row.fluid_pull_side or row.pull_side
+check("fluid uses fluid_pull/fluid_push sides", fs and fs[1] == fpull and fs[2] == row.fluid_push_side,
   fs and (tostring(fs[1]) .. "→" .. tostring(fs[2])) or "nil")
 
 local tp_inv = mock4.transposers[Config.machines[1].transposer_address]._inv
