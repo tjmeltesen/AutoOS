@@ -303,8 +303,9 @@ function Mock.new(opts)
           if lane.bus_inv[dest] then return 0 end  -- occupied slot blocks
           lane.bus_inv[dest] = payload
         elseif to_role == "interface" then
-          -- Items pushed into an interface go back to the network.
-          network.items[#network.items + 1] = payload
+          local dest = to_slot or 1
+          if lane.iface_inv[dest] then return 0 end
+          lane.iface_inv[dest] = payload
         else
           return 0
         end

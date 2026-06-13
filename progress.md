@@ -198,6 +198,12 @@ Fixed database filling with duplicate circuit descriptors (one per lane on slots
 - `test.lua`: clear `package.loaded` before require (re-run after wget without reboot); fallback idle-pool helpers when stale `machine_poll.lua`
 - `broker_core.lua`: inline `build_idle_pool` / `lane_is_idle` fallback when old `machine_poll` lacks `process_multi` helpers
 
+## 2026-06-11 — Circuit recover fix + pre-P3 G3b cleanup
+
+- `circuit_manager.lua`: recover bus→interface uses `interface_item_slot`; `setInterfaceConfiguration` clear returns circuit to subnet ME; idempotent when bus empty; fallback recovers any damage; post-recover bus verify
+- `pre_p3_checklist.lua`: G3b recover-all after batch (clears circuit 18 before G6 solder); G5 recover no longer silent; bus scan all slots; G6 reports lane errors separately
+- `tests/mock_broker_hardware.lua`: bus→interface buffers in iface (realistic) until interface clear
+
 ## 2026-06-11 — Pre-P3 gate checklist script
 
 - Added `subnet_broker/pre_p3_checklist.lua`: automated G1–G7 gate (static/diag, single-lane, recipe switch, hand-off batch, optional safe-failure, process_multi interleave, idle/busy skip, DB slot sanity)

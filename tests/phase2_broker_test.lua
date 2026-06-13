@@ -106,6 +106,13 @@ check("wrong circuit on bus rejected", ok_wrong == false and tostring(wrong_err)
 local ok_rec, rec_err = cm:recover_circuit("machine_01", 14)
 check("recover_circuit ok", ok_rec == true, rec_err)
 check("bus empty after recover", mock.bus_stack("machine_01", 1) == nil)
+check("recover idempotent (empty bus)", cm:recover_circuit("machine_01", 14) == true)
+
+-- Wrong circuit recover: damage filter falls back to any circuit on bus.
+mock.put_bus_stack("machine_01", 1, { name = CIRCUIT, damage = 18, size = 1 })
+local ok_any, any_err = cm:recover_circuit("machine_01", 14)
+check("recover wrong damage still clears bus", ok_any == true, any_err)
+check("bus empty after wrong-damage recover", mock.bus_stack("machine_01", 1) == nil)
 
 local ok_missing, missing_err = cm:push_circuit("machine_01", 22)
 check("push fails when circuit not in ME",

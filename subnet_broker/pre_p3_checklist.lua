@@ -99,9 +99,26 @@ local function bus_circuit_damage(machine_row)
   local tp = component_api.proxy(machine_row.transposer_address)
   if not tp or not tp.getStackInSlot then return nil end
   local side = LaneSides.item_bus_side(machine_row)
-  local slot = machine_row.input_slot or 1
-  local stack = tp.getStackInSlot(side, slot)
-  return stack and stack.damage
+  local size = tp.getInventorySize and tp.getInventorySize(side) or 0
+  for slot = 1, size do
+    local stack = tp.getStackInSlot(side, slot)
+    if stack and stack.name and stack.name:find("integrated_circuit", 1, true) then
+      return stack.damage, slot
+    end
+  end
+  return nil
+end
+
+local function recover_lane_circuits(cm, machine_id)
+  local ok, err = cm:recover_circuit(machine_id, nil)
+  if not ok then
+    return false, err
+  end
+  local row = find_machine(machine_id)
+  if row and bus_circuit_damage(row) then
+    return false, "circuit still visible on bus after recover"
+  end
+  return true
 end
 
 local function lists_equal(a, b)
@@ -253,6 +270,12 @@ else
     end
   else
     fail("G2 manual_lane_test " .. PROBE_LANE, err_lane)
+    local CM = require("circuit_manager")
+    local cm = CM.new({ config = Config, component = component_api })
+    local rok, rerr = recover_lane_circuits(cm, PROBE_LANE)
+    if not rok then
+      warn("G2 manual recover retry", rerr)
+    end
   end
 end
 
@@ -282,11 +305,14 @@ if probe then
     else
       fail("G5 recipe switch", ok_p and ("bus damage=" .. tostring(dmg)) or err_p)
     end
-    pcall(function()
-      local CM = require("circuit_manager")
-      local cm = CM.new({ config = Config, component = component_api })
-      cm:recover_circuit(PROBE_LANE, 18)
-    end)
+    local CM = require("circuit_manager")
+    local cm = CM.new({ config = Config, component = component_api })
+    local rok, rerr = recover_lane_circuits(cm, PROBE_LANE)
+    if rok then
+      pass("G5 recover " .. PROBE_LANE, "bus clear")
+    else
+      fail("G5 recover " .. PROBE_LANE, rerr)
+    end
   end
 end
 
@@ -335,6 +361,19 @@ else
     if not r.ok then detail = detail .. "; " .. id .. ": " .. tostring(r.err) end
   end
   fail("G3 process_batch", detail)
+end
+
+-- G3 leaves circuit 18 on stocked lanes — clear before multi-recipe (G6).
+print("\n[Gate] --- G3b Recover circuits after batch ---")
+local CM = require("circuit_manager")
+local cm_cleanup = CM.new({ config = Config, component = component_api })
+for _, m in ipairs(Config.machines) do
+  local rok, rerr = recover_lane_circuits(cm_cleanup, m.id)
+  if rok then
+    pass("G3b recover " .. m.id, "bus clear")
+  else
+    fail("G3b recover " .. m.id, rerr)
+  end
 end
 
 -- ---------------------------------------------------------------------------
@@ -419,15 +458,27 @@ else
   if poly_rules and solder_rules then
     local m1 = find_machine("machine_01")
     local m3 = find_machine("machine_03")
-    if m1 and bus_circuit_damage(m1) == poly_rules.circuit_damage then
-      pass("G6 circuit machine_01", "damage " .. tostring(poly_rules.circuit_damage))
-    elseif m1 then
-      fail("G6 circuit machine_01", "damage " .. tostring(bus_circuit_damage(m1)))
+    local r1 = multi_sum.lanes and multi_sum.lanes.machine_01
+    local r3 = multi_sum.lanes and multi_sum.lanes.machine_03
+    if r1 and r1.ok and m1 then
+      local dmg = bus_circuit_damage(m1)
+      if dmg == poly_rules.circuit_damage then
+        pass("G6 circuit machine_01", "damage " .. tostring(poly_rules.circuit_damage))
+      else
+        fail("G6 circuit machine_01", "damage " .. tostring(dmg))
+      end
+    elseif r1 and not r1.ok then
+      fail("G6 lane machine_01", tostring(r1.err))
     end
-    if m3 and bus_circuit_damage(m3) == solder_rules.circuit_damage then
-      pass("G6 circuit machine_03", "damage " .. tostring(solder_rules.circuit_damage))
-    elseif m3 then
-      fail("G6 circuit machine_03", "damage " .. tostring(bus_circuit_damage(m3)))
+    if r3 and r3.ok and m3 then
+      local dmg = bus_circuit_damage(m3)
+      if dmg == solder_rules.circuit_damage then
+        pass("G6 circuit machine_03", "damage " .. tostring(solder_rules.circuit_damage))
+      else
+        fail("G6 circuit machine_03", "damage " .. tostring(dmg))
+      end
+    elseif r3 and not r3.ok then
+      fail("G6 lane machine_03", tostring(r3.err))
     end
   end
 

@@ -202,7 +202,7 @@ end
 
 --- Recover a non-consumable circuit from the machine input bus back into subnet ME.
 ---@param machine_id string
----@param circuit_damage integer|nil nil recovers any circuit found
+---@param circuit_damage integer|nil nil recovers any circuit on the bus
 ---@return boolean ok
 ---@return string|nil err
 function CircuitManager:recover_circuit(machine_id, circuit_damage)
@@ -211,22 +211,42 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
     return false, "unknown machine_id " .. tostring(machine_id)
   end
 
+  local iface, if_err = HW.require_proxy(self.component, "me_interface", machine.interface_address, "me_interface")
+  if not iface then return false, if_err end
+
   local tp, tp_err = HW.require_proxy(self.component, "transposer", machine.transposer_address, "transposer")
   if not tp then return false, tp_err end
 
   local iface_side = LaneSides.interface_item_side(machine)
   local bus_side = LaneSides.item_bus_side(machine)
+  local iface_slot = machine.interface_item_slot or 1
 
   local bus_slot = self:_find_circuit_on_side(tp, bus_side, circuit_damage)
+  if not bus_slot and circuit_damage then
+    bus_slot = self:_find_circuit_on_side(tp, bus_side, nil)
+  end
   if not bus_slot then
-    return false, "no circuit found on item_bus_side " .. tostring(bus_side)
+    return true
   end
 
-  local moved = self:_transfer_with_retries(tp, bus_side, iface_side, bus_slot, 1)
+  local moved = self:_transfer_with_retries(tp, bus_side, iface_side, bus_slot, iface_slot)
   if moved < 1 then
     return false, string.format(
-      "transferItem bus→interface failed (sides %d→%d)",
-      bus_side, iface_side
+      "transferItem bus→interface failed (sides %d→%d slot %d→%d)",
+      bus_side, iface_side, bus_slot, iface_slot
+    )
+  end
+
+  -- Return the circuit from the interface buffer to subnet ME (matches push clear).
+  if iface.setInterfaceConfiguration then
+    pcall(iface.setInterfaceConfiguration, iface_slot)
+  end
+  HW.sleep(STOCK_WAIT_SLEEP)
+
+  if self:_find_circuit_on_side(tp, bus_side, nil) then
+    return false, string.format(
+      "circuit still on bus side %d after recover — check item_bus_side / input_slot",
+      bus_side
     )
   end
 
