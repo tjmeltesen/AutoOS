@@ -244,3 +244,7 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 
 - Added `orchestrator/hw.lua`: deploy copy so manager PC does not need subnet_broker folder (fixes in-game `module 'hw' not found`)
 - Changed `orchestrator/start.lua`: full required-file list + prints any missing names before require
+
+## 2026-06-13 — Orchestrator deploy: network_protocols.lua in orchestrator/
+
+- Added `orchestrator/network_protocols.lua` (deploy copy of shared/) so manager PC does not need shared/ folder
