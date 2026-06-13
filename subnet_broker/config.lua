@@ -22,7 +22,7 @@ Config.main_net_channel = 105
 -- Phase 3 modem slave: orchestrator OC address for BROKER_STATUS replies
 -- (nil/"" = learn from the first DISPATCH_JOB sender) and the port the broker
 -- listens on for DISPATCH_JOB.
-Config.orchestrator_address = ""
+Config.orchestrator_address = "3bd12f6b-b5d6-4d0d-ad56-e1d372fdb4ac"
 Config.broker_modem_port = 106
 
 -- Empty OC database on the cable — descriptors allocated at runtime by

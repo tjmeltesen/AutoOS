@@ -21,7 +21,7 @@ Config.subnet_id = "universal_chemical_mv_01"
 -- Main net ME adapter UUID (component.list() on the orchestrator OC).
 Config.me_address = "60ea8e78-a000-4cac-b852-ef6a811193fe"
 
-Config.broker_address = "fc2d6329-4d3e-4a03-a915-9e096d29f3a9"
+Config.broker_address = "7a6b0372-e62a-4625-9493-1fa9910e581f"
 
 Config.modem_port = 105
 Config.broker_modem_port = 106
