@@ -94,22 +94,34 @@ $$O = \left\lfloor \frac{\text{Total Volume}}{\text{fluid\_requirement}} \right\
 
 ```
 AutoOS/
-├── overseer/
+├── orchestrator/                 # Phase 3 — Orchestrator OC (separate computer)
+│   ├── orchestrator_config.lua   # subnet/me/broker addresses, ports, recipe_baselines + recipe_uid
+│   ├── ae_recipe_registry.lua    # Living matched-recipe table + unique recipe_uid allocator + by_uid index
+│   ├── registry_store.lua        # Tiny serializer: persist recipe_uid across reboots
+│   ├── main_net_cache.lua        # Filtered main net ME poll → positive deltas
+│   ├── craft_resolver.lua        # Delivery delta → recipe: UID token primary, circuit+fluid fallback
+│   ├── main_net_craft.lua        # Main net getCraftables + craft request + job phase
+│   ├── orchestrator.lua          # FSM: watch → resolve → DISPATCH_JOB → wait BROKER_STATUS
+│   ├── orchestrator_main.lua     # OC entry: modem link + event loop
+│   └── start.lua                 # Boot helper + wget list
+├── overseer/                     # Phase 4 (future)
 │   ├── overseer_main.lua         # Global stock checking loop; handles bulk requests
 │   ├── inventory_cache.lua       # Caches global item and fluid metric snapshots
 │   ├── hysteresis_engine.lua     # Evaluates high/low triggers for restocking rules
 │   └── overseer_display.lua      # GPU panel: warehouse stock, crafts, broker links
-├── subnet_broker/
-│   ├── config.lua                # Per-lane OC addresses (interface, transposer, gt) + recipe db slots
-│   ├── broker_core.lua           # Lane dispatch: interface config → transposer → clear
-│   ├── broker_display.lua        # GPU panel: batch job, machine pool, faults
-│   ├── machine_poll.lua          # GT maintenance fault scanner; builds active pool
+├── subnet_broker/                # Broker OC (separate computer — lane hardware only)
+│   ├── config.lua                # Per-lane OC addresses + recipe baselines (+ recipe_uid, orchestrator_address)
+│   ├── broker_core.lua           # Lane dispatch: circuit push → fluid pump → clear
+│   ├── broker_main.lua           # Phase 3 modem slave: DISPATCH_JOB → process_batch → BROKER_STATUS
+│   ├── machine_poll.lua          # GT maintenance fault scanner; builds active/idle pools
 │   ├── maintenance_parse.lua     # Parses getSensorInformation() fault strings
 │   ├── load_balancer.lua         # Pure integer operation distribution
-│   ├── diag.lua                  # In-game smoke test
-│   └── start.lua                 # Boot helper + README verification batch
+│   ├── circuit_manager.lua       # Per-lane circuit push/recover
+│   ├── descriptor_cache.lua      # ME→OC database slot cache (circuits + fluid drops)
+│   ├── diag.lua / test.lua / pre_p3_checklist.lua   # In-game smoke + gate tests
+│   └── start.lua                 # Boot helper + wget list
 └── shared/
-    └── network_protocols.lua     # Serialized JSON packet definitions for Inter-OS comms
+    └── network_protocols.lua     # Pipe-delimited packet codec (copied into BOTH OC homes)
 ```
 
 ---
@@ -422,9 +434,54 @@ Write two compliant Lua modules for an OpenComputers project named AutoOS runnin
 
 Write `subnet_broker/machine_poll.lua` and `subnet_broker/maintenance_parse.lua`. `machine_poll` must verify active multiblock maintenance flags via `gt_machine.getSensorInformation()` and drop faulted lanes from the active pool. Rewrite `broker_core.lua` for the **1:1:1 topology**: per-lane `component.proxy` of ME Interface and Transposer, `setFluidInterfaceConfiguration` → `transferFluid` → clear interface. No `circuit_manager` or centralized vault.
 
-### Phase 3 Prompt (Orchestrator Loop)
+### Phase 3 (Implemented) — Orchestrator OC + Broker OC (split nodes)
 
-Extend `broker_core.lua` with a passive background loop: poll subnet ME storage volume, intercept integrated-circuit craft tokens on the subnet interface, map token → recipe baseline, then call existing `process_batch` lane dispatch. Overseer `TRIGGER_CRAFT` packets remain async; broker stays decoupled from main-net polling.
+Phase 3 splits the brain from the muscle across **two OpenComputers**:
+
+| Computer | Home | Role |
+| -------- | ---- | ---- |
+| **Orchestrator OC** | `/home/orchestrator/` | On the **main net**. Watches main storage, requests crafts there, tells the subnet broker when to run machines. Never touches lane hardware. |
+| **Broker OC** | `/home/subnet_broker/` | `broker_main.lua` modem slave: receives `DISPATCH_JOB`, runs the unchanged Phase 2 `process_batch`, waits for lanes to finish, recovers circuits, replies `BROKER_STATUS`. Never calls `getCraftables`. |
+
+```mermaid
+flowchart LR
+  subgraph orchOC [Orchestrator OC on main net]
+    Registry[ae_recipe_registry]
+    OrchFSM[orchestrator]
+    MainME[main_net_cache]
+  end
+  subgraph brokerOC [Broker OC on subnet]
+    BrokerMain[broker_main]
+    BrokerCore[broker_core]
+    Lanes[4 lanes]
+  end
+  MainNet[Main AE2 network] --> MainME
+  OrchFSM -->|"modem: DISPATCH_JOB"| BrokerMain
+  BrokerMain -->|"modem: BROKER_STATUS"| OrchFSM
+  OrchFSM -->|"broadcast: BROKER_EVENT"| Listeners[Overseer / other PCs]
+  BrokerMain --> BrokerCore --> Lanes
+```
+
+**Unique `recipe_uid` (circuit-collision mitigation).** Two recipes can share the
+same GT `circuit_damage`, so circuit alone is not a safe key. Every registry row
+carries a unique 8/16-bit `recipe_uid` with an O(1) `by_uid` index. AE patterns
+deposit a **craft token** item whose `damage = recipe_uid`; the orchestrator
+resolves the token authoritatively. Circuit+fluid pairing is a fallback only —
+if it is ambiguous (>1 recipe), the orchestrator FAULTs and asks for a UID.
+`DISPATCH_JOB` carries both `recipe_uid` and `recipe_key`; the broker validates
+the pair against its local baselines before dispatching.
+
+**Wire protocol** (`shared/network_protocols.lua`, copied into both OC homes):
+
+```text
+DISPATCH_JOB |job_id|recipe_uid|recipe_key|volume_mB|subnet_id|mode
+BROKER_STATUS|subnet_id|job_id|phase|detail     (dispatching|running|recovering|complete|failed)
+BROKER_EVENT |subnet_id|event|label|volume|job_id (ae_craft_start|dispatch_start|job_complete|job_failed)
+CRAFT_ACK / CRAFT_DONE / CRAFT_FAIL / TRIGGER_CRAFT
+```
+
+Boot: `loadfile('/home/orchestrator/orchestrator_main.lua')().run()` on the
+orchestrator; `require('broker_main').run()` on the broker.
 
 ### Phase 4 Prompt (Macro Overseer Layer)
 

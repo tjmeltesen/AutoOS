@@ -208,3 +208,34 @@ Fixed database filling with duplicate circuit descriptors (one per lane on slots
 
 - Added `subnet_broker/pre_p3_checklist.lua`: automated G1–G7 gate (static/diag, single-lane, recipe switch, hand-off batch, optional safe-failure, process_multi interleave, idle/busy skip, DB slot sanity)
 - Changed `subnet_broker/start.lua`: wget + usage for pre_p3_checklist.lua
+
+## 2026-06-12 — Phase 3: Orchestrator OC + Broker OC split (modem) + recipe_uid
+
+Split the brain (orchestrator) from the muscle (broker) across two OpenComputers, communicating over a pipe-delimited modem protocol. Recipes carry a unique `recipe_uid` so two recipes sharing a `circuit_damage` never collide.
+
+- Added `shared/network_protocols.lua`: stateless codec for `DISPATCH_JOB` (includes `recipe_uid`), `BROKER_STATUS`, `BROKER_EVENT`, `CRAFT_ACK/DONE/FAIL`, `TRIGGER_CRAFT`; sanitizes stray `|` in fields. Deploy a copy into both OC homes.
+- Added `orchestrator/orchestrator_config.lua`: subnet/me/broker addresses, modem ports, `recipe_baselines` with explicit `recipe_uid` (256 solder, 257 poly), `orchestrator` block (`uid_bits`, `uid_min=256`, `token_item_name`, `craftable_cache_s`, persist) + `validate()`
+- Added `orchestrator/ae_recipe_registry.lua`: living recipe table keyed by `recipe_key` with unique `recipe_uid` allocator (explicit-or-auto, range/duplicate checks), `by_uid` index, `resolve_uid`/`resolve_delivery`/`lookup_label`, `confirm_uid`, `mark_craftable`, `reload_baselines`, save/load
+- Added `orchestrator/registry_store.lua`: tiny dependency-free serializer so `recipe_uid` is stable across reboots
+- Added `orchestrator/subnet_cache.lua`: one filtered subnet ME poll → positive deltas for token items (by damage=uid), circuit items, and fluids (by label); read-only, never drives lanes
+- Added `orchestrator/craft_resolver.lua`: UID token delta is authoritative (`by_uid`); circuit+fluid is fallback only; ambiguous fallback → FAULT (no dispatch)
+- Added `orchestrator/subnet_craft.lua`: `getCraftables` + `AECraftable.request` + `AECraftingJob` phase mapping (on-demand only)
+- Added `orchestrator/orchestrator.lua`: pure FSM (idle → resolve delivery → unicast `DISPATCH_JOB` → wait `BROKER_STATUS`); one job at a time, no double-dispatch; broadcasts `dispatch_start`/`job_complete`/`job_failed`; handles `TRIGGER_CRAFT`
+- Added `orchestrator/orchestrator_main.lua` + `orchestrator/start.lua`: real modem link + event loop; boot helper with registry dump and wget list
+- Added `subnet_broker/broker_main.lua`: slim modem slave — validates `recipe_uid`↔`recipe_key`, `craft_ack`, runs `process_batch(recover_circuits=false)`, waits for dispatched lanes to idle, `recover_all`, replies `BROKER_STATUS complete/failed`; testable `handle_job`/`on_message` + in-game `run()`
+- Changed `subnet_broker/config.lua`: added `orchestrator_address`, `broker_modem_port`; `recipe_uid` on both baselines (matches orchestrator)
+- Changed `subnet_broker/start.lua`: wget + usage for `network_protocols.lua` and `broker_main.lua` (`require('broker_main').run()`)
+- Added `tests/mock_network.lua` (two-node modem hub) + `tests/phase3_orchestrator_test.lua`: 56 checks — protocol round-trips, uid allocation/duplicate-reject/persist, collision mitigation (shared circuit 18 → uid unambiguous, fallback ambiguous), subnet_cache deltas, resolver priority, full orchestrator dispatch/complete cycle, broker slave success + uid-mismatch/unknown-recipe failure
+- Changed `README.md`: directory layout (orchestrator modules + shared codec), Phase 3 implemented section with two-OC diagram, `recipe_uid` rationale, wire protocol, and boot commands
+- Desktop: `lua55 tests\phase3_orchestrator_test.lua` 56/56; regression phase1 13/13, phase2 60/60
+- Deploy: copy `shared/network_protocols.lua` + `subnet_broker/hw.lua` into `/home/orchestrator`; orchestrator modules to `/home/orchestrator`; `broker_main.lua` + `network_protocols.lua` to `/home/subnet_broker`
+
+## 2026-06-13 — Orchestrator on main net (not subnet)
+
+- Renamed `orchestrator/subnet_cache.lua` → `main_net_cache.lua`: orchestrator ME adapter is on the **main** AE2 network; proxy label and comments updated
+- Renamed `orchestrator/subnet_craft.lua` → `main_net_craft.lua`: AE craft requests run on the main net
+- Changed `orchestrator/orchestrator.lua`: `main_net_cache` + `main_net_craft`; tracks `pending_craft` after TRIGGER_CRAFT / main-net request and dispatches to subnet broker when `AECraftingJob` is done (`dispatch_on_craft_done`, default true) — covers patterns that export straight to subnet without main-net deltas
+- Changed `orchestrator/orchestrator_config.lua`, `orchestrator_main.lua`, `start.lua`: document main net `me_address`; boot text says "main net"
+- Changed `README.md` Phase 3 diagram and table: orchestrator on main net, broker on subnet
+- Changed `tests/phase3_orchestrator_test.lua`: require `main_net_cache`, `main_net_cache` dep name on Orchestrator.new
+- Desktop: phase3 56/56 regression after move

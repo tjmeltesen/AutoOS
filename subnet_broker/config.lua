@@ -19,6 +19,12 @@ local Config = {}
 Config.subnet_id = "universal_chemical_mv_01"
 Config.main_net_channel = 105
 
+-- Phase 3 modem slave: orchestrator OC address for BROKER_STATUS replies
+-- (nil/"" = learn from the first DISPATCH_JOB sender) and the port the broker
+-- listens on for DISPATCH_JOB.
+Config.orchestrator_address = ""
+Config.broker_modem_port = 106
+
 -- Empty OC database on the cable — descriptors allocated at runtime by
 -- descriptor_cache.lua (cache hit/miss + LRU scan). No manual GUI setup.
 Config.database_address = "9c22064e-7ddc-4d9a-a6a5-b732d1cba18a"
@@ -89,12 +95,14 @@ Config.constraints = {
   max_energy_tier = 2,
   recipe_baselines = {
     ["molten_soldering_alloy"] = {
+      recipe_uid = 256,
       fluid_requirement = 1440,
       fluid_label = "Molten Soldering Alloy",
       circuit_damage = 14,
       kind = "fluid",
     },
     ["polyethylene"] = {
+      recipe_uid = 257,
       fluid_requirement = 1000,
       fluid_label = "Ethylene",
       circuit_damage = 18,

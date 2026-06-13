@@ -6,6 +6,7 @@
       config.lua, hw.lua, lane_sides.lua, load_balancer.lua,
       maintenance_parse.lua, machine_poll.lua, descriptor_cache.lua,
       fluid_lane.lua, circuit_manager.lua, broker_core.lua,
+      network_protocols.lua, broker_main.lua,
       start.lua, diag.lua, test.lua, pre_p3_checklist.lua
 
   Deploy via floppy/USB or wget raw URLs (do NOT wget the HTML repo page):
@@ -19,6 +20,8 @@
     wget -f .../subnet_broker/fluid_lane.lua /home/subnet_broker/fluid_lane.lua
     wget -f .../subnet_broker/circuit_manager.lua /home/subnet_broker/circuit_manager.lua
     wget -f .../subnet_broker/broker_core.lua /home/subnet_broker/broker_core.lua
+    wget -f .../shared/network_protocols.lua /home/subnet_broker/network_protocols.lua
+    wget -f .../subnet_broker/broker_main.lua /home/subnet_broker/broker_main.lua
     wget -f .../subnet_broker/diag.lua /home/subnet_broker/diag.lua
     wget -f .../subnet_broker/test.lua /home/subnet_broker/test.lua
     wget -f .../subnet_broker/pre_p3_checklist.lua /home/subnet_broker/pre_p3_checklist.lua
@@ -48,6 +51,7 @@ print("[AutoOS] Broker loaded. Usage:")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
 print("  Full lines:  loadfile('" .. here .. "/test.lua')()")
 print("  Pre-P3 gate: loadfile('" .. here .. "/pre_p3_checklist.lua')()")
+print("  P3 slave:    require('broker_main').run()  -- listens for DISPATCH_JOB")
 print("  One lane:    require('broker_core').manual_lane_test('machine_01', 'polyethylene', 1000)")
 print("  Full batch:  require('broker_core').process_batch('polyethylene', 3000)")
 print("  Multi jobs:  require('broker_core').process_multi({")
