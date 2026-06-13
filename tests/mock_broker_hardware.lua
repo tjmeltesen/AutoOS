@@ -122,6 +122,8 @@ function Mock.new(opts)
     local lane = {
       row = m,
       healthy = true,
+      active = false,
+      has_work = false,
       fault_message = "Problems: 1",
       iface_inv = {},        -- interface exposed item slots (stocked items)
       item_cfg = nil,        -- active item stocking config
@@ -357,8 +359,8 @@ function Mock.new(opts)
         return { "Problems: 0 Efficiency: 100.0 %" }
       end,
       isWorkAllowed = function() return true end,
-      isMachineActive = function() return false end,
-      hasWork = function() return false end,
+      isMachineActive = function() return lane.active end,
+      hasWork = function() return lane.has_work end,
     }
   end
 
@@ -389,6 +391,14 @@ function Mock.new(opts)
       if lane then
         lane.healthy = not faulted
         if message then lane.fault_message = message end
+      end
+    end,
+
+    set_machine_busy = function(id, active, has_work)
+      local lane = lanes[id]
+      if lane then
+        lane.active = active == true
+        lane.has_work = has_work == true
       end
     end,
 

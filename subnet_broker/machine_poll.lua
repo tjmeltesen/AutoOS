@@ -95,4 +95,31 @@ function MachinePoll:build_active_pool(poll_results)
   return pool
 end
 
+--- Lane is idle when healthy, proxy available, and not actively crafting.
+---@param status table poll result for one machine
+---@return boolean
+function MachinePoll.is_idle(status)
+  if not status or not status.available or not status.healthy then
+    return false
+  end
+  if status.active then return false end
+  if status.has_work then return false end
+  return true
+end
+
+--- Healthy lanes that are not currently running a recipe (free for dispatch).
+---@param poll_results table|nil
+---@return table[] pool of machine config rows
+function MachinePoll:build_idle_pool(poll_results)
+  poll_results = poll_results or self:poll_all()
+  local pool = {}
+  for _, machine in ipairs(self.config.machines) do
+    local st = poll_results[machine.id]
+    if MachinePoll.is_idle(st) then
+      pool[#pool + 1] = machine
+    end
+  end
+  return pool
+end
+
 return MachinePoll

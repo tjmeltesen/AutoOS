@@ -181,3 +181,14 @@ Fixed database filling with duplicate circuit descriptors (one per lane on slots
 
 - Added `subnet_broker/test.lua`: per-lane circuit+fluid test on all healthy machines, optional batch, cache/DB summary
 - Changed `subnet_broker/start.lua`: wget + usage line for test.lua
+
+## 2026-06-11 — process_multi: parallel multi-recipe dispatch
+
+- Added `BrokerCore.process_multi(jobs)`: multiple `{ recipe, volume, lanes? }` jobs in one call; round-robin interleave across jobs (ethylene lane 1, solder lane 3, ethylene lane 2, …) instead of finishing one recipe before the next
+- `machine_poll.lua`: `MachinePoll.is_idle()` + `build_idle_pool()` — skip lanes with `active` or `has_work` when `only_idle=true` (default on process_multi)
+- `broker_core.lua`: auto-splits unclaimed idle lanes when multiple jobs omit `lanes`; summary includes `order`, per-job stats, `skipped_busy`
+- `test.lua`: `RUN_MULTI` + `MULTI_JOBS` flags for in-game 2+2 ethylene/solder test; shows dispatch order
+- `start.lua`: usage example for `process_multi`
+- `tests/mock_broker_hardware.lua`: `set_machine_busy(id, active, has_work)`
+- `tests/phase2_broker_test.lua`: interleave order, dual-recipe volumes/circuits, busy-lane skip, idle pool helpers
+- Desktop regression: phase1 13/13, phase2 57/57 pass

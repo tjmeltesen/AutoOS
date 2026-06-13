@@ -9,7 +9,8 @@
     2. Maintenance poll — skip faulted lanes
     3. One operation per healthy lane (circuit push + fluid pump + optional recover)
     4. Optional full batch across healthy pool
-    5. Descriptor cache + database slot summary
+    5. Optional multi-recipe interleaved dispatch (process_multi)
+    6. Descriptor cache + database slot summary
 
   Edit the flags below, then re-run.
 ]]
@@ -18,8 +19,16 @@
 local RECIPE_KEY = "polyethylene"       -- or "molten_soldering_alloy"
 local LANE_VOLUME = nil                 -- nil = one op (1000L ethylene / 1440L solder)
 local RECOVER_CIRCUITS = true           -- sweep circuit back to subnet after each lane
-local RUN_BATCH = true                  -- after per-lane tests, run process_batch
+local RUN_BATCH = false                 -- after per-lane tests, run process_batch
 local BATCH_VOLUME = 3000               -- 3000L ethylene → 3 ops across healthy lanes
+
+-- Multi-recipe: ethylene on lanes 1-2, molten solder on 3-4 (interleaved dispatch)
+local RUN_MULTI = true
+local MULTI_JOBS = {
+  { recipe = "polyethylene", volume = 2000, lanes = { "machine_01", "machine_02" } },
+  { recipe = "molten_soldering_alloy", volume = 2880, lanes = { "machine_03", "machine_04" } },
+}
+local MULTI_ONLY_IDLE = true            -- skip lanes that are active/has_work
 -- =============================================================================
 
 local sep = package.config:sub(1, 1)
@@ -45,8 +54,8 @@ local function fail(name, detail)
 end
 
 print("\n[AutoOS] ========== FULL LINE TEST ==========")
-print(string.format("[AutoOS] recipe=%s recover=%s batch=%s",
-  RECIPE_KEY, tostring(RECOVER_CIRCUITS), tostring(RUN_BATCH)))
+print(string.format("[AutoOS] recipe=%s recover=%s batch=%s multi=%s",
+  RECIPE_KEY, tostring(RECOVER_CIRCUITS), tostring(RUN_BATCH), tostring(RUN_MULTI)))
 
 -- Config -----------------------------------------------------------------------
 local ok_cfg, cfg_err = Config.validate(Config)
@@ -77,6 +86,7 @@ BrokerCore.reset_descriptor_cache()
 local poll = MachinePoll.new({ config = Config, component = component_api })
 local poll_results = poll:poll_all()
 local active = poll:build_active_pool(poll_results)
+local idle = poll:build_idle_pool(poll_results)
 
 for _, m in ipairs(Config.machines) do
   local st = poll_results[m.id]
@@ -84,8 +94,11 @@ for _, m in ipairs(Config.machines) do
     print(string.format("[AutoOS] %s SKIP — unavailable", m.id))
   elseif not st.healthy then
     print(string.format("[AutoOS] %s SKIP — fault: %s", m.id, tostring(st.fault_message)))
+  elseif not MachinePoll.is_idle(st) then
+    print(string.format("[AutoOS] %s BUSY — active=%s has_work=%s",
+      m.id, tostring(st.active), tostring(st.has_work)))
   else
-    print(string.format("[AutoOS] %s READY", m.id))
+    print(string.format("[AutoOS] %s READY (idle)", m.id))
   end
 end
 
@@ -94,7 +107,7 @@ if #active == 0 then
   return
 end
 
-print(string.format("[AutoOS] %d healthy lane(s) for live test", #active))
+print(string.format("[AutoOS] %d healthy lane(s), %d idle", #active, #idle))
 
 -- Per-lane: circuit + fluid (+ recover) ----------------------------------------
 print("\n[AutoOS] --- Per-lane tests ---")
@@ -110,6 +123,53 @@ for _, m in ipairs(active) do
     pass("lane " .. m.id)
   else
     fail("lane " .. m.id, err_lane)
+  end
+end
+
+-- Multi-recipe interleaved dispatch --------------------------------------------
+if RUN_MULTI then
+  print("\n[AutoOS] --- Multi-recipe dispatch (process_multi) ---")
+  for i, job in ipairs(MULTI_JOBS) do
+    local r = Config.constraints.recipe_baselines[job.recipe]
+    print(string.format("[AutoOS]   job %d: %s %dL lanes=%s circuit=%s",
+      i, job.recipe, job.volume,
+      job.lanes and table.concat(job.lanes, ",") or "(auto)",
+      r and tostring(r.circuit_damage) or "?"))
+  end
+
+  local multi_ok, summary = BrokerCore.process_multi(MULTI_JOBS, {
+    component = component_api,
+    execute_hardware = true,
+    only_idle = MULTI_ONLY_IDLE,
+    recover_circuits = false,
+    interleave = true,
+  })
+
+  if summary.order and #summary.order > 0 then
+    local order_txt = {}
+    for _, step in ipairs(summary.order) do
+      order_txt[#order_txt + 1] = step.lane .. ":" .. step.recipe
+    end
+    print("[AutoOS] dispatch order: " .. table.concat(order_txt, " → "))
+  end
+
+  if multi_ok then
+    pass("process_multi", string.format("%d/%d lanes", summary.succeeded, summary.dispatched))
+  else
+    local detail = string.format("%d/%d succeeded", summary.succeeded, summary.dispatched)
+    for id, r in pairs(summary.lanes or {}) do
+      if not r.ok then
+        detail = detail .. string.format("; %s: %s", id, tostring(r.err))
+      end
+    end
+    if summary.err then detail = detail .. "; " .. summary.err end
+    fail("process_multi", detail)
+  end
+
+  for _, js in ipairs(summary.jobs or {}) do
+    if js.err then
+      print(string.format("[AutoOS]   job %d (%s): %s", js.index, js.recipe, js.err))
+    end
   end
 end
 

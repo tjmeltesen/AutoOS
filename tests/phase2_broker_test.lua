@@ -326,6 +326,54 @@ check("stocked-wrong-circuit guard trips", okv == false
   and tostring(verr):find("expected 18") ~= nil, verr)
 check("wrong circuit not left on bus", mock.bus_stack("machine_01", 1) == nil)
 
+-- process_multi: two recipes interleaved across idle lanes ----------------------
+io.write(dim("\n  process_multi\n"))
+
+mock = fresh_mock()
+local multi_ok, multi_sum = BrokerCore.process_multi({
+  { recipe = "polyethylene", volume = 2000, lanes = { "machine_01", "machine_02" } },
+  { recipe = "molten_soldering_alloy", volume = 2880, lanes = { "machine_03", "machine_04" } },
+}, {
+  component = mock.component,
+  execute_hardware = true,
+})
+check("process_multi all lanes ok", multi_ok == true and multi_sum.succeeded == 4,
+  string.format("succeeded=%d", multi_sum.succeeded))
+check("polyethylene volumes", mock.hatch_mb("machine_01") == 1000 and mock.hatch_mb("machine_02") == 1000)
+check("solder volumes", mock.hatch_mb("machine_03") == 1440 and mock.hatch_mb("machine_04") == 1440)
+check("correct circuits per recipe",
+  mock.bus_stack("machine_01").damage == 18 and mock.bus_stack("machine_03").damage == 14)
+
+local order_ids = {}
+for _, step in ipairs(multi_sum.order or {}) do order_ids[#order_ids + 1] = step.lane end
+check("interleaved dispatch order",
+  lists_equal(order_ids, { "machine_01", "machine_03", "machine_02", "machine_04" }),
+  table.concat(order_ids, ","))
+
+-- Busy lane skipped when only_idle=true -------------------------------------------
+mock = fresh_mock()
+mock.set_machine_busy("machine_02", true, true)
+multi_ok, multi_sum = BrokerCore.process_multi({
+  { recipe = "polyethylene", volume = 1000, lanes = { "machine_01", "machine_02" } },
+  { recipe = "molten_soldering_alloy", volume = 1440, lanes = { "machine_03" } },
+}, {
+  component = mock.component,
+  execute_hardware = true,
+  only_idle = true,
+})
+check("busy lane skipped", multi_ok == true and multi_sum.succeeded == 2,
+  string.format("succeeded=%d skipped=%s", multi_sum.succeeded, table.concat(multi_sum.skipped_busy or {}, ",")))
+check("busy lane not stocked", mock.hatch_mb("machine_02") == 0)
+check("idle lanes stocked", mock.hatch_mb("machine_01") == 1000 and mock.hatch_mb("machine_03") == 1440)
+
+-- Idle pool helper ----------------------------------------------------------------
+mock = fresh_mock()
+mock.set_machine_busy("machine_04", true, false)
+poll = MachinePoll.new({ config = Config, component = mock.component })
+local pr = poll:poll_all()
+check("build_idle_pool drops busy", #poll:build_idle_pool(pr) == 3)
+check("is_idle false when active", MachinePoll.is_idle(pr.machine_04) == false)
+
 io.write(string.rep("-", 60) .. "\n")
 io.write(bold(string.format("Results: %d passed, %d failed\n", passed, failed)))
 if failed > 0 then os.exit(1) end

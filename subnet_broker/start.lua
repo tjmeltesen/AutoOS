@@ -48,5 +48,9 @@ print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
 print("  Full lines:  loadfile('" .. here .. "/test.lua')()")
 print("  One lane:    require('broker_core').manual_lane_test('machine_01', 'polyethylene', 1000)")
 print("  Full batch:  require('broker_core').process_batch('polyethylene', 3000)")
+print("  Multi jobs:  require('broker_core').process_multi({")
+print("                 { recipe='polyethylene', volume=2000, lanes={'machine_01','machine_02'} },")
+print("                 { recipe='molten_soldering_alloy', volume=2880, lanes={'machine_03','machine_04'} },")
+print("               })")
 
 return BrokerCore
