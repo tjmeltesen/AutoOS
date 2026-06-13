@@ -4,7 +4,8 @@
   Wires real OC hardware (modem + MAIN net ME adapter) to the orchestrator FSM.
 
   Run in-game:
-    loadfile("/home/orchestrator/orchestrator_main.lua")().run()
+    lua orchestrator_main.lua
+    -- or: loadfile("/home/orchestrator/orchestrator_main.lua")().run()
 ]]
 
 local sep = package.config:sub(1, 1)
@@ -66,7 +67,7 @@ function OrchestratorMain.run()
   local orch, err, info = OrchestratorMain.build()
   if not orch then
     print("[Orchestrator] start FAILED: " .. tostring(err))
-    return
+    return false
   end
   local event = require("event")
   local interval = (Config.orchestrator or {}).tick_interval or 1.0
@@ -75,6 +76,12 @@ function OrchestratorMain.run()
     Config.subnet_id, info.port, (function()
       local n = 0; for _ in pairs(info.registry.entries) do n = n + 1 end; return n
     end)()))
+  if Config.me_address == "" or not Config.me_address then
+    print("[Orchestrator] WARNING: me_address empty — set main net ME UUID in orchestrator_config.lua")
+  end
+  if not Config.broker_address or Config.broker_address == "" then
+    print("[Orchestrator] broker_address empty — will learn from first broker reply")
+  end
 
   while true do
     local id, _, from, _, _, message = event.pull(interval, "modem_message")
@@ -84,6 +91,11 @@ function OrchestratorMain.run()
       orch:tick()
     end
   end
+end
+
+-- `lua orchestrator_main.lua` starts the loop. require/loadfile alone only loads the module.
+if arg and arg[0] and arg[0]:find("orchestrator_main") then
+  OrchestratorMain.run()
 end
 
 return OrchestratorMain

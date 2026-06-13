@@ -57,6 +57,7 @@ else
 end
 
 print("[AutoOS] Orchestrator loaded. Usage:")
-print("  Run loop:  loadfile('" .. here .. "/orchestrator_main.lua')().run()")
+print("  Start loop:  lua orchestrator_main.lua")
+print("  Or:          loadfile('" .. here .. "/orchestrator_main.lua')().run()")
 
 return Config

@@ -196,4 +196,8 @@ function BrokerMain.run()
   end
 end
 
+if arg and arg[0] and arg[0]:find("broker_main") then
+  BrokerMain.run()
+end
+
 return BrokerMain
