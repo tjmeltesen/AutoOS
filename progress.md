@@ -197,3 +197,8 @@ Fixed database filling with duplicate circuit descriptors (one per lane on slots
 
 - `test.lua`: clear `package.loaded` before require (re-run after wget without reboot); fallback idle-pool helpers when stale `machine_poll.lua`
 - `broker_core.lua`: inline `build_idle_pool` / `lane_is_idle` fallback when old `machine_poll` lacks `process_multi` helpers
+
+## 2026-06-11 — Pre-P3 gate checklist script
+
+- Added `subnet_broker/pre_p3_checklist.lua`: automated G1–G7 gate (static/diag, single-lane, recipe switch, hand-off batch, optional safe-failure, process_multi interleave, idle/busy skip, DB slot sanity)
+- Changed `subnet_broker/start.lua`: wget + usage for pre_p3_checklist.lua
