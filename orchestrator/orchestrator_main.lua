@@ -91,9 +91,18 @@ function OrchestratorMain.run()
   end
 end
 
+local function is_direct_run()
+  if not arg or not arg[0] then return false end
+  local script = arg[0]:gsub("\\", "/")
+  local name = script:match("([^/]+)$") or script
+  return name == "orchestrator_main.lua" or name:find("orchestrator_main", 1, true) ~= nil
+end
+
 -- `lua orchestrator_main.lua` starts the loop. require/loadfile alone only loads the module.
-if arg and arg[0] and arg[0]:find("orchestrator_main") then
-  OrchestratorMain.run()
+if is_direct_run() then
+  print("[Orchestrator] starting...")
+  local ok, err = xpcall(OrchestratorMain.run, debug.traceback)
+  if not ok then print("[Orchestrator] FATAL:\n" .. tostring(err)) end
 end
 
 return OrchestratorMain

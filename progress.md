@@ -255,7 +255,7 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/broker_main.lua`: same auto-start for `lua broker_main.lua`
 - Changed `orchestrator/start.lua`, `subnet_broker/start.lua`: updated usage lines
 
-## 2026-06-13 — Broker deploy: network_protocols.lua in subnet_broker/
+## 2026-06-13 — Broker/orchestrator auto-start: package.path + robust entry
 
-- Added `subnet_broker/network_protocols.lua` (deploy copy) so worker PC does not need shared/ folder
-- Changed `subnet_broker/start.lua`: wget from subnet_broker/; warns if P3 files missing
+- Changed `subnet_broker/broker_main.lua`: set `package.path` before `require("network_protocols")`; `is_direct_run()` filename check; print + xpcall on `lua broker_main.lua` (fixes silent no-op when path/require failed before run)
+- Changed `orchestrator/orchestrator_main.lua`: same `is_direct_run()` + xpcall startup pattern

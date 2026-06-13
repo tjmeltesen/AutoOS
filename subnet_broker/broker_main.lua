@@ -9,8 +9,16 @@
   Tested via handle_job(packet, deps) with injected broker_core / poll /
   circuit_manager / link; run() wires the real OC event loop.
 
+  Run in-game:
+    lua broker_main.lua
+    -- or: loadfile("/home/subnet_broker/broker_main.lua")().run()
+
   References: plan phase_3_orchestrator "Broker OC — slim broker_main"
 ]]
+
+local sep = package.config:sub(1, 1)
+local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
+package.path = here .. sep .. "?.lua;" .. package.path
 
 local Protocols = require("network_protocols")
 
@@ -155,10 +163,6 @@ end
 -- In-game loop ----------------------------------------------------------------
 
 function BrokerMain.run()
-  local sep = package.config:sub(1, 1)
-  local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
-  package.path = here .. sep .. "?.lua;" .. package.path
-
   local component = require("component")
   local event = require("event")
   local computer = require("computer")
@@ -199,8 +203,18 @@ function BrokerMain.run()
   end
 end
 
-if arg and arg[0] and arg[0]:find("broker_main") then
-  BrokerMain.run()
+local function is_direct_run()
+  if not arg or not arg[0] then return false end
+  local script = arg[0]:gsub("\\", "/")
+  local name = script:match("([^/]+)$") or script
+  return name == "broker_main.lua" or name:find("broker_main", 1, true) ~= nil
+end
+
+-- `lua broker_main.lua` starts the loop. require/loadfile alone only loads the module.
+if is_direct_run() then
+  print("[Broker] starting modem slave...")
+  local ok, err = xpcall(BrokerMain.run, debug.traceback)
+  if not ok then print("[Broker] FATAL:\n" .. tostring(err)) end
 end
 
 return BrokerMain
