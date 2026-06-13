@@ -11,14 +11,10 @@
   Edit orchestrator_config.lua:
     broker_address = <broker PC modem UUID>   (NOT computer.address)
 
-  Usage:
-    lua modem_comm_test.lua info     -- print this modem + config
-    lua modem_comm_test.lua listen   -- wait for messages, auto-reply PONG
-    lua modem_comm_test.lua ping     -- send PING to broker, wait for PONG (15s)
-
-  Test procedure:
-    1) Broker PC:  lua modem_comm_test.lua listen
-    2) Manager PC: lua modem_comm_test.lua ping
+  Usage (OpenComputers — use separate files OR pass mode via shell):
+    lua modem_info.lua
+    lua modem_listen.lua
+    lua modem_ping.lua
     3) Manager should print "RX ... PONG". Broker should print "RX ... PING".
 ]]
 
@@ -81,6 +77,9 @@ local function cmd_info()
   print("[comm] listen port:", LISTEN_PORT)
   print("[comm] peer port (send to broker):", PEER_PORT)
   print("[comm] peer address (broker modem):", PEER_ADDR ~= "" and PEER_ADDR or "(empty — set broker_address)")
+  if not m.isWireless() then
+    print("[comm] WARNING: wired modem — PCs must share an OC network cable")
+  end
 end
 
 local function cmd_listen()
@@ -142,12 +141,25 @@ local function cmd_ping()
   print("[comm] Check: wireless modems, broker_address = broker modem UUID, broker listens on 106")
 end
 
-local mode = (arg and arg[1]) or "info"
+local function resolve_mode(...)
+  local ok_shell, shell = pcall(require, "shell")
+  if ok_shell and shell and shell.parse then
+    local args = select(1, shell.parse(...))
+    if args[1] then return args[1] end
+  end
+  local va = table.pack(...)
+  if va.n >= 1 and va[1] then return va[1] end
+  if arg and arg[1] then return arg[1] end
+  return "info"
+end
+
+local mode = resolve_mode(...)
+print("[comm] mode:", mode)
 if mode == "listen" then
   cmd_listen()
 elseif mode == "ping" then
   cmd_ping()
 else
   cmd_info()
-  print("[comm] commands: lua modem_comm_test.lua listen | ping | info")
+  print("[comm] run: lua modem_listen.lua | lua modem_ping.lua | lua modem_info.lua")
 end
