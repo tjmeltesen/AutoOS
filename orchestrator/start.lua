@@ -1,8 +1,13 @@
 --[[
   AutoOS Orchestrator OC — boot helper
 
-  The orchestrator PC connects to the MAIN AE2 network (not the subnet).
-  Copy network_protocols.lua and hw.lua into /home/orchestrator/.
+  Deploy ALL of these to /home/orchestrator/ on the manager PC:
+    network_protocols.lua  (from shared/)
+    hw.lua
+    orchestrator_config.lua
+    registry_store.lua  ae_recipe_registry.lua
+    main_net_cache.lua  craft_resolver.lua  main_net_craft.lua
+    orchestrator.lua  orchestrator_main.lua  start.lua
 
   Edit orchestrator_config.lua:
     me_address      — main net ME controller/interface UUID
@@ -12,6 +17,24 @@
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/orchestrator"
 package.path = here .. sep .. "?.lua;" .. package.path
+
+local REQUIRED = {
+  "network_protocols.lua", "hw.lua", "orchestrator_config.lua",
+  "registry_store.lua", "ae_recipe_registry.lua",
+  "main_net_cache.lua", "craft_resolver.lua", "main_net_craft.lua",
+  "orchestrator.lua", "orchestrator_main.lua",
+}
+
+local missing = {}
+for _, name in ipairs(REQUIRED) do
+  local f = io.open(here .. sep .. name, "r")
+  if f then f:close() else missing[#missing + 1] = name end
+end
+if #missing > 0 then
+  print("[AutoOS] MISSING files in " .. here .. ":")
+  for _, name in ipairs(missing) do print("   " .. name) end
+  print("[AutoOS] wget each file from the repo into /home/orchestrator/")
+end
 
 local Config = require("orchestrator_config")
 local Registry = require("ae_recipe_registry")

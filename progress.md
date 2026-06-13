@@ -239,3 +239,8 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `README.md` Phase 3 diagram and table: orchestrator on main net, broker on subnet
 - Changed `tests/phase3_orchestrator_test.lua`: require `main_net_cache`, `main_net_cache` dep name on Orchestrator.new
 - Desktop: phase3 56/56 regression after move
+
+## 2026-06-13 — Orchestrator deploy: include hw.lua + missing-file check
+
+- Added `orchestrator/hw.lua`: deploy copy so manager PC does not need subnet_broker folder (fixes in-game `module 'hw' not found`)
+- Changed `orchestrator/start.lua`: full required-file list + prints any missing names before require
