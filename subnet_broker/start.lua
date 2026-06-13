@@ -59,6 +59,9 @@ else
 end
 
 print("[AutoOS] Broker loaded. Usage:")
+print("  Modem test:  lua modem_comm_test.lua info")
+print("               lua modem_comm_test.lua listen   (manager runs ping)")
+print("               lua modem_comm_test.lua ping")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
 print("  Full lines:  loadfile('" .. here .. "/test.lua')()")
 print("  Pre-P3 gate: loadfile('" .. here .. "/pre_p3_checklist.lua')()")

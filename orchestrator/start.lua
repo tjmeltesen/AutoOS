@@ -57,6 +57,9 @@ else
 end
 
 print("[AutoOS] Orchestrator loaded. Usage:")
+print("  Modem test:  lua modem_comm_test.lua info")
+print("               lua modem_comm_test.lua listen   (broker runs listen first)")
+print("               lua modem_comm_test.lua ping")
 print("  Start loop:  lua orchestrator_main.lua")
 print("  Or:          loadfile('" .. here .. "/orchestrator_main.lua')().run()")
 

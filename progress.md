@@ -255,6 +255,12 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/broker_main.lua`: same auto-start for `lua broker_main.lua`
 - Changed `orchestrator/start.lua`, `subnet_broker/start.lua`: updated usage lines
 
+## 2026-06-13 — Raw modem comm test scripts (orchestrator + broker)
+
+- Added `orchestrator/modem_comm_test.lua`: PING/PONG on ports 105/106; modes `info`, `listen`, `ping` (no Phase 3 deps)
+- Added `subnet_broker/modem_comm_test.lua`: mirror for worker PC
+- Changed `orchestrator/start.lua`, `subnet_broker/start.lua`: document modem comm test usage
+
 ## 2026-06-13 — Orchestrator link_test.lua for modem debugging
 
 - Added `orchestrator/link_test.lua`: prints send result + listens on port 105 for broker replies (bare `modem.send` is silent)
