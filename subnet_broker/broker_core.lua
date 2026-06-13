@@ -67,6 +67,27 @@ local function recipe_rules(recipe_key)
     and config.constraints.recipe_baselines[recipe_key]
 end
 
+local function lane_is_idle(st)
+  if MachinePoll.is_idle then
+    return MachinePoll.is_idle(st)
+  end
+  return st and st.available and st.healthy and not st.active and not st.has_work
+end
+
+local function build_idle_pool(poll, poll_results)
+  if poll and poll.build_idle_pool then
+    return poll:build_idle_pool(poll_results)
+  end
+  poll_results = poll_results or {}
+  local pool = {}
+  for _, machine in ipairs(config.machines) do
+    if lane_is_idle(poll_results[machine.id]) then
+      pool[#pool + 1] = machine
+    end
+  end
+  return pool
+end
+
 local function find_machine_row(machine_id)
   for _, m in ipairs(config.machines) do
     if m.id == machine_id then return m end
@@ -405,7 +426,7 @@ local function resolve_job_pool(job, jobs, base_pool, claimed, only_idle, poll_r
       pool[#pool + 1] = m
     elseif want[m.id] and only_idle then
       local st = poll_results and poll_results[m.id]
-      if st and st.available and st.healthy and not MachinePoll.is_idle(st) then
+      if st and st.available and st.healthy and not lane_is_idle(st) then
         -- logged later via skipped_busy
       end
     end
@@ -490,7 +511,7 @@ function BrokerCore.process_multi(jobs, opts)
   local base_pool
   if poll then
     base_pool = only_idle
-      and poll:build_idle_pool(poll_results)
+      and build_idle_pool(poll, poll_results)
       or poll:build_active_pool(poll_results)
   else
     base_pool = config.machines
@@ -532,7 +553,7 @@ function BrokerCore.process_multi(jobs, opts)
         if poll_results and next(want) ~= nil and only_idle then
           for id in pairs(want) do
             local st = poll_results[id]
-            if st and st.available and st.healthy and not MachinePoll.is_idle(st) then
+            if st and st.available and st.healthy and not lane_is_idle(st) then
               skipped_busy[#skipped_busy + 1] = id
               print(string.format(" -> [Pool] %s skipped — busy (active=%s has_work=%s)",
                 id, tostring(st.active), tostring(st.has_work)))

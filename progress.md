@@ -192,3 +192,8 @@ Fixed database filling with duplicate circuit descriptors (one per lane on slots
 - `tests/mock_broker_hardware.lua`: `set_machine_busy(id, active, has_work)`
 - `tests/phase2_broker_test.lua`: interleave order, dual-recipe volumes/circuits, busy-lane skip, idle pool helpers
 - Desktop regression: phase1 13/13, phase2 57/57 pass
+
+## 2026-06-11 — process_multi deploy compat + test.lua reload
+
+- `test.lua`: clear `package.loaded` before require (re-run after wget without reboot); fallback idle-pool helpers when stale `machine_poll.lua`
+- `broker_core.lua`: inline `build_idle_pool` / `lane_is_idle` fallback when old `machine_poll` lacks `process_multi` helpers

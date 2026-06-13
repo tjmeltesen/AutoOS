@@ -35,6 +35,11 @@ local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
 
+-- Re-run after wget without rebooting the OC computer.
+package.loaded["config"] = nil
+package.loaded["machine_poll"] = nil
+package.loaded["broker_core"] = nil
+
 local Config = require("config")
 local BrokerCore = require("broker_core")
 local MachinePoll = require("machine_poll")
@@ -82,11 +87,34 @@ print(string.format("[AutoOS] per-lane: %dL (%d op) circuit=%s fluid=%s",
 
 BrokerCore.reset_descriptor_cache()
 
+local function lane_is_idle(st)
+  if MachinePoll.is_idle then
+    return MachinePoll.is_idle(st)
+  end
+  return st and st.available and st.healthy and not st.active and not st.has_work
+end
+
+local function build_idle_pool(poll, poll_results)
+  if poll.build_idle_pool then
+    return poll:build_idle_pool(poll_results)
+  end
+  local pool = {}
+  for _, machine in ipairs(Config.machines) do
+    if lane_is_idle(poll_results[machine.id]) then
+      pool[#pool + 1] = machine
+    end
+  end
+  return pool
+end
+
 -- Healthy pool -----------------------------------------------------------------
 local poll = MachinePoll.new({ config = Config, component = component_api })
+if not poll.build_idle_pool and not MachinePoll.is_idle then
+  print("[AutoOS] WARN  stale machine_poll.lua — wget latest machine_poll.lua + broker_core.lua")
+end
 local poll_results = poll:poll_all()
 local active = poll:build_active_pool(poll_results)
-local idle = poll:build_idle_pool(poll_results)
+local idle = build_idle_pool(poll, poll_results)
 
 for _, m in ipairs(Config.machines) do
   local st = poll_results[m.id]
@@ -94,7 +122,7 @@ for _, m in ipairs(Config.machines) do
     print(string.format("[AutoOS] %s SKIP — unavailable", m.id))
   elseif not st.healthy then
     print(string.format("[AutoOS] %s SKIP — fault: %s", m.id, tostring(st.fault_message)))
-  elseif not MachinePoll.is_idle(st) then
+  elseif not lane_is_idle(st) then
     print(string.format("[AutoOS] %s BUSY — active=%s has_work=%s",
       m.id, tostring(st.active), tostring(st.has_work)))
   else
