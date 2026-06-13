@@ -20,14 +20,6 @@ local Protocols = require("network_protocols")
 
 local OrchestratorMain = {}
 
-local function make_link(modem, port)
-  modem.open(port)
-  return {
-    send = function(_, addr, msg) modem.send(addr, port, msg) end,
-    broadcast = function(_, msg) modem.broadcast(port, msg) end,
-  }
-end
-
 function OrchestratorMain.build()
   local ok, err = Config.validate(Config)
   if not ok then return nil, "config invalid: " .. tostring(err) end
@@ -37,7 +29,10 @@ function OrchestratorMain.build()
     return nil, "no modem component — orchestrator needs a network card"
   end
   local modem = component.modem
-  local port = Config.modem_port or Protocols.PORT_DEFAULT
+  local listen_port = Config.modem_port or Protocols.PORT_DEFAULT
+  local broker_port = Config.broker_modem_port or listen_port
+  modem.open(listen_port)
+  if broker_port ~= listen_port then modem.open(broker_port) end
 
   local registry = Registry.new({ config = Config })
   if (Config.orchestrator or {}).registry_persist then
@@ -56,11 +51,14 @@ function OrchestratorMain.build()
     registry = registry,
     main_net_cache = main_net_cache,
     me = me,
-    link = make_link(modem, port),
+    link = {
+      send = function(_, addr, msg) modem.send(addr, broker_port, msg) end,
+      broadcast = function(_, msg) modem.broadcast(listen_port, msg) end,
+    },
     now = function() return require("computer").uptime() end,
     log = print,
   })
-  return orch, nil, { registry = registry, port = port }
+  return orch, nil, { registry = registry, listen_port = listen_port, broker_port = broker_port }
 end
 
 function OrchestratorMain.run()
@@ -72,8 +70,8 @@ function OrchestratorMain.run()
   local event = require("event")
   local interval = (Config.orchestrator or {}).tick_interval or 1.0
 
-  print(string.format("[Orchestrator] online — main net, subnet '%s', port %d, %d recipe(s)",
-    Config.subnet_id, info.port, (function()
+  print(string.format("[Orchestrator] online — main net, subnet '%s', listen %d → broker %d, %d recipe(s)",
+    Config.subnet_id, info.listen_port, info.broker_port, (function()
       local n = 0; for _ in pairs(info.registry.entries) do n = n + 1 end; return n
     end)()))
   if Config.me_address == "" or not Config.me_address then

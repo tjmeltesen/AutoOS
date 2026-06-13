@@ -173,12 +173,14 @@ function BrokerMain.run()
     return
   end
   local modem = component.modem
-  local port = Config.broker_modem_port or Protocols.PORT_DEFAULT
-  modem.open(port)
+  local listen_port = Config.broker_modem_port or Protocols.PORT_DEFAULT
+  local orch_port = Config.main_net_channel or Protocols.PORT_DEFAULT
+  modem.open(listen_port)
+  if orch_port ~= listen_port then modem.open(orch_port) end
 
   local link = {
-    send = function(_, addr, msg) modem.send(addr, port, msg) end,
-    broadcast = function(_, msg) modem.broadcast(port, msg) end,
+    send = function(_, addr, msg) modem.send(addr, orch_port, msg) end,
+    broadcast = function(_, msg) modem.broadcast(listen_port, msg) end,
   }
   local poll = MachinePoll.new({ config = Config, component = component })
   local circuit_manager = CircuitManager.new({ config = Config, component = component })
@@ -189,7 +191,8 @@ function BrokerMain.run()
     sleep = HW.sleep, log = print,
   }
 
-  print(string.format("[Broker] modem slave online — subnet '%s', port %d", Config.subnet_id, port))
+  print(string.format("[Broker] modem slave online — subnet '%s', listen %d → orch %d",
+    Config.subnet_id, listen_port, orch_port))
   while true do
     local _, _, from, _, _, message = event.pull("modem_message")
     pcall(BrokerMain.on_message, from, message, deps)

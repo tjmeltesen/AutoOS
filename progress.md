@@ -254,3 +254,8 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `orchestrator/orchestrator_main.lua`: calling `lua orchestrator_main.lua` now runs the event loop (was load-only, no output); warns if me_address/broker_address empty
 - Changed `subnet_broker/broker_main.lua`: same auto-start for `lua broker_main.lua`
 - Changed `orchestrator/start.lua`, `subnet_broker/start.lua`: updated usage lines
+
+## 2026-06-13 — Broker deploy: network_protocols.lua in subnet_broker/
+
+- Added `subnet_broker/network_protocols.lua` (deploy copy) so worker PC does not need shared/ folder
+- Changed `subnet_broker/start.lua`: wget from subnet_broker/; warns if P3 files missing

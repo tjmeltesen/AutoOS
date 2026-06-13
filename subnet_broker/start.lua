@@ -20,7 +20,7 @@
     wget -f .../subnet_broker/fluid_lane.lua /home/subnet_broker/fluid_lane.lua
     wget -f .../subnet_broker/circuit_manager.lua /home/subnet_broker/circuit_manager.lua
     wget -f .../subnet_broker/broker_core.lua /home/subnet_broker/broker_core.lua
-    wget -f .../shared/network_protocols.lua /home/subnet_broker/network_protocols.lua
+    wget -f .../subnet_broker/network_protocols.lua /home/subnet_broker/network_protocols.lua
     wget -f .../subnet_broker/broker_main.lua /home/subnet_broker/broker_main.lua
     wget -f .../subnet_broker/diag.lua /home/subnet_broker/diag.lua
     wget -f .../subnet_broker/test.lua /home/subnet_broker/test.lua
@@ -36,6 +36,17 @@
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
+
+local P3_REQUIRED = { "network_protocols.lua", "broker_main.lua" }
+local missing = {}
+for _, name in ipairs(P3_REQUIRED) do
+  local f = io.open(here .. sep .. name, "r")
+  if f then f:close() else missing[#missing + 1] = name end
+end
+if #missing > 0 then
+  print("[AutoOS] MISSING for Phase 3 modem slave:")
+  for _, name in ipairs(missing) do print("   " .. name) end
+end
 
 local Config = require("config")
 local BrokerCore = require("broker_core")
