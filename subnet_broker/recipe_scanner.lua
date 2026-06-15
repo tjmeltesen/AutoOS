@@ -55,7 +55,7 @@ end
 
 local function collect_seed_labels(me, registry, extra)
   local labels = {}
-  if me.getFluidsInNetwork then
+  if me and me.getFluidsInNetwork then
     local ok, fluids = pcall(me.getFluidsInNetwork)
     if ok and type(fluids) == "table" then
       for _, f in ipairs(fluids) do
@@ -84,6 +84,14 @@ function RecipeScanner.scan(me, registry, opts)
   local log = opts.log or function() end
   local now = opts.now or 0
   local cfg = opts.config or {}
+  if not me then
+    log("[scan] no ME proxy — set subnet_me_address (broker) or me_address (orchestrator) in config")
+    return 0, 0
+  end
+  if not registry or not registry.add then
+    log("[scan] registry missing or has no :add()")
+    return 0, 0
+  end
   local default_req = opts.default_fluid_requirement
     or cfg_get(cfg, "default_fluid_requirement")
     or 1000

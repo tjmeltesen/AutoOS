@@ -253,6 +253,11 @@ function BrokerMain.run()
     broadcast = function(_, msg) modem.broadcast(listen_port, msg) end,
   }
   local me = component.proxy(Config.subnet_me_address)
+  if not me then
+    print("[Broker] subnet_me_address not found: " .. tostring(Config.subnet_me_address))
+    print("[Broker] list components: for a,n in component.list() do print(n,a) end")
+    return
+  end
   local registry = BrokerRegistry.new(Config)
   if Config.registry_persist then registry:load() end
   registry:seed_from_config()

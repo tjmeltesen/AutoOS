@@ -291,3 +291,9 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/start.lua`, `orchestrator/start.lua`: wget lists include scanner + registry modules
 - Added `tests/recipe_scanner_test.lua`; fixed `tests/phase3_orchestrator_test.lua` (`BrokerRegistry.new` + seed)
 - Changed `README.md` Phase 3: document automatic AE pattern discovery
+
+## 2026-06-13 — Fix recipe_scanner nil ME crash
+
+- Changed `subnet_broker/recipe_scanner.lua`, `orchestrator/recipe_scanner.lua`: guard nil `me` in `collect_seed_labels` and `scan()` (no crash when proxy missing)
+- Changed `subnet_broker/broker_main.lua`: fail fast with component-list hint when `subnet_me_address` proxy is nil
+- Added `subnet_broker/scan_test.lua`: one-shot in-game pattern scan test (`lua scan_test.lua`)
