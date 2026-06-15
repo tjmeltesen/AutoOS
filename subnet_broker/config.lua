@@ -20,7 +20,9 @@ Config.subnet_id = "universal_chemical_mv_01"
 Config.main_net_channel = 105
 
 -- Subnet ME controller/interface UUID — broker watches this for delivery deltas.
-Config.subnet_me_address = "00000000-0000-0000-0000-000000000001"
+-- In-game: for a,n in component.list() do if n:find("^me_") then print(n,a) end end
+-- Use the subnet ME controller (preferred) or any ME interface on the subnet cable.
+Config.subnet_me_address = "7a470dd2-e0b5-4133-865a-fbc72066074a"
 
 Config.token_item_name = "gregtech:gt.integrated_circuit"
 Config.circuit_item_name = "gregtech:gt.integrated_circuit"
