@@ -3,7 +3,7 @@
 
   Deploy ALL of these to /home/orchestrator/ on the manager PC (wget from orchestrator/ in the repo):
     network_protocols.lua  hw.lua  orchestrator_config.lua
-    registry_store.lua  ae_recipe_registry.lua
+    registry_store.lua  ae_recipe_registry.lua  recipe_scanner.lua
     main_net_cache.lua  craft_resolver.lua  main_net_craft.lua
     orchestrator.lua  orchestrator_main.lua  start.lua
 
@@ -18,7 +18,7 @@ package.path = here .. sep .. "?.lua;" .. package.path
 
 local REQUIRED = {
   "network_protocols.lua", "hw.lua", "orchestrator_config.lua",
-  "registry_store.lua", "ae_recipe_registry.lua",
+  "registry_store.lua", "ae_recipe_registry.lua", "recipe_scanner.lua",
   "main_net_cache.lua", "craft_resolver.lua", "main_net_craft.lua",
   "orchestrator.lua", "orchestrator_main.lua",
 }

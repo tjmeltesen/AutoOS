@@ -19,13 +19,21 @@ package.path = table.concat({
 local Protocols = require("network_protocols")
 local Registry = require("ae_recipe_registry")
 local RegistryStore = require("registry_store")
-local SubnetCache = require("main_net_cache")
+local SubnetCache = require("subnet_cache")
+local BrokerRegistry = require("broker_registry")
 local CraftResolver = require("craft_resolver")
+local BrokerCraftResolver = dofile(here .. sep .. ".." .. sep .. "subnet_broker" .. sep .. "craft_resolver.lua")
 local Orchestrator = require("orchestrator")
 local BrokerMain = require("broker_main")
 local MockNetwork = require("mock_network")
 local OrchConfig = require("orchestrator_config")
 local BrokerConfig = require("config")
+
+local function broker_registry_from_config(cfg)
+  local r = BrokerRegistry.new(cfg)
+  r:seed_from_config()
+  return r
+end
 
 local ESC = string.char(27)
 local function color(c, t) return ESC .. "[" .. c .. "m" .. t .. ESC .. "[0m" end
@@ -66,6 +74,13 @@ do
 
   local tc = Protocols.parse(Protocols.trigger_craft("job-2", "Polyethylene", 28000, "subnet_x"))
   check("trigger_craft volume", tc and tc.volume_mB == 28000)
+
+  local sd = Protocols.parse(Protocols.subnet_delivery("subnet_x", "job-3", 257, "polyethylene", 3000, "uid"))
+  check("subnet_delivery round-trip", sd and sd.kind == Protocols.KIND.SUBNET_DELIVERY)
+  check("subnet_delivery volume", sd and sd.volume_mB == 3000)
+
+  local da = Protocols.parse(Protocols.delivery_ack("job-3", "subnet_x"))
+  check("delivery_ack round-trip", da and da.kind == Protocols.KIND.DELIVERY_ACK)
 
   local bad, err = Protocols.parse("GARBAGE|x")
   check("parse rejects unknown kind", bad == nil and err ~= nil)
@@ -130,7 +145,7 @@ do
   check("serialize round-trip", rows and rows.polyethylene and rows.polyethylene.recipe_uid == 257)
 end
 
--- main_net_cache: positive deltas -----------------------------------------------
+-- subnet_cache: positive deltas (broker watches subnet ME) --------------------
 do
   local items = { { name = "gregtech:gt.integrated_circuit", damage = 257, size = 0 } }
   local fluids = { Ethylene = 0 }
@@ -148,7 +163,7 @@ do
       return out
     end,
   }
-  local cache = SubnetCache.new({ config = OrchConfig, me = me })
+  local cache = SubnetCache.new({ config = BrokerConfig, me = me })
   local first = cache:poll()
   check("first poll seeds (no deltas)", first.seeded == true)
 
@@ -162,15 +177,18 @@ do
   check("no change -> empty deltas", next(d2.tokens) == nil and next(d2.fluids) == nil)
 end
 
--- craft_resolver --------------------------------------------------------------
+-- craft_resolver (orchestrator + broker registry) -----------------------------
 do
   local reg = Registry.new({ config = OrchConfig })
   reg:seed_from_config()
+  local breg = broker_registry_from_config(BrokerConfig)
 
   local r1 = CraftResolver.resolve({ tokens = { [257] = 1 }, fluids = { Ethylene = 3000 } }, reg)
   check("resolver: uid primary match", r1.matched and r1.recipe_key == "polyethylene")
   check("resolver: volume from fluid delta", r1.volume_mB == 3000, r1.volume_mB)
-  check("resolver: source uid", r1.source == "uid")
+
+  local r1b = BrokerCraftResolver.resolve({ tokens = { [257] = 1 }, fluids = {} }, breg)
+  check("broker resolver: uid volume without fluid", r1b.volume_mB == 3000, r1b.volume_mB)
 
   -- Fallback: no token, single fluid match.
   local r2 = CraftResolver.resolve({ tokens = {}, circuits = {}, fluids = { Ethylene = 1000 } }, reg)
@@ -187,7 +205,7 @@ do
   check("resolver: empty -> waiting", not r4.matched and not r4.fault)
 end
 
--- Orchestrator FSM (with mock network) ----------------------------------------
+-- Orchestrator coordinator (broker notifies orchestrator) -------------------
 do
   local net = MockNetwork.new()
   local orch_addr, broker_addr, overseer_addr = "orch-1", "broker-1", "overseer-1"
@@ -196,71 +214,90 @@ do
 
   local reg = Registry.new({ config = OrchConfig })
   reg:seed_from_config()
-
-  -- Fake subnet cache: seed, then a polyethylene delivery, then nothing.
-  local seq = {
-    { seeded = true },
-    { tokens = { [257] = 1 }, circuits = {}, fluids = { Ethylene = 3000 } },
-    { tokens = {}, circuits = {}, fluids = {} },
-  }
-  local idx = 0
-  local fake_cache = { poll = function() idx = idx + 1; return seq[idx] or { tokens = {}, fluids = {} } end }
-
-  -- Clone config with broker_address set.
   local cfg = {}
   for k, v in pairs(OrchConfig) do cfg[k] = v end
   cfg.broker_address = broker_addr
 
   local logs = {}
   local orch = Orchestrator.new({
-    config = cfg, registry = reg, main_net_cache = fake_cache,
+    config = cfg, registry = reg,
     link = orch_link, now = function() return 0 end,
     log = function(m) logs[#logs + 1] = m end,
   })
 
-  orch:tick()                      -- seed poll, no dispatch
+  orch:on_message(broker_addr, Protocols.subnet_delivery(
+    cfg.subnet_id, "universal_chemical_mv_01-1", 257, "polyethylene", 3000, "uid"
+  ))
   net:deliver()
-  check("no dispatch on seed tick", #net:drain(broker_addr) == 0)
+  check("orchestrator tracks delivery", orch.jobs["universal_chemical_mv_01-1"] ~= nil)
+  check("orchestrator state tracking", orch.state == "tracking")
 
-  orch:tick()                      -- delivery → dispatch
-  net:deliver()
-  local broker_in = net:drain(broker_addr)
-  local dj
-  local dispatch_count = 0
-  for _, m in ipairs(broker_in) do
+  local acks = net:drain(broker_addr)
+  local saw_ack = false
+  for _, m in ipairs(acks) do
     local p = Protocols.parse(m.msg)
-    if p and p.kind == Protocols.KIND.DISPATCH_JOB then dispatch_count = dispatch_count + 1; dj = p end
+    if p and p.kind == Protocols.KIND.DELIVERY_ACK then saw_ack = true end
   end
-  check("DISPATCH_JOB sent to broker", dispatch_count == 1, dispatch_count)
-  check("dispatched recipe_uid 257", dj and dj.recipe_uid == 257)
-  check("dispatched volume 3000", dj and dj.volume_mB == 3000)
-  check("orchestrator now waiting_broker", orch.state == "waiting_broker")
+  check("delivery_ack sent to broker", saw_ack)
 
-  -- dispatch_start broadcast reached overseer.
+  orch:on_message(broker_addr, Protocols.broker_status(cfg.subnet_id, "universal_chemical_mv_01-1", "running", "2/2"))
+  orch:on_message(broker_addr, Protocols.craft_done("universal_chemical_mv_01-1", cfg.subnet_id))
+  net:deliver()
+  check("orchestrator idle after craft_done", orch.state == "idle")
   local ov = net:drain(overseer_addr)
-  local saw_dispatch = false
-  for _, m in ipairs(ov) do
-    local p = Protocols.parse(m.msg)
-    if p and p.event == Protocols.EVENT.DISPATCH_START then saw_dispatch = true end
-  end
-  check("dispatch_start broadcast seen", saw_dispatch)
-
-  -- While waiting, another tick must not double-dispatch.
-  orch:tick()
-  net:deliver()
-  check("no double dispatch while waiting", #net:drain(broker_addr) == 0)
-
-  -- Broker replies complete → orchestrator clears job, broadcasts job_complete.
-  orch:on_message(broker_addr, Protocols.broker_status(cfg.subnet_id, dj.job_id, "complete", "4 lanes"))
-  net:deliver()
-  check("orchestrator returns to idle", orch.state == "idle" and orch.current_job == nil)
-  local ov2 = net:drain(overseer_addr)
   local saw_complete = false
-  for _, m in ipairs(ov2) do
+  for _, m in ipairs(ov) do
     local p = Protocols.parse(m.msg)
     if p and p.event == Protocols.EVENT.JOB_COMPLETE then saw_complete = true end
   end
   check("job_complete broadcast seen", saw_complete)
+end
+
+-- Broker watch tick → notify orchestrator -------------------------------------
+do
+  local net = MockNetwork.new()
+  local orch_addr, broker_addr = "orch-1", "broker-1"
+  net:node(orch_addr)
+  local broker_link = net:node(broker_addr)
+
+  local seq = {
+    { seeded = true },
+    { tokens = {}, circuits = {}, fluids = { Ethylene = 3000 } },
+  }
+  local idx = 0
+  local fake_cache = { poll = function() idx = idx + 1; return seq[idx] or { tokens = {}, fluids = {} } end }
+
+  local core_calls = {}
+  local deps = {
+    config = BrokerConfig,
+    broker_core = {
+      process_batch = function(recipe_key, volume)
+        core_calls[#core_calls + 1] = { recipe = recipe_key, volume = volume }
+        return true, { dispatched = 1, succeeded = 1, failed = 0, lanes = { machine_01 = {} } }
+      end,
+    },
+    circuit_manager = nil,
+    link = broker_link, reply_to = orch_addr,
+    subnet_cache = fake_cache,
+    registry = broker_registry_from_config(BrokerConfig),
+    craft_resolver = BrokerCraftResolver,
+    poll = nil, log = function() end, busy = false,
+  }
+
+  BrokerMain.tick(deps)
+  check("broker seed tick no dispatch", #core_calls == 0)
+  BrokerMain.tick(deps)
+  check("broker tick dispatches on fluid delta", #core_calls == 1)
+  check("broker process_batch polyethylene", core_calls[1] and core_calls[1].recipe == "polyethylene")
+
+  net:deliver()
+  local orch_in = net:drain(orch_addr)
+  local saw_delivery = false
+  for _, m in ipairs(orch_in) do
+    local p = Protocols.parse(m.msg)
+    if p and p.kind == Protocols.KIND.SUBNET_DELIVERY then saw_delivery = true end
+  end
+  check("broker sent SUBNET_DELIVERY to orchestrator", saw_delivery)
 end
 
 -- Broker slave: handle_job path -----------------------------------------------
@@ -308,9 +345,9 @@ do
     local p = Protocols.parse(m.msg)
     if p then kinds[p.kind] = (p.kind == Protocols.KIND.BROKER_STATUS) and (kinds[p.kind] or "") .. p.phase .. "," or true end
   end
-  check("broker sent craft_ack", kinds[Protocols.KIND.CRAFT_ACK] == true)
   check("broker sent craft_done", kinds[Protocols.KIND.CRAFT_DONE] == true)
   check("broker status reached complete", (kinds[Protocols.KIND.BROKER_STATUS] or ""):find("complete"))
+  check("legacy DISPATCH_JOB: no craft_ack in handle_job", kinds[Protocols.KIND.CRAFT_ACK] == nil)
 
   -- uid mismatch → failed, process_batch NOT called again.
   local before = #core_calls

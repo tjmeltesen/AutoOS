@@ -21,7 +21,11 @@
     wget -f .../subnet_broker/circuit_manager.lua /home/subnet_broker/circuit_manager.lua
     wget -f .../subnet_broker/broker_core.lua /home/subnet_broker/broker_core.lua
     wget -f .../subnet_broker/network_protocols.lua /home/subnet_broker/network_protocols.lua
-    wget -f .../subnet_broker/broker_main.lua /home/subnet_broker/broker_main.lua
+    wget -f .../subnet_broker/broker_registry.lua /home/subnet_broker/broker_registry.lua
+    wget -f .../subnet_broker/registry_store.lua /home/subnet_broker/registry_store.lua
+    wget -f .../subnet_broker/recipe_scanner.lua /home/subnet_broker/recipe_scanner.lua
+    wget -f .../subnet_broker/craft_resolver.lua /home/subnet_broker/craft_resolver.lua
+    wget -f .../subnet_broker/subnet_cache.lua /home/subnet_broker/subnet_cache.lua
     wget -f .../subnet_broker/diag.lua /home/subnet_broker/diag.lua
     wget -f .../subnet_broker/test.lua /home/subnet_broker/test.lua
     wget -f .../subnet_broker/pre_p3_checklist.lua /home/subnet_broker/pre_p3_checklist.lua
@@ -37,14 +41,18 @@ local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
 
-local P3_REQUIRED = { "network_protocols.lua", "broker_main.lua" }
+local P3_REQUIRED = {
+  "subnet_cache.lua", "broker_registry.lua", "craft_resolver.lua",
+  "registry_store.lua", "recipe_scanner.lua",
+  "network_protocols.lua", "broker_main.lua",
+}
 local missing = {}
 for _, name in ipairs(P3_REQUIRED) do
   local f = io.open(here .. sep .. name, "r")
   if f then f:close() else missing[#missing + 1] = name end
 end
 if #missing > 0 then
-  print("[AutoOS] MISSING for Phase 3 modem slave:")
+  print("[AutoOS] MISSING for Phase 3 broker watch:")
   for _, name in ipairs(missing) do print("   " .. name) end
 end
 
@@ -65,7 +73,8 @@ print("               lua modem_ping.lua")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
 print("  Full lines:  loadfile('" .. here .. "/test.lua')()")
 print("  Pre-P3 gate: loadfile('" .. here .. "/pre_p3_checklist.lua')()")
-print("  P3 slave:    lua broker_main.lua")
+print("  P3 broker:   lua broker_main.lua   (watches subnet ME + AE pattern scan)")
+print("  P3 orch:     lua orchestrator_main.lua   (coordinator — listens for broker)")
 print("  One lane:    require('broker_core').manual_lane_test('machine_01', 'polyethylene', 1000)")
 print("  Full batch:  require('broker_core').process_batch('polyethylene', 3000)")
 print("  Multi jobs:  require('broker_core').process_multi({")

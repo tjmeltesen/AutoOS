@@ -90,6 +90,7 @@ function Registry:add(recipe_key, rule, source)
   row.circuit_damage = rule.circuit_damage or row.circuit_damage
   if rule.craftable ~= nil then row.craftable = rule.craftable end
   row.source = source or row.source or "config"
+  row.last_scan = rule.last_scan or row.last_scan or 0
 
   self.entries[recipe_key] = row
   self.by_uid[uid] = recipe_key

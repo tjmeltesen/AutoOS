@@ -12,6 +12,8 @@
     CRAFT_DONE   |job_id|subnet_id
     CRAFT_FAIL   |job_id|subnet_id|detail
     TRIGGER_CRAFT|job_id|me_label|volume_mB|subnet_id
+    SUBNET_DELIVERY|subnet_id|job_id|recipe_uid|recipe_key|volume_mB|source
+    DELIVERY_ACK |job_id|subnet_id
 
   Deploy: copy this file into BOTH /home/orchestrator and /home/subnet_broker
   (each OC requires it locally as "network_protocols").
@@ -29,6 +31,8 @@ Protocols.KIND = {
   CRAFT_DONE = "CRAFT_DONE",
   CRAFT_FAIL = "CRAFT_FAIL",
   TRIGGER_CRAFT = "TRIGGER_CRAFT",
+  SUBNET_DELIVERY = "SUBNET_DELIVERY",
+  DELIVERY_ACK = "DELIVERY_ACK",
 }
 
 Protocols.PHASE = {
@@ -108,6 +112,17 @@ function Protocols.trigger_craft(job_id, me_label, volume_mB, subnet_id)
   }, "|")
 end
 
+function Protocols.subnet_delivery(subnet_id, job_id, recipe_uid, recipe_key, volume_mB, source)
+  return table.concat({
+    Protocols.KIND.SUBNET_DELIVERY, clean(subnet_id), clean(job_id), num(recipe_uid),
+    clean(recipe_key), num(volume_mB), clean(source or ""),
+  }, "|")
+end
+
+function Protocols.delivery_ack(job_id, subnet_id)
+  return table.concat({ Protocols.KIND.DELIVERY_ACK, clean(job_id), clean(subnet_id) }, "|")
+end
+
 -- Decoder ---------------------------------------------------------------------
 
 --- Parse a wire string into a structured table keyed by `kind`.
@@ -143,6 +158,13 @@ function Protocols.parse(message)
       kind = kind, job_id = p[2], me_label = p[3],
       volume_mB = tonumber(p[4]) or 0, subnet_id = p[5],
     }
+  elseif kind == K.SUBNET_DELIVERY then
+    return {
+      kind = kind, subnet_id = p[2], job_id = p[3], recipe_uid = tonumber(p[4]),
+      recipe_key = p[5], volume_mB = tonumber(p[6]) or 0, source = p[7],
+    }
+  elseif kind == K.DELIVERY_ACK then
+    return { kind = kind, job_id = p[2], subnet_id = p[3] }
   end
   return nil, "unknown message kind: " .. tostring(kind)
 end

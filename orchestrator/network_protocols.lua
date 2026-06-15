@@ -1,8 +1,22 @@
 --[[
-  AutoOS — Network protocols (orchestrator deploy copy)
+  AutoOS — Network protocols (orchestrator <-> broker <-> broadcast)
 
-  Keep in sync with shared/network_protocols.lua. Copied here so the manager
-  PC only needs files under /home/orchestrator/.
+  Pure string codec for pipe-delimited modem messages. No hardware, no state —
+  safe to require on either OC and in desktop tests.
+
+  Message kinds (field order matters):
+    DISPATCH_JOB |job_id|recipe_uid|recipe_key|volume_mB|subnet_id|mode
+    BROKER_STATUS|subnet_id|job_id|phase|detail
+    BROKER_EVENT |subnet_id|event|label|volume|job_id
+    CRAFT_ACK    |job_id|subnet_id
+    CRAFT_DONE   |job_id|subnet_id
+    CRAFT_FAIL   |job_id|subnet_id|detail
+    TRIGGER_CRAFT|job_id|me_label|volume_mB|subnet_id
+    SUBNET_DELIVERY|subnet_id|job_id|recipe_uid|recipe_key|volume_mB|source
+    DELIVERY_ACK |job_id|subnet_id
+
+  Deploy: copy this file into BOTH /home/orchestrator and /home/subnet_broker
+  (each OC requires it locally as "network_protocols").
 ]]
 
 local Protocols = {}
@@ -17,6 +31,8 @@ Protocols.KIND = {
   CRAFT_DONE = "CRAFT_DONE",
   CRAFT_FAIL = "CRAFT_FAIL",
   TRIGGER_CRAFT = "TRIGGER_CRAFT",
+  SUBNET_DELIVERY = "SUBNET_DELIVERY",
+  DELIVERY_ACK = "DELIVERY_ACK",
 }
 
 Protocols.PHASE = {
@@ -36,6 +52,7 @@ Protocols.EVENT = {
 
 Protocols.MODE = { BATCH = "batch", MULTI = "multi" }
 
+--- Replace field separators so a stray "|" can never corrupt a message.
 local function clean(v)
   return (tostring(v == nil and "" or v):gsub("|", "/"))
 end
@@ -44,6 +61,9 @@ local function num(v)
   return tostring(math.floor(tonumber(v) or 0))
 end
 
+--- Split a wire string into its pipe-delimited fields.
+---@param message string
+---@return string[]
 local function split(message)
   local parts = {}
   for field in (message .. "|"):gmatch("([^|]*)|") do
@@ -51,6 +71,8 @@ local function split(message)
   end
   return parts
 end
+
+-- Encoders --------------------------------------------------------------------
 
 function Protocols.dispatch_job(job_id, recipe_uid, recipe_key, volume_mB, subnet_id, mode)
   return table.concat({
@@ -90,6 +112,22 @@ function Protocols.trigger_craft(job_id, me_label, volume_mB, subnet_id)
   }, "|")
 end
 
+function Protocols.subnet_delivery(subnet_id, job_id, recipe_uid, recipe_key, volume_mB, source)
+  return table.concat({
+    Protocols.KIND.SUBNET_DELIVERY, clean(subnet_id), clean(job_id), num(recipe_uid),
+    clean(recipe_key), num(volume_mB), clean(source or ""),
+  }, "|")
+end
+
+function Protocols.delivery_ack(job_id, subnet_id)
+  return table.concat({ Protocols.KIND.DELIVERY_ACK, clean(job_id), clean(subnet_id) }, "|")
+end
+
+-- Decoder ---------------------------------------------------------------------
+
+--- Parse a wire string into a structured table keyed by `kind`.
+---@param message any
+---@return table|nil packet, string|nil err
 function Protocols.parse(message)
   if type(message) ~= "string" or message == "" then
     return nil, "not a string message"
@@ -120,6 +158,13 @@ function Protocols.parse(message)
       kind = kind, job_id = p[2], me_label = p[3],
       volume_mB = tonumber(p[4]) or 0, subnet_id = p[5],
     }
+  elseif kind == K.SUBNET_DELIVERY then
+    return {
+      kind = kind, subnet_id = p[2], job_id = p[3], recipe_uid = tonumber(p[4]),
+      recipe_key = p[5], volume_mB = tonumber(p[6]) or 0, source = p[7],
+    }
+  elseif kind == K.DELIVERY_ACK then
+    return { kind = kind, job_id = p[2], subnet_id = p[3] }
   end
   return nil, "unknown message kind: " .. tostring(kind)
 end

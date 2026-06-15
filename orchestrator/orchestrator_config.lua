@@ -4,12 +4,11 @@
   The Orchestrator runs on a SEPARATE OpenComputer from the broker.
 
   Hardware on the orchestrator PC:
-    * one ME adapter on the MAIN AE2 network → me_address
     * a network card / modem → modem_port
-    * broker OC modem address → broker_address (or "" to learn)
+    * broker OC modem address → broker_address
 
-  The broker stays on the subnet with the four machines. The manager never
-  touches lane hardware; it only reads the main net and sends wireless jobs.
+  The broker on the subnet watches subnet ME storage, resolves deliveries,
+  runs lanes, and notifies this coordinator via modem.
 
   recipe_baselines: same as broker plus recipe_uid and display_name.
 ]]
@@ -18,7 +17,7 @@ local Config = {}
 
 Config.subnet_id = "universal_chemical_mv_01"
 
--- Main net ME adapter UUID (component.list() on the orchestrator OC).
+-- Optional: main net ME for Phase 4 overseer AE crafts (not used for dispatch).
 Config.me_address = "60ea8e78-a000-4cac-b852-ef6a811193fe"
 
 Config.broker_address = "9f5e577e-5481-4fd2-97b4-c143f57b4565"
@@ -57,6 +56,12 @@ Config.orchestrator = {
   min_dispatch_mB = nil,
   -- When a main-net craft finishes, send DISPATCH_JOB to the subnet broker.
   dispatch_on_craft_done = true,
+  -- Optional main-net AE pattern scan (broker subnet scan is primary).
+  pattern_scan_enabled = true,
+  pattern_scan_interval_s = 600,
+  pattern_scan_full = false,
+  pattern_scan_extra_labels = {},
+  default_fluid_requirement = 1000,
 }
 
 function Config.validate(cfg)
@@ -79,8 +84,12 @@ function Config.validate(cfg)
   end
 
   local baselines = cfg.recipe_baselines
-  if type(baselines) ~= "table" or next(baselines) == nil then
-    return nil, "recipe_baselines must be a non-empty table"
+  if type(baselines) ~= "table" then
+    return nil, "recipe_baselines must be a table"
+  end
+  local o = cfg.orchestrator or {}
+  if next(baselines) == nil and o.pattern_scan_enabled == false then
+    return nil, "recipe_baselines empty and pattern_scan_enabled is false"
   end
 
   local seen_uid = {}

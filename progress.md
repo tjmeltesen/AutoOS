@@ -272,3 +272,22 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 
 - Changed `subnet_broker/broker_main.lua`: set `package.path` before `require("network_protocols")`; `is_direct_run()` filename check; print + xpcall on `lua broker_main.lua` (fixes silent no-op when path/require failed before run)
 - Changed `orchestrator/orchestrator_main.lua`: same `is_direct_run()` + xpcall startup pattern
+
+## 2026-06-13 — Architecture fix: broker watches subnet, notifies orchestrator
+
+- Corrected Phase 3 flow: broker polls subnet ME → resolves craft → SUBNET_DELIVERY to orchestrator → runs lanes
+- Added `subnet_broker/subnet_cache.lua`, `broker_registry.lua`, `craft_resolver.lua`; rewrote `broker_main.lua` watch loop
+- Rewrote `orchestrator/orchestrator.lua` as coordinator (listens for broker, no main-net dispatch)
+- Added `SUBNET_DELIVERY` / `DELIVERY_ACK` protocol; updated README, config, tests (59/59)
+
+## 2026-06-13 — AE2 automatic pattern scan (broker + optional orchestrator)
+
+- Added `subnet_broker/recipe_scanner.lua`: filtered `getCraftables` scan seeded by subnet fluids + config labels; auto-slugs `recipe_key`, allocates `recipe_uid`, merges into registry (`ae_scan` source)
+- Added `subnet_broker/registry_store.lua` (broker deploy copy) + expanded `broker_registry.lua`: `load`/`save`/`seed_from_config`/`add`/`allocate_uid`
+- Changed `subnet_broker/broker_main.lua`: boot scan + periodic `maybe_scan`; `validate_job` accepts registry rows (scanned recipes, not only config baselines)
+- Changed `subnet_broker/config.lua`: `pattern_scan_enabled`, `pattern_scan_interval_s`, `pattern_scan_full`, `registry_path`, `registry_persist`
+- Added `orchestrator/recipe_scanner.lua`: optional main-net scan for registry parity (`orchestrator.pattern_scan_*` in config)
+- Changed `orchestrator/orchestrator_main.lua`, `orchestrator_config.lua`, `ae_recipe_registry.lua`: wire periodic scan when `me_address` set
+- Changed `subnet_broker/start.lua`, `orchestrator/start.lua`: wget lists include scanner + registry modules
+- Added `tests/recipe_scanner_test.lua`; fixed `tests/phase3_orchestrator_test.lua` (`BrokerRegistry.new` + seed)
+- Changed `README.md` Phase 3: document automatic AE pattern discovery

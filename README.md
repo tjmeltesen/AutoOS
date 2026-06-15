@@ -440,44 +440,46 @@ Phase 3 splits the brain from the muscle across **two OpenComputers**:
 
 | Computer | Home | Role |
 | -------- | ---- | ---- |
-| **Orchestrator OC** | `/home/orchestrator/` | On the **main net**. Watches main storage, requests crafts there, tells the subnet broker when to run machines. Never touches lane hardware. |
-| **Broker OC** | `/home/subnet_broker/` | `broker_main.lua` modem slave: receives `DISPATCH_JOB`, runs the unchanged Phase 2 `process_batch`, waits for lanes to finish, recovers circuits, replies `BROKER_STATUS`. Never calls `getCraftables`. |
+| **Orchestrator OC** | `/home/orchestrator/` | Coordinator on modem port 105. Receives `SUBNET_DELIVERY` / `BROKER_STATUS` from broker; broadcasts events. Does not watch subnet ME or dispatch lanes. |
+| **Broker OC** | `/home/subnet_broker/` | Watches **subnet ME** for delivery deltas, resolves recipe (uid token or fluid fallback), notifies orchestrator, runs `process_batch`, replies status. |
 
 ```mermaid
 flowchart LR
-  subgraph orchOC [Orchestrator OC on main net]
-    Registry[ae_recipe_registry]
+  subgraph orchOC [Orchestrator OC coordinator]
     OrchFSM[orchestrator]
-    MainME[main_net_cache]
   end
   subgraph brokerOC [Broker OC on subnet]
+    SubnetME[subnet_cache]
+    Resolver[craft_resolver]
     BrokerMain[broker_main]
     BrokerCore[broker_core]
     Lanes[4 lanes]
   end
-  MainNet[Main AE2 network] --> MainME
-  OrchFSM -->|"modem: DISPATCH_JOB"| BrokerMain
+  SubnetNet[Subnet AE2 storage] --> SubnetME
+  SubnetME --> Resolver --> BrokerMain
+  BrokerMain -->|"modem: SUBNET_DELIVERY"| OrchFSM
   BrokerMain -->|"modem: BROKER_STATUS"| OrchFSM
   OrchFSM -->|"broadcast: BROKER_EVENT"| Listeners[Overseer / other PCs]
   BrokerMain --> BrokerCore --> Lanes
 ```
 
-**Unique `recipe_uid` (circuit-collision mitigation).** Two recipes can share the
-same GT `circuit_damage`, so circuit alone is not a safe key. Every registry row
-carries a unique 8/16-bit `recipe_uid` with an O(1) `by_uid` index. AE patterns
-deposit a **craft token** item whose `damage = recipe_uid`; the orchestrator
-resolves the token authoritatively. Circuit+fluid pairing is a fallback only —
-if it is ambiguous (>1 recipe), the orchestrator FAULTs and asks for a UID.
-`DISPATCH_JOB` carries both `recipe_uid` and `recipe_key`; the broker validates
-the pair against its local baselines before dispatching.
+Place AE crafting patterns on the **subnet** ME. The broker periodically scans
+`getCraftables` (filtered by fluids on the subnet + config seeds — never every
+tick) and grows `broker_registry` with auto-allocated `recipe_uid` values.
+`recipe_baselines` in config remain optional overrides for `fluid_requirement`,
+`circuit_damage`, and explicit uids. When fluid or craft-token (uid) lands in
+subnet storage, the broker detects the delta, resolves the recipe, tells the
+orchestrator, and runs the lanes.
 
 **Wire protocol** (`shared/network_protocols.lua`, copied into both OC homes):
 
 ```text
-DISPATCH_JOB |job_id|recipe_uid|recipe_key|volume_mB|subnet_id|mode
+SUBNET_DELIVERY|subnet_id|job_id|recipe_uid|recipe_key|volume_mB|source
+DELIVERY_ACK   |job_id|subnet_id
+DISPATCH_JOB   |job_id|recipe_uid|recipe_key|volume_mB|subnet_id|mode   (legacy / link_test)
 BROKER_STATUS|subnet_id|job_id|phase|detail     (dispatching|running|recovering|complete|failed)
-BROKER_EVENT |subnet_id|event|label|volume|job_id (ae_craft_start|dispatch_start|job_complete|job_failed)
-CRAFT_ACK / CRAFT_DONE / CRAFT_FAIL / TRIGGER_CRAFT
+BROKER_EVENT |subnet_id|event|label|volume|job_id (dispatch_start|job_complete|job_failed)
+CRAFT_DONE / CRAFT_FAIL / TRIGGER_CRAFT
 ```
 
 Boot: `loadfile('/home/orchestrator/orchestrator_main.lua')().run()` on the

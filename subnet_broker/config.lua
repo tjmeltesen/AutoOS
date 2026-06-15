@@ -19,10 +19,26 @@ local Config = {}
 Config.subnet_id = "universal_chemical_mv_01"
 Config.main_net_channel = 105
 
--- Phase 3 modem slave: orchestrator OC address for BROKER_STATUS replies
--- (nil/"" = learn from the first DISPATCH_JOB sender) and the port the broker
--- listens on for DISPATCH_JOB.
-Config.orchestrator_address = "296e7af8-2473-4004-abef-b31ded419305"
+-- Subnet ME controller/interface UUID — broker watches this for delivery deltas.
+Config.subnet_me_address = "00000000-0000-0000-0000-000000000001"
+
+Config.token_item_name = "gregtech:gt.integrated_circuit"
+Config.circuit_item_name = "gregtech:gt.integrated_circuit"
+Config.tick_interval = 1.0
+
+-- AE pattern scan (filtered getCraftables — not every tick)
+Config.pattern_scan_enabled = true
+Config.pattern_scan_interval_s = 600
+Config.pattern_scan_full = false
+Config.pattern_scan_extra_labels = {}
+Config.uid_bits = 16
+Config.uid_min = 256
+Config.registry_persist = true
+Config.registry_path = "/home/subnet_broker/recipe_registry.lua"
+Config.default_fluid_requirement = 1000
+
+-- Phase 3: orchestrator OC modem address for SUBNET_DELIVERY / BROKER_STATUS
+Config.orchestrator_address = "3bd12f6b-b5d6-4d0d-ad56-e1d372fdb4ac"
 Config.broker_modem_port = 106
 
 -- Empty OC database on the cable — descriptors allocated at runtime by
@@ -103,9 +119,11 @@ Config.constraints = {
     },
     ["polyethylene"] = {
       recipe_uid = 257,
+      display_name = "Polyethylene",
       fluid_requirement = 1000,
       fluid_label = "Ethylene",
       circuit_damage = 18,
+      default_dispatch_mB = 3000,
       kind = "fluid",
     },
   },
@@ -157,6 +175,10 @@ function Config.validate(cfg)
 
   if not cfg.database_address or cfg.database_address == "" then
     return nil, "database_address required for ME interface stocking"
+  end
+
+  if not cfg.subnet_me_address or cfg.subnet_me_address == "" then
+    return nil, "subnet_me_address required — subnet ME UUID for delivery watch"
   end
 
   if cfg.database_slot_count ~= nil
