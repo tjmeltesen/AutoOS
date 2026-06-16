@@ -75,15 +75,93 @@ function CircuitManager:_wait_interface_stock(tp, side, slot)
   return false
 end
 
+function CircuitManager:_normalize_transfer_count(r1, r2)
+  if type(r1) == "number" then return r1 end
+  if r1 == true and type(r2) == "number" then return r2 end
+  return 0
+end
+
 function CircuitManager:_transfer_with_retries(tp, from_side, to_side, from_slot, to_slot)
-  for i = 1, TRANSFER_ATTEMPTS do
-    local moved = tp.transferItem(from_side, to_side, 1, from_slot, to_slot)
-    if moved and moved >= 1 then
-      return moved
+  local dest_slots = {}
+  local seen = {}
+  local function add_dest(slot)
+    if slot == nil then
+      if not seen.auto then
+        seen.auto = true
+        dest_slots[#dest_slots + 1] = "auto"
+      end
+      return
     end
-    if i < TRANSFER_ATTEMPTS then HW.sleep(0.25) end
+    if not seen[slot] then
+      seen[slot] = true
+      dest_slots[#dest_slots + 1] = slot
+    end
+  end
+  add_dest(to_slot)
+  add_dest(1)
+  add_dest("auto")
+
+  for attempt = 1, TRANSFER_ATTEMPTS do
+    for _, dest in ipairs(dest_slots) do
+      local r1, r2
+      if dest == "auto" then
+        r1, r2 = tp.transferItem(from_side, to_side, 1, from_slot)
+      else
+        r1, r2 = tp.transferItem(from_side, to_side, 1, from_slot, dest)
+      end
+      local moved = self:_normalize_transfer_count(r1, r2)
+      if moved >= 1 then return moved end
+    end
+    if attempt < TRANSFER_ATTEMPTS then HW.sleep(0.25) end
   end
   return 0
+end
+
+--- Scan every transposer face for integrated circuits (REPL / diag).
+---@param machine_id string
+---@return table[] hits { side, slot, name, damage, size }
+function CircuitManager:scan_transposer(machine_id)
+  local machine = find_machine(self.config, machine_id)
+  if not machine then return nil, "unknown machine_id " .. tostring(machine_id) end
+
+  local tp, tp_err = HW.require_proxy(self.component, "transposer", machine.transposer_address, "transposer")
+  if not tp then return nil, tp_err end
+
+  local hits = {}
+  for side = 0, 5 do
+    local size = tp.getInventorySize and tp.getInventorySize(side) or 0
+    for slot = 1, size do
+      local stack = tp.getStackInSlot and tp.getStackInSlot(side, slot)
+      if self:_stack_is_circuit(stack, nil) then
+        hits[#hits + 1] = {
+          side = side,
+          slot = slot,
+          name = stack.name,
+          damage = stack.damage,
+          size = stack.size,
+        }
+      end
+    end
+  end
+  return hits
+end
+
+function CircuitManager:_circuit_location_hint(tp, bus_side, circuit_damage)
+  for side = 0, 5 do
+    if side ~= bus_side then
+      local slot = self:_find_circuit_on_side(tp, side, circuit_damage)
+      if not slot and circuit_damage then
+        slot = self:_find_circuit_on_side(tp, side, nil)
+      end
+      if slot then
+        return string.format(
+          "circuit on transposer side %d slot %d but item_bus_side is %d — fix config",
+          side, slot, bus_side
+        )
+      end
+    end
+  end
+  return nil
 end
 
 function CircuitManager:_resolve_recover_interface_address(machine)
@@ -236,7 +314,9 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
     bus_slot = self:_find_circuit_on_side(tp, bus_side, nil)
   end
   if not bus_slot then
-    return true
+    local hint = self:_circuit_location_hint(tp, bus_side, circuit_damage)
+    if hint then return false, hint end
+    return true, "no circuit on item_bus_side (nothing to recover)"
   end
 
   local moved = self:_transfer_with_retries(tp, bus_side, recover_side, bus_slot, recover_slot)

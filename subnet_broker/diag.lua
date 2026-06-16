@@ -15,12 +15,15 @@
     CIRCUIT_TEST_LANE = "machine_01"
     CIRCUIT_TEST_RECOVER = true   -- sweep circuit back after push+fluid
 
-  REPL one-liners:
-    local B = require("demoted.broker_core")
-    B.manual_lane_test("machine_01", "polyethylene", 1000, { recover_circuits = true })
+  REPL recover debug (paste in OC shell):
     local C = require("circuit_manager").new({ config = require("config"), component = require("component") })
-    C:push_circuit("machine_01", 18)
-    C:recover_circuit("machine_01", 18)
+    local cfg = require("config").machines[1]
+    for _, h in ipairs(C:scan_transposer("machine_01") or {}) do
+      print(string.format("circuit side %d slot %d dmg %s", h.side, h.slot, tostring(h.damage)))
+    end
+    print("item_bus_side", cfg.item_bus_side, "recover_side", cfg.recover_side)
+    local ok, err = C:recover_circuit("machine_01", nil)
+    print("recover", ok, err or "")
 
   Fluid probe (mB visible per transposer face):
     local F = require("demoted.fluid_lane")

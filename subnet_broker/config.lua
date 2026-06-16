@@ -41,8 +41,8 @@ Config.machines = {
     gt_address = "972c1b95-2f92-4ba2-8524-1b3152f60dfd",
     transposer_address = "7ff4353b-1cad-43a1-89cb-0a6cd2aab9cb",
     recover_side = 1,       -- transposer face touching ME interface (import)
-    item_bus_side = 2,      -- transposer face touching GT input bus
-    recover_slot = 1,
+    item_bus_side = 4,      -- transposer face touching GT input bus
+    recover_slot = 1,       -- dest slot on recover_side (usually 1)
     input_slot = 1,
   },
   {
@@ -50,8 +50,8 @@ Config.machines = {
     gt_address = "73d06674-1dbd-4c71-97be-0f958ccea03f",
     transposer_address = "1954897b-991a-4942-a251-59e16bad0ab7",
     recover_side = 1,
-    item_bus_side = 2,
-    recover_slot = 1,
+    item_bus_side = 4,
+    recover_slot = 1,       -- dest slot on recover_side (usually 1)
     input_slot = 1,
   },
   {
@@ -59,8 +59,8 @@ Config.machines = {
     gt_address = "61351d4f-0a11-4066-b1b9-eb1fe9393ce8",
     transposer_address = "7eee9782-5de9-41cf-8422-222da9bcb06e",
     recover_side = 1,
-    item_bus_side = 2,
-    recover_slot = 1,
+    item_bus_side = 4,
+    recover_slot = 1,       -- dest slot on recover_side (usually 1)
     input_slot = 1,
   },
   {
@@ -68,8 +68,8 @@ Config.machines = {
     gt_address = "194191a4-1c59-4216-b49e-97268de0b600",
     transposer_address = "aaeb795a-8059-46ac-9835-0398027cd248",
     recover_side = 1,
-    item_bus_side = 2,
-    recover_slot = 1,
+    item_bus_side = 4,
+    recover_slot = 1,       -- dest slot on recover_side (usually 1)
     input_slot = 1,
   },
 }

@@ -332,3 +332,9 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/diag.lua` and `subnet_broker/pre_p3_checklist.lua`: skip recover-interface UUID walk when `interface_mode` is `transposer`.
 - Changed `README.md`: document transposer-only recovery as default Array Watch topology.
 - Changed tests: transposer-only recover case in `phase2_broker_test.lua`; mock/test helpers synthesize legacy interface UUIDs for demoted dispatch tests only.
+
+## 2026-06-15 — Recover REPL diagnostics + transfer robustness
+
+- Changed `subnet_broker/circuit_manager.lua`: `scan_transposer()` for REPL side scan; wrong-side hint when circuit not on `item_bus_side`; retry dest slots 1/auto; normalize `transferItem` return values.
+- Changed `subnet_broker/config.lua`: default `recover_slot = 1`.
+- Changed `subnet_broker/diag.lua`: REPL recover debug snippet in header.
