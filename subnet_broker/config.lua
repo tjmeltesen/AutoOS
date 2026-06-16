@@ -41,49 +41,49 @@ Config.machines = {
   {
     id = "machine_01",
     gt_address = "972c1b95-2f92-4ba2-8524-1b3152f60dfd",
-    transposer_address = "7ff4353b-1cad-43a1-89cb-0a6cd2aab9cb",
+    transposer_address = "06f8b305-6aed-464b-901c-5f63c891e131",
     side_buffer = 1,        -- transposer face touching super-buffer / chest
     side_bus_b = 4,         -- transposer face touching GT circuit input bus
     side_return = 1,        -- optional; default is side_buffer
     return_slot = nil,      -- optional destination slot on return side
-    buffer_adapter_address = nil, -- optional adapter on buffer for low-cost item presence gate
-    buffer_adapter_side = nil,    -- required when buffer_adapter_address is set (0-5)
+    buffer_adapter_address = "b5f4d947-98a5-44b4-97d5-6720cbd25815", -- optional adapter on buffer for low-cost item presence gate
+    buffer_adapter_side = 0,    -- required when buffer_adapter_address is set (0-5)
     input_slot = 1,
   },
   {
     id = "machine_02",
     gt_address = "73d06674-1dbd-4c71-97be-0f958ccea03f",
-    transposer_address = "1954897b-991a-4942-a251-59e16bad0ab7",
+    transposer_address = "dff356f1-ea3e-4333-872a-dc10af3eafaf",
     side_buffer = 1,
     side_bus_b = 4,
     side_return = 1,
     return_slot = nil,
-    buffer_adapter_address = nil,
-    buffer_adapter_side = nil,
+    buffer_adapter_address = "941388e1-98ad-4b4a-a4f1-a49749e13a6f",
+    buffer_adapter_side = 0,
     input_slot = 1,
   },
   {
     id = "machine_03",
     gt_address = "61351d4f-0a11-4066-b1b9-eb1fe9393ce8",
-    transposer_address = "7eee9782-5de9-41cf-8422-222da9bcb06e",
+    transposer_address = "66962f00-68ff-4d10-8151-348481a0bb6e",
     side_buffer = 1,
     side_bus_b = 4,
     side_return = 1,
     return_slot = nil,
-    buffer_adapter_address = nil,
-    buffer_adapter_side = nil,
+    buffer_adapter_address = "5182a7e3-6458-41d2-8015-5bfadb91bf71",
+    buffer_adapter_side = 0,
     input_slot = 1,
   },
   {
     id = "machine_04",
     gt_address = "194191a4-1c59-4216-b49e-97268de0b600",
-    transposer_address = "aaeb795a-8059-46ac-9835-0398027cd248",
+    transposer_address = "8e8c359c-1a45-49b7-96bf-fe97142edce7",
     side_buffer = 1,
     side_bus_b = 4,
     side_return = 1,
     return_slot = nil,
-    buffer_adapter_address = nil,
-    buffer_adapter_side = nil,
+    buffer_adapter_address = "db25807f-851c-4b3c-a2e5-00a245f2e23b",
+    buffer_adapter_side = 0,
     input_slot = 1,
   },
 }
