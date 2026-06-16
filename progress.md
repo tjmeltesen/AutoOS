@@ -343,3 +343,32 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 
 - Added `subnet_broker/probe_transposer.lua`: maps all transposer faces (items + fluid), flags config sides, suggests recover_side candidate.
 - Changed `subnet_broker/start.lua` and `subnet_broker/diag.lua`: document probe entry points.
+
+## 2026-06-15 — Recover transfer retries + test_recover_transfer.lua
+
+- Changed `subnet_broker/circuit_manager.lua`: broader transferItem slot/auto strategies; transposer error text and face inventory in recover failures.
+- Added `subnet_broker/test_recover_transfer.lua`: in-game transferItem variant diagnostic when recover sides are correct but transfer fails.
+
+## 2026-06-15 — Legacy demoted stack removed
+
+- Deleted legacy modules: `subnet_broker/demoted/*` and `orchestrator/demoted/*` remaining files.
+- Deleted legacy/manual scripts and suites: `subnet_broker/test.lua`, `subnet_broker/pre_p3_checklist.lua`, `tests/phase1_broker_test.lua`, `tests/phase2_broker_test.lua`, `tests/phase3_orchestrator_test.lua`, `tests/recipe_scanner_test.lua`.
+- Replaced `subnet_broker/diag.lua` with Array Watch-only diagnostics (config + UUID + poll checks), removing demoted dependencies.
+- Changed `subnet_broker/start.lua` usage/wget list to remove demoted references and point to watch-mode probes.
+
+## 2026-06-15 — Circuit push/recover FSM redesign (buffer-bus-return)
+
+- Added `subnet_broker/circuit_loop.lua`: per-lane FSM (`idle -> staging -> monitoring -> extraction`) using `gt_machine.isMachineActive()` status from poll results; includes staging timeout and fast-tick signaling.
+- Changed `subnet_broker/array_watch.lua` and `subnet_broker/broker_main.lua`: integrated FSM events, kept maintenance shutdown behavior, and switched to dynamic tick intervals (`monitor_poll_s` vs `tick_interval`).
+- Changed `subnet_broker/config.lua` and `subnet_broker/lane_sides.lua`: introduced `side_buffer` / `side_bus_b` / `side_return` config model with compatibility aliases.
+- Changed `subnet_broker/circuit_manager.lua`: exposed transfer/scan helper methods for FSM reuse; legacy push/recover APIs retained.
+- Added `tests/circuit_loop_test.lua` and replaced `tests/array_watch_test.lua`: validate FSM staging/monitoring/extraction, timeout evacuation, failure events, and fast-tick behavior.
+- Changed docs/tools: updated `subnet_broker/diag.lua`, `subnet_broker/probe_transposer.lua`, `subnet_broker/start.lua`, and `README.md` to describe the new buffer-bus-return topology.
+
+## 2026-06-15 — Optional buffer adapter gate for low-overhead idle polling
+
+- Changed `subnet_broker/circuit_loop.lua`: in `idle`, optionally checks `buffer_adapter_address`/`buffer_adapter_side` for quick item presence; skips transposer scan when adapter reports empty and falls back to transposer scan if adapter probe fails.
+- Changed `subnet_broker/config.lua`: added optional per-lane `buffer_adapter_address` and `buffer_adapter_side` fields with validation.
+- Changed `subnet_broker/diag.lua` and `README.md`: surface optional buffer-adapter wiring and status.
+- Changed `tests/circuit_loop_test.lua`: added adapter-empty skip test and adapter-missing fallback test.
+- Desktop verification: `lua55 tests\\circuit_loop_test.lua` (10/10 pass) and `lua55 tests\\array_watch_test.lua` (12/12 pass).

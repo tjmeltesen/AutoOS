@@ -5,8 +5,8 @@
     /home/subnet_broker/
       config.lua, hw.lua, lane_sides.lua, maintenance_parse.lua,
       machine_poll.lua, descriptor_cache.lua, circuit_manager.lua,
-      array_watch.lua, network_protocols.lua, broker_main.lua,
-      start.lua, diag.lua, test.lua, pre_p3_checklist.lua
+      circuit_loop.lua, array_watch.lua, network_protocols.lua, broker_main.lua,
+      start.lua, diag.lua, probe_transposer.lua, test_recover_transfer.lua
 
   Deploy via floppy/USB or wget raw URLs (do NOT wget the HTML repo page):
     wget -f .../subnet_broker/config.lua /home/subnet_broker/config.lua
@@ -16,15 +16,12 @@
     wget -f .../subnet_broker/machine_poll.lua /home/subnet_broker/machine_poll.lua
     wget -f .../subnet_broker/descriptor_cache.lua /home/subnet_broker/descriptor_cache.lua
     wget -f .../subnet_broker/circuit_manager.lua /home/subnet_broker/circuit_manager.lua
+    wget -f .../subnet_broker/circuit_loop.lua /home/subnet_broker/circuit_loop.lua
     wget -f .../subnet_broker/network_protocols.lua /home/subnet_broker/network_protocols.lua
     wget -f .../subnet_broker/array_watch.lua /home/subnet_broker/array_watch.lua
-    wget -f .../subnet_broker/demoted/broker_core.lua /home/subnet_broker/demoted/broker_core.lua    -- optional legacy/manual
-    wget -f .../subnet_broker/demoted/load_balancer.lua /home/subnet_broker/demoted/load_balancer.lua  -- optional legacy/manual
-    wget -f .../subnet_broker/demoted/fluid_lane.lua /home/subnet_broker/demoted/fluid_lane.lua        -- optional legacy/manual
     wget -f .../subnet_broker/probe_transposer.lua /home/subnet_broker/probe_transposer.lua
+    wget -f .../subnet_broker/test_recover_transfer.lua /home/subnet_broker/test_recover_transfer.lua
     wget -f .../subnet_broker/diag.lua /home/subnet_broker/diag.lua
-    wget -f .../subnet_broker/test.lua /home/subnet_broker/test.lua
-    wget -f .../subnet_broker/pre_p3_checklist.lua /home/subnet_broker/pre_p3_checklist.lua
     wget -f .../subnet_broker/start.lua /home/subnet_broker/start.lua
 
   Edit config.lua with real component UUIDs from:
@@ -39,6 +36,7 @@ package.path = here .. sep .. "?.lua;" .. package.path
 
 local P3_REQUIRED = {
   "array_watch.lua", "machine_poll.lua", "circuit_manager.lua",
+  "circuit_loop.lua",
   "network_protocols.lua", "broker_main.lua",
 }
 local missing = {}
@@ -64,15 +62,9 @@ print("  Modem test:  lua modem_info.lua")
 print("               lua modem_listen.lua   (manager runs ping)")
 print("               lua modem_ping.lua")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
-print("  Full lines:  loadfile('" .. here .. "/test.lua')()")
-print("  Pre-P3 gate: loadfile('" .. here .. "/pre_p3_checklist.lua')()")
+print("  Face probe:  loadfile('" .. here .. "/probe_transposer.lua')()")
+print("  Xfer probe:  loadfile('" .. here .. "/test_recover_transfer.lua')('machine_01')")
 print("  Watch loop:  lua broker_main.lua   (health + circuit recover only)")
 print("  Orchestrator lua orchestrator_main.lua   (aggregates broker telemetry)")
-print("  One lane:    require('demoted.broker_core').manual_lane_test('machine_01', 'polyethylene', 1000)")
-print("  Full batch:  require('demoted.broker_core').process_batch('polyethylene', 3000)   -- legacy/manual")
-print("  Multi jobs:  require('demoted.broker_core').process_multi({")
-print("                 { recipe='polyethylene', volume=2000, lanes={'machine_01','machine_02'} },")
-print("                 { recipe='molten_soldering_alloy', volume=2880, lanes={'machine_03','machine_04'} },")
-print("               })")
 
 return Config

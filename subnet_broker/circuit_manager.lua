@@ -51,6 +51,11 @@ function CircuitManager:_stack_is_circuit(stack, circuit_damage)
   return stack.damage == circuit_damage
 end
 
+--- Public helper for other modules (e.g. circuit_loop).
+function CircuitManager:stack_is_circuit(stack, circuit_damage)
+  return self:_stack_is_circuit(stack, circuit_damage)
+end
+
 --- First slot on `side` holding a matching circuit (nil = none).
 function CircuitManager:_find_circuit_on_side(tp, side, circuit_damage)
   local size = tp.getInventorySize and tp.getInventorySize(side) or 0
@@ -61,6 +66,13 @@ function CircuitManager:_find_circuit_on_side(tp, side, circuit_damage)
     end
   end
   return nil
+end
+
+--- Public helper: safe to call from other modules.
+---@return integer|nil slot
+---@return table|nil stack
+function CircuitManager:find_circuit_slot(tp, side, circuit_damage)
+  return self:_find_circuit_on_side(tp, side, circuit_damage)
 end
 
 --- Wait for AE2 to stock the interface buffer after setInterfaceConfiguration.
@@ -75,46 +87,99 @@ function CircuitManager:_wait_interface_stock(tp, side, slot)
   return false
 end
 
-function CircuitManager:_normalize_transfer_count(r1, r2)
-  if type(r1) == "number" then return r1 end
-  if r1 == true and type(r2) == "number" then return r2 end
-  return 0
+function CircuitManager:_transfer_result(r1, r2)
+  if type(r1) == "number" then
+    return r1, nil
+  end
+  if r1 == true and type(r2) == "number" then
+    return r2, nil
+  end
+  if r1 == false then
+    return 0, type(r2) == "string" and r2 or tostring(r2)
+  end
+  return 0, nil
+end
+
+function CircuitManager:_describe_face(tp, side)
+  local size = tp.getInventorySize and tp.getInventorySize(side) or 0
+  if not size or size < 1 then
+    return string.format("side %d (no item slots)", side)
+  end
+  local parts = {}
+  for slot = 1, math.min(size, 9) do
+    local st = tp.getStackInSlot and tp.getStackInSlot(side, slot)
+    if st and (st.size or 0) > 0 then
+      parts[#parts + 1] = string.format("slot%d=%s", slot, tostring(st.name))
+    end
+  end
+  if #parts == 0 then
+    return string.format("side %d (%d slots, all empty)", side, size)
+  end
+  return string.format("side %d (%s)", side, table.concat(parts, ", "))
+end
+
+--- Public helper: summarize inventory state on one face.
+function CircuitManager:describe_face(tp, side)
+  return self:_describe_face(tp, side)
 end
 
 function CircuitManager:_transfer_with_retries(tp, from_side, to_side, from_slot, to_slot)
-  local dest_slots = {}
+  local strategies = {}
   local seen = {}
-  local function add_dest(slot)
-    if slot == nil then
-      if not seen.auto then
-        seen.auto = true
-        dest_slots[#dest_slots + 1] = "auto"
-      end
-      return
-    end
-    if not seen[slot] then
-      seen[slot] = true
-      dest_slots[#dest_slots + 1] = slot
+
+  local function add(label, fn)
+    if not seen[label] then
+      seen[label] = true
+      strategies[#strategies + 1] = { label = label, fn = fn }
     end
   end
-  add_dest(to_slot)
-  add_dest(1)
-  add_dest("auto")
 
+  local dest_size = 1
+  if tp.getInventorySize then
+    local ok, n = pcall(tp.getInventorySize, to_side)
+    if ok and type(n) == "number" and n > 0 then dest_size = n end
+  end
+
+  if to_slot then add("to=" .. to_slot, function()
+    return tp.transferItem(from_side, to_side, 1, from_slot, to_slot)
+  end) end
+  add("to=1", function()
+    return tp.transferItem(from_side, to_side, 1, from_slot, 1)
+  end)
+  for dest = 2, dest_size do
+    add("to=" .. dest, function()
+      return tp.transferItem(from_side, to_side, 1, from_slot, dest)
+    end)
+  end
+  add("auto-to", function()
+    return tp.transferItem(from_side, to_side, 1, from_slot)
+  end)
+  add("auto-slots", function()
+    return tp.transferItem(from_side, to_side, 1)
+  end)
+
+  local last_err = nil
   for attempt = 1, TRANSFER_ATTEMPTS do
-    for _, dest in ipairs(dest_slots) do
-      local r1, r2
-      if dest == "auto" then
-        r1, r2 = tp.transferItem(from_side, to_side, 1, from_slot)
+    for _, strat in ipairs(strategies) do
+      local ok_call, r1, r2 = pcall(strat.fn)
+      if not ok_call then
+        last_err = tostring(r1)
       else
-        r1, r2 = tp.transferItem(from_side, to_side, 1, from_slot, dest)
+        local moved, err = self:_transfer_result(r1, r2)
+        if err and err ~= "" then last_err = err end
+        if moved >= 1 then return moved, nil end
       end
-      local moved = self:_normalize_transfer_count(r1, r2)
-      if moved >= 1 then return moved end
     end
     if attempt < TRANSFER_ATTEMPTS then HW.sleep(0.25) end
   end
-  return 0
+  return 0, last_err
+end
+
+--- Public helper: transfer one item with retry strategy.
+---@return integer moved
+---@return string|nil err
+function CircuitManager:transfer_one(tp, from_side, to_side, from_slot, to_slot)
+  return self:_transfer_with_retries(tp, from_side, to_side, from_slot, to_slot)
 end
 
 --- Scan every transposer face for integrated circuits (REPL / diag).
@@ -271,12 +336,12 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     )
   end
 
-  local moved = self:_transfer_with_retries(tp, iface_side, bus_side, from_slot, input_slot)
+  local moved, xfer_err = self:_transfer_with_retries(tp, iface_side, bus_side, from_slot, input_slot)
   iface.setInterfaceConfiguration(item_slot)
   if moved < 1 then
     return false, string.format(
-      "transferItem interface→bus failed (sides %d→%d) — check interface_item_side / item_bus_side",
-      iface_side, bus_side
+      "transferItem interface→bus failed (sides %d→%d)%s",
+      iface_side, bus_side, xfer_err and (": " .. xfer_err) or ""
     )
   end
 
@@ -319,11 +384,16 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
     return true, "no circuit on item_bus_side (nothing to recover)"
   end
 
-  local moved = self:_transfer_with_retries(tp, bus_side, recover_side, bus_slot, recover_slot)
+  local moved, xfer_err = self:_transfer_with_retries(tp, bus_side, recover_side, bus_slot, recover_slot)
   if moved < 1 then
+    local hint = " — clear ME import interface config; ensure recover face slots are empty"
     return false, string.format(
-      "transferItem bus→recover failed (sides %d→%d slot %d→%d)",
-      bus_side, recover_side, bus_slot, recover_slot
+      "transferItem bus→recover failed (sides %d→%d slot %d→%d)%s\n  bus: %s\n  recover: %s%s",
+      bus_side, recover_side, bus_slot, recover_slot,
+      xfer_err and (": " .. xfer_err) or "",
+      self:_describe_face(tp, bus_side),
+      self:_describe_face(tp, recover_side),
+      hint
     )
   end
 

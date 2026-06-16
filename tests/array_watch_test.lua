@@ -55,7 +55,12 @@ do
   local watch = ArrayWatch.new({
     config = { subnet_id = "sub", machines = { { id = "machine_01" } } },
     poll = poll,
-    circuit_manager = { recover_circuit = function() return true end },
+    circuit_loop = {
+      tick_lane = function() return false, {} end,
+      reset_lane = function() end,
+      get_lane_debug = function() return { state = "idle" } end,
+      any_fast_tick = function() return false end,
+    },
     link = { send = function(_, _, msg) link_out[#link_out + 1] = msg end },
     reply_to = "orch-1",
     now = function() return 11 end,
@@ -74,47 +79,67 @@ do
   check("fault emits BROKER_EVENT machine_fault", saw_fault_event)
 end
 
--- Processing complete recover (active true -> false) ---------------------------
+-- FSM staged + recovered events ------------------------------------------------
 do
   local tick_n = 0
-  local recovered = 0
   local msgs = {}
+  local loop = {
+    tick_lane = function()
+      tick_n = tick_n + 1
+      if tick_n == 1 then
+        return true, { { type = "staged", detail = "ok" } }
+      end
+      if tick_n == 2 then
+        return true, {}
+      end
+      return false, { { type = "recover_ok", detail = "ok" } }
+    end,
+    get_lane_debug = function()
+      if tick_n < 3 then return { state = "monitoring" } end
+      return { state = "idle" }
+    end,
+    reset_lane = function() end,
+    any_fast_tick = function() return tick_n < 3 end,
+  }
   local poll = {
     get_proxy = function() return nil end,
     poll_all = function()
-      tick_n = tick_n + 1
-      if tick_n == 1 then
-        return { machine_01 = { available = true, healthy = true, maintenance_fault = false, active = true, has_work = true } }
-      end
       return { machine_01 = { available = true, healthy = true, maintenance_fault = false, active = false, has_work = false } }
     end,
   }
   local watch = ArrayWatch.new({
     config = { subnet_id = "sub", machines = { { id = "machine_01" } } },
     poll = poll,
-    circuit_manager = { recover_circuit = function() recovered = recovered + 1; return true end },
+    circuit_loop = loop,
     link = { send = function(_, _, msg) msgs[#msgs + 1] = msg end },
     reply_to = "orch-1",
-    now = function() return 12 + tick_n end,
+    now = function() return 12 end,
   })
 
   watch:tick()
+  check("loop requests fast tick while active", watch:any_fast_tick() == true)
   watch:tick()
-  check("processing-complete edge triggers one recover", recovered == 1, recovered)
+  watch:tick()
+  check("fast tick clears after recovery", watch:any_fast_tick() == false)
 
   local saw_recovered = false
+  local saw_running = false
   for _, msg in ipairs(msgs) do
     local p = Protocols.parse(msg)
     if p and p.kind == Protocols.KIND.BROKER_EVENT and p.event == Protocols.EVENT.CIRCUIT_RECOVERED then
       saw_recovered = true
     end
+    if p and p.kind == Protocols.KIND.BROKER_HEALTH and p.state == "running" then
+      saw_running = true
+    end
   end
+  check("staged emits running health", saw_running)
   check("recover emits circuit_recovered event", saw_recovered)
 end
 
--- No recover when machine is idle from startup ---------------------------------
+-- FSM recover failure emits fault + failure event -------------------------------
 do
-  local recovered = 0
+  local msgs = {}
   local poll = {
     get_proxy = function() return nil end,
     poll_all = function()
@@ -124,34 +149,31 @@ do
   local watch = ArrayWatch.new({
     config = { subnet_id = "sub", machines = { { id = "machine_01" } } },
     poll = poll,
-    circuit_manager = { recover_circuit = function() recovered = recovered + 1; return true end },
+    circuit_loop = {
+      tick_lane = function() return true, { { type = "recover_failed", detail = "jammed" } } end,
+      get_lane_debug = function() return { state = "extraction" } end,
+      reset_lane = function() end,
+      any_fast_tick = function() return true end,
+    },
+    link = { send = function(_, _, msg) msgs[#msgs + 1] = msg end },
+    reply_to = "orch-1",
     now = function() return 20 end,
   })
 
   watch:tick()
-  watch:tick()
-  check("startup idle does not recover", recovered == 0, recovered)
-end
-
--- No recover when has_work=true but not active ---------------------------------
-do
-  local recovered = 0
-  local poll = {
-    get_proxy = function() return nil end,
-    poll_all = function()
-      return { machine_01 = { available = true, healthy = true, maintenance_fault = false, active = false, has_work = true } }
-    end,
-  }
-  local watch = ArrayWatch.new({
-    config = { subnet_id = "sub", machines = { { id = "machine_01" } } },
-    poll = poll,
-    circuit_manager = { recover_circuit = function() recovered = recovered + 1; return true end },
-    now = function() return 21 end,
-  })
-
-  watch:tick()
-  watch:tick()
-  check("queued/waiting does not recover", recovered == 0, recovered)
+  local saw_fail = false
+  local saw_fault = false
+  for _, msg in ipairs(msgs) do
+    local p = Protocols.parse(msg)
+    if p and p.kind == Protocols.KIND.BROKER_EVENT and p.event == Protocols.EVENT.CIRCUIT_RECOVER_FAILED then
+      saw_fail = true
+    end
+    if p and p.kind == Protocols.KIND.BROKER_HEALTH and p.state == "fault" then
+      saw_fault = true
+    end
+  end
+  check("recover failure emits circuit_recover_failed", saw_fail)
+  check("recover failure emits fault health", saw_fault)
 end
 
 -- Orchestrator aggregator -----------------------------------------------------

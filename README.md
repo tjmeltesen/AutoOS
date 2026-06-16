@@ -59,13 +59,20 @@ The broker no longer does lane-level stocking. AE2 handles bulk input delivery d
 
 | Per lane (multiblock) | Count | Role |
 | --------------------- | ----- | ---- |
-| **ME Interface (recover sink)** | per lane or shared | Receives recovered circuits from transposer after machine completes processing |
-| **OC Transposer** | 1 | Recovery path only: input bus side → recover interface side |
+| **Super Buffer / Chest** | 1 per lane | Holds incoming circuits and receives returned circuits |
+| **OC Transposer** | 1 | Circuit loop path: `side_buffer -> side_bus_b -> side_return` |
 | **gt_machine adapter** | 1 | Maintenance poll via `getSensorInformation()` + `setWorkAllowed(false)` on fault |
 
-Default `interface_mode = "transposer"`: recovery is `transferItem(item_bus_side → recover_side)` only — no OC `me_interface` adapter required. Optional `per_lane` / `shared` modes add `setInterfaceConfiguration` clear when an OC adapter is wired.
+Default FSM wiring is transposer-only:
 
-Recovery is triggered by processing completion (`isMachineActive` falling edge), not generic idle state.
+- `side_buffer`: super-buffer/chest face
+- `side_bus_b`: GT circuit bus face
+- `side_return`: return face (defaults to `side_buffer`)
+- `buffer_adapter_address` + `buffer_adapter_side` (optional): fast "buffer has items" gate before transposer scan
+
+The broker loop runs `IDLE -> STAGING -> MONITORING -> EXTRACTION`, using `gt_machine.isMachineActive()` as the activity source.
+
+Recovery is triggered when monitoring observes active then inactive, or when staging exceeds timeout.
 
 ---
 

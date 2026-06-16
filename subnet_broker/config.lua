@@ -6,9 +6,9 @@
     * disables faulted lanes
     * recovers circuits via transposer when processing completes
 
-  Recovery is transposer-only by default:
-    transferItem(item_bus_side → recover_side) onto the ME interface block face.
-    No OC me_interface adapter required — ME import absorbs the item in-world.
+  Circuit flow (watch mode):
+    side_buffer -> side_bus_b -> side_return (default side_buffer).
+    Activity comes from gt_machine.isMachineActive() via adapter polling.
 
   Optional interface_mode (legacy / special wiring only):
     * transposer (default) — no interface_address in config
@@ -23,6 +23,8 @@ Config.main_net_channel = 105
 
 Config.circuit_item_name = "gregtech:gt.integrated_circuit"
 Config.tick_interval = 1.0
+Config.monitor_poll_s = 0.15
+Config.staging_timeout_s = 3.0
 Config.interface_mode = "transposer" -- "transposer" | "per_lane" | "shared"
 Config.shared_interface_address = nil -- only when interface_mode == "shared"
 Config.recover_clear_interface = true -- only used when an OC me_interface address is set
@@ -40,36 +42,48 @@ Config.machines = {
     id = "machine_01",
     gt_address = "972c1b95-2f92-4ba2-8524-1b3152f60dfd",
     transposer_address = "7ff4353b-1cad-43a1-89cb-0a6cd2aab9cb",
-    recover_side = 1,       -- transposer face touching ME interface (import)
-    item_bus_side = 4,      -- transposer face touching GT input bus
-    recover_slot = 1,       -- dest slot on recover_side (usually 1)
+    side_buffer = 1,        -- transposer face touching super-buffer / chest
+    side_bus_b = 4,         -- transposer face touching GT circuit input bus
+    side_return = 1,        -- optional; default is side_buffer
+    return_slot = nil,      -- optional destination slot on return side
+    buffer_adapter_address = nil, -- optional adapter on buffer for low-cost item presence gate
+    buffer_adapter_side = nil,    -- required when buffer_adapter_address is set (0-5)
     input_slot = 1,
   },
   {
     id = "machine_02",
     gt_address = "73d06674-1dbd-4c71-97be-0f958ccea03f",
     transposer_address = "1954897b-991a-4942-a251-59e16bad0ab7",
-    recover_side = 1,
-    item_bus_side = 4,
-    recover_slot = 1,       -- dest slot on recover_side (usually 1)
+    side_buffer = 1,
+    side_bus_b = 4,
+    side_return = 1,
+    return_slot = nil,
+    buffer_adapter_address = nil,
+    buffer_adapter_side = nil,
     input_slot = 1,
   },
   {
     id = "machine_03",
     gt_address = "61351d4f-0a11-4066-b1b9-eb1fe9393ce8",
     transposer_address = "7eee9782-5de9-41cf-8422-222da9bcb06e",
-    recover_side = 1,
-    item_bus_side = 4,
-    recover_slot = 1,       -- dest slot on recover_side (usually 1)
+    side_buffer = 1,
+    side_bus_b = 4,
+    side_return = 1,
+    return_slot = nil,
+    buffer_adapter_address = nil,
+    buffer_adapter_side = nil,
     input_slot = 1,
   },
   {
     id = "machine_04",
     gt_address = "194191a4-1c59-4216-b49e-97268de0b600",
     transposer_address = "aaeb795a-8059-46ac-9835-0398027cd248",
-    recover_side = 1,
-    item_bus_side = 4,
-    recover_slot = 1,       -- dest slot on recover_side (usually 1)
+    side_buffer = 1,
+    side_bus_b = 4,
+    side_return = 1,
+    return_slot = nil,
+    buffer_adapter_address = nil,
+    buffer_adapter_side = nil,
     input_slot = 1,
   },
 }
@@ -96,7 +110,8 @@ local REQUIRED_MACHINE_FIELDS = {
   "id",
   "gt_address",
   "transposer_address",
-  "item_bus_side",
+  "side_buffer",
+  "side_bus_b",
 }
 
 ---@param cfg table|nil
@@ -129,7 +144,13 @@ function Config.validate(cfg)
     if mode == "per_lane" and (m.interface_address == nil or m.interface_address == "") then
       return nil, "machines[" .. i .. "] missing interface_address (interface_mode='per_lane')"
     end
+    if m.buffer_adapter_address ~= nil and m.buffer_adapter_address ~= ""
+      and (m.buffer_adapter_side == nil) then
+      return nil, "machines[" .. i .. "] buffer_adapter_side required when buffer_adapter_address is set"
+    end
     for _, side_field in ipairs({
+      "side_buffer", "side_bus_b", "side_return",
+      "buffer_adapter_side",
       "interface_item_side", "recover_side", "item_bus_side",
       "fluid_pull_side", "fluid_push_side", "interface_fluid_side",
     }) do
@@ -147,6 +168,14 @@ function Config.validate(cfg)
   if cfg.database_slot_count ~= nil
     and (type(cfg.database_slot_count) ~= "number" or cfg.database_slot_count < 1) then
     return nil, "database_slot_count must be a positive integer"
+  end
+  if cfg.monitor_poll_s ~= nil
+    and (type(cfg.monitor_poll_s) ~= "number" or cfg.monitor_poll_s <= 0) then
+    return nil, "monitor_poll_s must be a positive number"
+  end
+  if cfg.staging_timeout_s ~= nil
+    and (type(cfg.staging_timeout_s) ~= "number" or cfg.staging_timeout_s <= 0) then
+    return nil, "staging_timeout_s must be a positive number"
   end
 
   return true

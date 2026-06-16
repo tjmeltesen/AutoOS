@@ -26,6 +26,7 @@ function BrokerMain.run()
   local Config = require("config")
   local MachinePoll = require("machine_poll")
   local CircuitManager = require("circuit_manager")
+  local CircuitLoop = require("circuit_loop")
   local ArrayWatch = require("array_watch")
 
   local ok, err = Config.validate(Config)
@@ -50,21 +51,35 @@ function BrokerMain.run()
     broadcast = function(_, msg) modem.broadcast(listen_port, msg) end,
   }
 
+  local poll = MachinePoll.new({ config = Config, component = component })
+  local circuit_manager = CircuitManager.new({ config = Config, component = component })
+  local circuit_loop = CircuitLoop.new({
+    config = Config,
+    component = component,
+    circuit_manager = circuit_manager,
+    log = print,
+    now = computer.uptime,
+  })
+
   local watch = ArrayWatch.new({
     config = Config,
-    poll = MachinePoll.new({ config = Config, component = component }),
-    circuit_manager = CircuitManager.new({ config = Config, component = component }),
+    component = component,
+    poll = poll,
+    circuit_manager = circuit_manager,
+    circuit_loop = circuit_loop,
     link = link,
     reply_to = Config.orchestrator_address ~= "" and Config.orchestrator_address or nil,
     log = print,
     now = computer.uptime,
   })
 
-  local interval = Config.tick_interval or 1.0
   print(string.format("[Broker] online — array watch mode, subnet=%s, listen %d → %d, orch=%s",
     Config.subnet_id, listen_port, orch_port, Config.orchestrator_address or "(none)"))
 
   while true do
+    local interval = watch:any_fast_tick()
+      and (Config.monitor_poll_s or 0.15)
+      or (Config.tick_interval or 1.0)
     local id, _, from, _, _, message = event.pull(interval, "modem_message")
     if id == "modem_message" then
       local pkt = Protocols.parse(message)

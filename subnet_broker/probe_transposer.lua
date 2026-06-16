@@ -8,8 +8,10 @@
     loadfile("/home/subnet_broker/probe_transposer.lua")("machine_02")
 
   Maps every transposer face (0–5): slot count, items, fluid mB.
-  Use this to set item_bus_side (circuit found here after a recipe) and
-  recover_side (a different face with slots that accepts items → ME import).
+  Use this to set:
+    side_buffer  (super-buffer/chest face)
+    side_bus_b   (GT circuit bus face)
+    side_return  (optional return face, default side_buffer)
 ]]
 
 local LANE_ID = nil  -- nil = all lanes; or set e.g. "machine_01"
@@ -66,8 +68,8 @@ end
 local function print_lane(machine)
   print(string.rep("-", 56))
   print(string.format("[Probe] %s  transposer %s", machine.id, machine.transposer_address))
-  print(string.format("  config  item_bus_side=%s  recover_side=%s  recover_slot=%s",
-    tostring(machine.item_bus_side), tostring(machine.recover_side), tostring(machine.recover_slot or 1)))
+  print(string.format("  config  side_buffer=%s  side_bus_b=%s  side_return=%s",
+    tostring(machine.side_buffer), tostring(machine.side_bus_b), tostring(machine.side_return or machine.side_buffer)))
 
   local tp = proxy_transposer(machine.transposer_address)
   if not tp then
@@ -100,8 +102,9 @@ local function print_lane(machine)
     end
 
     local markers = {}
-    if machine.item_bus_side == side then markers[#markers + 1] = "item_bus_side" end
-    if machine.recover_side == side then markers[#markers + 1] = "recover_side" end
+    if machine.side_bus_b == side then markers[#markers + 1] = "side_bus_b" end
+    if (machine.side_return or machine.side_buffer) == side then markers[#markers + 1] = "side_return" end
+    if machine.side_buffer == side then markers[#markers + 1] = "side_buffer" end
     local mark = #markers > 0 and ("  <<" .. table.concat(markers, ", ") .. ">>") or ""
 
     print(string.format("  side %d (%s): %s%s", side, label, table.concat(parts, ", "), mark))
@@ -129,7 +132,7 @@ local function print_lane(machine)
   print(string.format("  summary: %d face(s) with item inventory", faces_with_inv))
   if #circuit_faces > 0 then
     for _, c in ipairs(circuit_faces) do
-      print(string.format("  >> circuit on side %d slot %d (damage %s) — item_bus_side should be %d",
+      print(string.format("  >> circuit on side %d slot %d (damage %s) — side_bus_b should be %d",
         c.side, c.slot, tostring(c.damage), c.side))
     end
   else
@@ -138,7 +141,7 @@ local function print_lane(machine)
   if faces_with_inv < 2 then
     print("  >> WARN: need >= 2 faces with item slots (bus + ME import). ME may not touch transposer.")
   elseif faces_with_inv >= 2 and #circuit_faces > 0 then
-    local bus = machine.item_bus_side
+    local bus = machine.side_bus_b
     local recover_hint = nil
     for side = 0, 5 do
       if side ~= bus then
@@ -146,9 +149,9 @@ local function print_lane(machine)
         if ok_sz and sz and sz > 0 then recover_hint = side; break end
       end
     end
-    if recover_hint and recover_hint ~= machine.recover_side then
-      print(string.format("  >> recover_side candidate: %d (config has %s)",
-        recover_hint, tostring(machine.recover_side)))
+    if recover_hint and recover_hint ~= (machine.side_return or machine.side_buffer) then
+      print(string.format("  >> side_return candidate: %d (config has %s)",
+        recover_hint, tostring(machine.side_return or machine.side_buffer)))
     end
   end
 end
@@ -165,4 +168,4 @@ for _, m in ipairs(Config.machines) do
   end
 end
 print(string.rep("-", 56))
-print("[AutoOS] Done. Set item_bus_side to the face with [CIRCUIT]; recover_side to another face with slots.")
+print("[AutoOS] Done. Set side_bus_b to the face with [CIRCUIT]; set side_buffer (and optional side_return) to buffer slots.")

@@ -9,6 +9,7 @@
 ]]
 
 local Protocols = require("network_protocols")
+local CircuitLoop = require("circuit_loop")
 
 local ArrayWatch = {}
 ArrayWatch.__index = ArrayWatch
@@ -20,13 +21,24 @@ function ArrayWatch.new(deps)
   local self = setmetatable({}, ArrayWatch)
   self.config = deps.config or error("ArrayWatch.new: config required")
   self.poll = deps.poll or error("ArrayWatch.new: poll required")
-  self.circuit_manager = deps.circuit_manager or error("ArrayWatch.new: circuit_manager required")
+  self.circuit_manager = deps.circuit_manager
   self.link = deps.link
   self.log = deps.log or function() end
   self.now = deps.now or function() return 0 end
   self.reply_to = deps.reply_to
   self.lane_state = {}
   self._last_heartbeat = 0
+  self._fast_tick = false
+  self.circuit_loop = deps.circuit_loop
+  if not self.circuit_loop then
+    self.circuit_loop = CircuitLoop.new({
+      config = self.config,
+      component = deps.component or error("ArrayWatch.new: component required when circuit_loop not injected"),
+      circuit_manager = self.circuit_manager or error("ArrayWatch.new: circuit_manager required"),
+      log = self.log,
+      now = self.now,
+    })
+  end
   return self
 end
 
@@ -44,10 +56,6 @@ function ArrayWatch:_send_event(event, machine_id, detail)
   ))
 end
 
-local function machine_processing(st)
-  return st and st.available and st.active
-end
-
 function ArrayWatch:_handle_fault(machine_id, st)
   local lane = self.lane_state[machine_id] or {}
   if lane.last_state ~= "fault" then
@@ -63,42 +71,56 @@ function ArrayWatch:_handle_fault(machine_id, st)
     self.log(string.format("[ArrayWatch] %s FAULT: %s", machine_id, tostring(st.fault_message)))
   end
   lane.last_state = "fault"
-  lane.was_processing = machine_processing(st)
+  if self.circuit_loop and self.circuit_loop.reset_lane then
+    self.circuit_loop:reset_lane(machine_id)
+  end
   self.lane_state[machine_id] = lane
 end
 
-function ArrayWatch:_recover_if_processing_done(machine_id, st)
-  local lane = self.lane_state[machine_id] or { was_processing = false }
-  local processing = machine_processing(st)
-  local recovered = false
+function ArrayWatch:_run_circuit_loop(machine, st)
+  local machine_id = machine.id
+  local lane = self.lane_state[machine_id] or {}
+  local wants_fast, events = self.circuit_loop:tick_lane(machine, st)
+  if wants_fast then self._fast_tick = true end
 
-  if lane.was_processing and not processing then
-    local ok, err = self.circuit_manager:recover_circuit(machine_id, nil)
-    if ok then
-      recovered = true
-      self:_send_event(Protocols.EVENT.CIRCUIT_RECOVERED, machine_id, "ok")
-      self:_send_health(machine_id, "circuit_recovered", "circuit returned to ME")
-      self.log("[ArrayWatch] " .. machine_id .. " recovered circuit after processing complete")
-    else
-      self:_send_event(Protocols.EVENT.CIRCUIT_RECOVER_FAILED, machine_id, tostring(err))
-      self:_send_health(machine_id, "fault", "recover failed: " .. tostring(err))
-      self.log("[ArrayWatch] " .. machine_id .. " recover failed: " .. tostring(err))
+  for _, ev in ipairs(events or {}) do
+    if ev.type == "staged" then
+      if lane.last_state ~= "running" then
+        self:_send_health(machine_id, "running", "circuit staged to bus")
+      end
+      lane.last_state = "running"
+    elseif ev.type == "recover_ok" then
+      self:_send_event(Protocols.EVENT.CIRCUIT_RECOVERED, machine_id, ev.detail or "ok")
+      self:_send_health(machine_id, "circuit_recovered", "circuit returned to buffer")
+      lane.last_state = "idle"
+      self.log("[ArrayWatch] " .. machine_id .. " recover ok: " .. tostring(ev.detail))
+    elseif ev.type == "recover_failed" then
+      self:_send_event(Protocols.EVENT.CIRCUIT_RECOVER_FAILED, machine_id, tostring(ev.detail))
+      self:_send_health(machine_id, "fault", "recover failed: " .. tostring(ev.detail))
+      lane.last_state = "fault"
+      self.log("[ArrayWatch] " .. machine_id .. " recover failed: " .. tostring(ev.detail))
     end
   end
 
-  if not recovered then
-    local state = processing and "running" or "idle"
+  if lane.last_state ~= "fault" then
+    local dbg = self.circuit_loop:get_lane_debug(machine_id)
+    local running = dbg and dbg.state ~= "idle"
+    local state = running and "running" or "idle"
     if lane.last_state ~= state then
-      self:_send_health(machine_id, state, state == "running" and "active" or "idle")
+      self:_send_health(machine_id, state, running and "circuit loop active" or "idle")
     end
     lane.last_state = state
   end
 
-  lane.was_processing = processing
   self.lane_state[machine_id] = lane
 end
 
+function ArrayWatch:any_fast_tick()
+  return self._fast_tick or (self.circuit_loop and self.circuit_loop:any_fast_tick()) or false
+end
+
 function ArrayWatch:tick()
+  self._fast_tick = false
   local results = self.poll:poll_all()
   for _, machine in ipairs(self.config.machines) do
     local st = results[machine.id] or { available = false, healthy = false }
@@ -108,7 +130,7 @@ function ArrayWatch:tick()
     elseif st.maintenance_fault then
       self:_handle_fault(machine.id, st)
     else
-      self:_recover_if_processing_done(machine.id, st)
+      self:_run_circuit_loop(machine, st)
     end
   end
 
