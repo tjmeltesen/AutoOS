@@ -428,14 +428,15 @@ function Mock.machines_from_config(config)
     list[#list + 1] = {
       id = m.id,
       gt_address = m.gt_address,
-      interface_address = m.interface_address,
+      interface_address = m.interface_address or ("mock-iface-" .. m.id),
       transposer_address = m.transposer_address,
-      interface_item_side = m.interface_item_side,
+      interface_item_side = m.interface_item_side or m.recover_side,
+      recover_side = m.recover_side or m.interface_item_side,
       item_bus_side = m.item_bus_side,
       fluid_pull_side = m.fluid_pull_side,
       fluid_push_side = m.fluid_push_side,
       interface_fluid_side = m.interface_fluid_side,
-      interface_item_slot = m.interface_item_slot,
+      interface_item_slot = m.interface_item_slot or m.recover_slot,
       input_slot = m.input_slot,
     }
   end

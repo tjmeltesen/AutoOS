@@ -87,7 +87,10 @@ function CircuitManager:_transfer_with_retries(tp, from_side, to_side, from_slot
 end
 
 function CircuitManager:_resolve_recover_interface_address(machine)
-  local mode = self.config.interface_mode or "per_lane"
+  local mode = self.config.interface_mode or "transposer"
+  if mode == "transposer" then
+    return nil
+  end
   if mode == "shared" then
     return self.config.shared_interface_address
   end
@@ -221,20 +224,12 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
     return false, "unknown machine_id " .. tostring(machine_id)
   end
 
-  local iface_addr = self:_resolve_recover_interface_address(machine)
-  if not iface_addr or iface_addr == "" then
-    return false, "recover interface address not configured (per_lane: interface_address, shared: shared_interface_address)"
-  end
-
-  local iface, if_err = HW.require_proxy(self.component, "me_interface", iface_addr, "me_interface")
-  if not iface then return false, if_err end
-
   local tp, tp_err = HW.require_proxy(self.component, "transposer", machine.transposer_address, "transposer")
   if not tp then return false, tp_err end
 
-  local iface_side = LaneSides.recover_side(machine)
+  local recover_side = LaneSides.recover_side(machine)
   local bus_side = LaneSides.item_bus_side(machine)
-  local iface_slot = LaneSides.recover_slot(machine)
+  local recover_slot = LaneSides.recover_slot(machine)
 
   local bus_slot = self:_find_circuit_on_side(tp, bus_side, circuit_damage)
   if not bus_slot and circuit_damage then
@@ -244,17 +239,22 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
     return true
   end
 
-  local moved = self:_transfer_with_retries(tp, bus_side, iface_side, bus_slot, iface_slot)
+  local moved = self:_transfer_with_retries(tp, bus_side, recover_side, bus_slot, recover_slot)
   if moved < 1 then
     return false, string.format(
-      "transferItem bus→interface failed (sides %d→%d slot %d→%d)",
-      bus_side, iface_side, bus_slot, iface_slot
+      "transferItem bus→recover failed (sides %d→%d slot %d→%d)",
+      bus_side, recover_side, bus_slot, recover_slot
     )
   end
 
-  -- Return the circuit from the interface buffer to subnet ME (matches push clear).
-  if self.config.recover_clear_interface ~= false and iface.setInterfaceConfiguration then
-    pcall(iface.setInterfaceConfiguration, iface_slot)
+  -- Optional: OC me_interface clear when an adapter is wired (export/stocking mode).
+  -- Array Watch default is transposer-only — ME absorbs via the physical interface face.
+  local iface_addr = self:_resolve_recover_interface_address(machine)
+  if iface_addr and iface_addr ~= "" and self.config.recover_clear_interface ~= false then
+    local iface = HW.require_proxy(self.component, "me_interface", iface_addr, "me_interface")
+    if iface and iface.setInterfaceConfiguration then
+      pcall(iface.setInterfaceConfiguration, recover_slot)
+    end
   end
   HW.sleep(STOCK_WAIT_SLEEP)
 

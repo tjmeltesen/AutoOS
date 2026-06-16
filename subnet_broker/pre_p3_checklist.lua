@@ -45,7 +45,6 @@ local LoadBalancer = require("demoted.load_balancer")
 local BrokerCore = require("demoted.broker_core")
 local MachinePoll = require("machine_poll")
 local LaneSides = require("lane_sides")
-local interface_mode = Config.interface_mode or "per_lane"
 
 local component_api
 pcall(function() component_api = require("component") end)
@@ -79,7 +78,12 @@ local function find_machine(id)
   return nil
 end
 
+local interface_mode = Config.interface_mode or "transposer"
+
 local function recover_interface_address(machine_row)
+  if interface_mode == "transposer" then
+    return nil
+  end
   if interface_mode == "shared" then
     return Config.shared_interface_address
   end
@@ -182,9 +186,11 @@ else
       end
     end
     local iface_addr = recover_interface_address(m)
-    if not addrs[iface_addr] then
-      missing = missing + 1
-      fail("G1 UUID " .. m.id .. " recover_interface", "not on OC network")
+    if iface_addr and iface_addr ~= "" then
+      if not addrs[iface_addr] then
+        missing = missing + 1
+        fail("G1 UUID " .. m.id .. " recover_interface (optional OC)", "not on OC network")
+      end
     end
   end
   if not addrs[Config.database_address] then
@@ -195,7 +201,12 @@ else
 
   pcall(function()
     local m1 = Config.machines[1]
-    local iface = component_api.proxy(recover_interface_address(m1))
+    local iface_addr = recover_interface_address(m1)
+    if not iface_addr or iface_addr == "" then
+      skip("G1 fluid discretizer", "transposer-only — no OC me_interface")
+      return
+    end
+    local iface = component_api.proxy(iface_addr)
     if iface and iface.getItemsInNetwork then
       local drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop" })
       local n = type(drops) == "table" and #drops or 0

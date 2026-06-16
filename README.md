@@ -63,7 +63,7 @@ The broker no longer does lane-level stocking. AE2 handles bulk input delivery d
 | **OC Transposer** | 1 | Recovery path only: input bus side → recover interface side |
 | **gt_machine adapter** | 1 | Maintenance poll via `getSensorInformation()` + `setWorkAllowed(false)` on fault |
 
-Use `interface_mode = "per_lane"` (one interface per machine) or `interface_mode = "shared"` (one dump interface for all lanes).
+Default `interface_mode = "transposer"`: recovery is `transferItem(item_bus_side → recover_side)` only — no OC `me_interface` adapter required. Optional `per_lane` / `shared` modes add `setInterfaceConfiguration` clear when an OC adapter is wired.
 
 Recovery is triggered by processing completion (`isMachineActive` falling edge), not generic idle state.
 
@@ -136,18 +136,18 @@ Provides localized environmental context to the broker. This file is the only fi
 local Config = {
     subnet_id = "universal_chemical_mv_01",
     main_net_channel = 105,
-    interface_mode = "per_lane",  -- or "shared"
-    shared_interface_address = nil, -- required when interface_mode == "shared"
+    interface_mode = "transposer",  -- default: no OC me_interface for recover
+    shared_interface_address = nil, -- only when interface_mode == "shared" (optional OC clear)
     database_address = "database-00a12",  -- optional for watch mode; used by legacy dispatch
 
     machines = {
         {
             id = "machine_01",
             gt_address = "gt-uuid-01",
-            interface_address = "me-interface-uuid-01", -- per_lane mode
             transposer_address = "transposer-uuid-01",
-            item_bus_side = 0,         -- transposer face touching GT input bus
-            recover_side = 1,          -- transposer face touching recover ME interface
+            item_bus_side = 2,         -- transposer face touching GT input bus
+            recover_side = 1,          -- transposer face touching ME interface (physical import)
+            -- interface_address optional: only if OC adapter on ME interface (legacy dispatch / clear)
         },
         -- machine_02 .. machine_04: same fields, unique UUIDs per lane
     },

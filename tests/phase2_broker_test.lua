@@ -24,6 +24,31 @@ local FluidLane = require("demoted.fluid_lane")
 local BrokerCore = require("demoted.broker_core")
 local Config = require("config")
 
+local function mock_iface_addr(machine_index)
+  local m = Config.machines[machine_index]
+  return m.interface_address or ("mock-iface-" .. m.id)
+end
+
+local function legacy_config()
+  local cfg = {}
+  for k, v in pairs(Config) do cfg[k] = v end
+  cfg.interface_mode = "per_lane"
+  cfg.machines = {}
+  for i, m in ipairs(Config.machines) do
+    local row = {}
+    for k, v in pairs(m) do row[k] = v end
+    row.interface_address = row.interface_address or mock_iface_addr(i)
+    row.interface_item_side = row.interface_item_side or row.recover_side or 1
+    row.fluid_pull_side = row.fluid_pull_side or row.interface_item_side or 1
+    row.fluid_push_side = row.fluid_push_side or row.item_bus_side or 2
+    row.interface_fluid_side = row.interface_fluid_side or 0
+    cfg.machines[i] = row
+  end
+  return cfg
+end
+
+local LEGACY_CFG = legacy_config()
+
 local ESC = string.char(27)
 local function color(code, t) return ESC .. "[" .. code .. "m" .. t .. ESC .. "[0m" end
 local function green(t) return color("32", t) end
@@ -50,11 +75,11 @@ local CIRCUIT = "gregtech:gt.integrated_circuit"
 local function fresh_mock(overrides)
   overrides = overrides or {}
   FluidLane.reset_cache()
-  BrokerCore.set_deps({})
+  BrokerCore.set_deps({ config = LEGACY_CFG })
   BrokerCore.reset_descriptor_cache()
   return Mock.new({
-    machines = Mock.machines_from_config(Config),
-    database_address = Config.database_address,
+    machines = Mock.machines_from_config(LEGACY_CFG),
+    database_address = LEGACY_CFG.database_address,
     network_items = overrides.network_items or {
       { name = CIRCUIT, damage = 14, label = "Programmed Circuit", size = 64 },
       { name = CIRCUIT, damage = 18, label = "Programmed Circuit", size = 64 },
@@ -91,7 +116,7 @@ check("safe failure 4,3,3", lists_equal(list_safe, { 4, 3, 3 }), table.concat(li
 
 -- Circuit push / recover --------------------------------------------------------
 mock = fresh_mock()
-local cm = CircuitManager.new({ config = Config, component = mock.component })
+local cm = CircuitManager.new({ config = LEGACY_CFG, component = mock.component })
 
 local ok_push, push_err = cm:push_circuit("machine_01", 14)
 check("push_circuit ok", ok_push == true, push_err)
@@ -108,15 +133,33 @@ check("recover_circuit ok", ok_rec == true, rec_err)
 check("bus empty after recover", mock.bus_stack("machine_01", 1) == nil)
 check("recover idempotent (empty bus)", cm:recover_circuit("machine_01", 14) == true)
 
--- Shared recover interface mode: recover uses shared_interface_address.
+-- Transposer-only recover: no OC me_interface in config (default watch topology).
+local tp_only_mock = fresh_mock()
+tp_only_mock.put_bus_stack("machine_01", 1, { name = CIRCUIT, damage = 14, size = 1 })
+local tp_cfg = {}
+for k, v in pairs(Config) do tp_cfg[k] = v end
+tp_cfg.interface_mode = "transposer"
+tp_cfg.machines = {}
+for i, m in ipairs(Config.machines) do
+  local row = {}
+  for k, v in pairs(m) do row[k] = v end
+  row.interface_address = nil
+  tp_cfg.machines[i] = row
+end
+local cm_tp = CircuitManager.new({ config = tp_cfg, component = tp_only_mock.component })
+local ok_tp, err_tp = cm_tp:recover_circuit("machine_01", 14)
+check("transposer-only recover (no OC interface)", ok_tp == true, err_tp)
+check("transposer-only clears bus", tp_only_mock.bus_stack("machine_01", 1) == nil)
+
+-- Shared recover interface mode: optional OC clear via shared_interface_address.
 local shared_mock = fresh_mock()
 shared_mock.put_bus_stack("machine_01", 1, { name = CIRCUIT, damage = 14, size = 1 })
 local shared_cfg = {}
-for k, v in pairs(Config) do shared_cfg[k] = v end
+for k, v in pairs(LEGACY_CFG) do shared_cfg[k] = v end
 shared_cfg.interface_mode = "shared"
-shared_cfg.shared_interface_address = Config.machines[2].interface_address
+shared_cfg.shared_interface_address = mock_iface_addr(2)
 shared_cfg.machines = {}
-for i, m in ipairs(Config.machines) do
+for i, m in ipairs(LEGACY_CFG.machines) do
   local row = {}
   for k, v in pairs(m) do row[k] = v end
   if i == 1 then row.interface_address = "broken-address" end
@@ -139,32 +182,32 @@ check("push fails when circuit not in ME",
 
 -- Fluid descriptors ---------------------------------------------------------------
 mock = fresh_mock()
-local dc = DescriptorCache.new({ config = Config, component = mock.component })
-local iface1 = mock.component.proxy(Config.machines[1].interface_address)
+local dc = DescriptorCache.new({ config = LEGACY_CFG, component = mock.component })
+local iface1 = mock.component.proxy(mock_iface_addr(1))
 
 local function slot_with(db_slots, predicate)
-  for slot = 1, (Config.database_slot_count or 25) do
+  for slot = 1, (LEGACY_CFG.database_slot_count or 25) do
     local e = db_slots[slot]
     if e and predicate(e) then return slot, e end
   end
   return nil
 end
 
-local rules = Config.constraints.recipe_baselines["polyethylene"]
+local rules = LEGACY_CFG.constraints.recipe_baselines["polyethylene"]
 local ok_fd, fd_slot = dc:ensure_fluid(iface1, rules)
 check("ensure_fluid finds drop item", ok_fd == true, fd_slot)
 check("db slot holds fluid drop",
   slot_with(mock.db_slots, function(e) return e.name:find("fluid_drop") ~= nil end) == fd_slot)
 
 local mock_nodisc = fresh_mock({ discretizer = false })
-local dc_nd = DescriptorCache.new({ config = Config, component = mock_nodisc.component })
-local iface_nd = mock_nodisc.component.proxy(Config.machines[1].interface_address)
+local dc_nd = DescriptorCache.new({ config = LEGACY_CFG, component = mock_nodisc.component })
+local iface_nd = mock_nodisc.component.proxy(mock_iface_addr(1))
 local ok_nd, nd_err = dc_nd:ensure_fluid(iface_nd, rules)
 check("no discretizer → clear error", ok_nd == false and tostring(nd_err):find("Discretizer") ~= nil, nd_err)
 
 -- Full-volume fluid pump ------------------------------------------------------------
 mock = fresh_mock({ fluid_buffer = 1000 })
-local row1 = Config.machines[1]
+local row1 = LEGACY_CFG.machines[1]
 local alloc = { operations = 4, allocated_volume = 5760 }
 local ok_lane, lane_err = BrokerCore.execute_lane(row1, alloc, "molten_soldering_alloy", mock.component, {})
 check("execute_lane circuit+fluid ok", ok_lane == true, lane_err)
@@ -176,7 +219,7 @@ check("circuit on bus after lane", mock.bus_stack("machine_01", 1) ~= nil)
 -- Wrong configured sides → probe recovers ---------------------------------------------
 mock = fresh_mock({ fluid_buffer = 1000 })
 local wrong_row = {}
-for k, v in pairs(Config.machines[1]) do wrong_row[k] = v end
+for k, v in pairs(LEGACY_CFG.machines[1]) do wrong_row[k] = v end
 wrong_row.fluid_pull_side = 5      -- physically wrong
 wrong_row.interface_fluid_side = 3 -- physically wrong
 local ok_probe, probe_err = BrokerCore.execute_lane(wrong_row, { operations = 1, allocated_volume = 1440 },
@@ -188,22 +231,22 @@ check("working sides cached", cached ~= nil and cached.pull_side == 1 and cached
 
 -- Subnet runs dry -----------------------------------------------------------------------
 mock = fresh_mock({ network_fluids = { ["Molten Soldering Alloy"] = 1500 }, fluid_buffer = 1000 })
-local ok_dry, dry_err = BrokerCore.execute_lane(Config.machines[1], { operations = 2, allocated_volume = 2880 },
+local ok_dry, dry_err = BrokerCore.execute_lane(LEGACY_CFG.machines[1], { operations = 2, allocated_volume = 2880 },
   "molten_soldering_alloy", mock.component, { push_circuits = false })
 check("dry subnet → partial delivery error",
   ok_dry == false and tostring(dry_err):find("1500") ~= nil, dry_err)
 
 -- Recover after lane ------------------------------------------------------------------------
 mock = fresh_mock()
-local ok_full, full_err = BrokerCore.execute_lane(Config.machines[1], { operations = 1, allocated_volume = 1440 },
+local ok_full, full_err = BrokerCore.execute_lane(LEGACY_CFG.machines[1], { operations = 1, allocated_volume = 1440 },
   "molten_soldering_alloy", mock.component, { recover_circuits = true })
 check("execute_lane with recover ok", ok_full == true, full_err)
 check("bus empty after recover_circuits", mock.bus_stack("machine_01", 1) == nil)
 
 -- Batch continues after a lane failure --------------------------------------------------------
 mock = fresh_mock()
-mock.break_component(Config.machines[2].transposer_address)
-local batch_ok, summary = BrokerCore.process_batch("polyethylene", 3000, Config.machines, {
+mock.break_component(LEGACY_CFG.machines[2].transposer_address)
+local batch_ok, summary = BrokerCore.process_batch("polyethylene", 3000, LEGACY_CFG.machines, {
   component = mock.component,
   execute_hardware = true,
 })
@@ -214,7 +257,7 @@ check("later lanes still ran", summary.succeeded == 2 and mock.hatch_mb("machine
 
 -- Healthy batch end-to-end ----------------------------------------------------------------------
 mock = fresh_mock()
-local all_ok, s2 = BrokerCore.process_batch("polyethylene", 3000, Config.machines, {
+local all_ok, s2 = BrokerCore.process_batch("polyethylene", 3000, LEGACY_CFG.machines, {
   component = mock.component,
   execute_hardware = true,
 })
@@ -225,7 +268,7 @@ check("volumes delivered per lane",
 -- Shared cache: 3-lane batch reuses one circuit slot + one fluid slot (not 6 writes).
 mock = fresh_mock()
 mock.stats.store = 0
-BrokerCore.process_batch("polyethylene", 3000, Config.machines, {
+BrokerCore.process_batch("polyethylene", 3000, LEGACY_CFG.machines, {
   component = mock.component,
   execute_hardware = true,
 })
@@ -253,8 +296,8 @@ io.write(dim("\n  Database slot cache\n"))
 
 -- Cache hit: two ensure_circuit(18) → same slot, single me.store.
 mock = fresh_mock()
-local dcc = DescriptorCache.new({ config = Config, component = mock.component })
-local ifc = mock.component.proxy(Config.machines[1].interface_address)
+local dcc = DescriptorCache.new({ config = LEGACY_CFG, component = mock.component })
+local ifc = mock.component.proxy(mock_iface_addr(1))
 local ok1, slot1 = dcc:ensure_circuit(ifc, 18)
 local store_after_first = mock.stats.store
 local ok2, slot2 = dcc:ensure_circuit(ifc, 18)
@@ -264,15 +307,15 @@ check("cache hit skips rewrite (no extra store)", mock.stats.store == store_afte
 
 -- Cache miss on empty DB → first empty slot (1).
 mock = fresh_mock()
-dcc = DescriptorCache.new({ config = Config, component = mock.component })
-ifc = mock.component.proxy(Config.machines[1].interface_address)
+dcc = DescriptorCache.new({ config = LEGACY_CFG, component = mock.component })
+ifc = mock.component.proxy(mock_iface_addr(1))
 local okm, slotm = dcc:ensure_circuit(ifc, 18)
 check("cache miss picks first empty slot", okm and slotm == 1, tostring(slotm))
 
 -- Stale DB hit: cache points at slot but DB content changed → invalidate + reallocate.
 mock = fresh_mock()
-dcc = DescriptorCache.new({ config = Config, component = mock.component })
-ifc = mock.component.proxy(Config.machines[1].interface_address)
+dcc = DescriptorCache.new({ config = LEGACY_CFG, component = mock.component })
+ifc = mock.component.proxy(mock_iface_addr(1))
 local oks, slots = dcc:ensure_circuit(ifc, 18)
 mock.db_slots[slots] = { name = "gregtech:gt.integrated_circuit", damage = 14 }  -- external tamper
 local oks2, slots2 = dcc:ensure_circuit(ifc, 18)
@@ -282,8 +325,8 @@ check("stale slot invalidated + rewritten", oks and oks2
 -- DB discovery: pre-seeded slot 7 with circuit 18 → new cache adopts without store.
 mock = fresh_mock()
 mock.db_slots[7] = { name = CIRCUIT, damage = 18 }
-dcc = DescriptorCache.new({ config = Config, component = mock.component })
-ifc = mock.component.proxy(Config.machines[1].interface_address)
+dcc = DescriptorCache.new({ config = LEGACY_CFG, component = mock.component })
+ifc = mock.component.proxy(mock_iface_addr(1))
 mock.stats.store = 0
 local okd, slotd = dcc:ensure_circuit(ifc, 18)
 check("DB discovery adopts existing slot", okd and slotd == 7, tostring(slotd))
@@ -291,9 +334,9 @@ check("DB discovery skips me.store", mock.stats.store == 0)
 
 -- Foreign protection: every slot occupied by non-broker entries → fail, nothing cleared.
 mock = fresh_mock()
-dcc = DescriptorCache.new({ config = Config, component = mock.component })
-ifc = mock.component.proxy(Config.machines[1].interface_address)
-for s = 1, (Config.database_slot_count or 25) do
+dcc = DescriptorCache.new({ config = LEGACY_CFG, component = mock.component })
+ifc = mock.component.proxy(mock_iface_addr(1))
+for s = 1, (LEGACY_CFG.database_slot_count or 25) do
   mock.db_slots[s] = { name = "minecraft:stone", damage = 0 }
 end
 local okf, ferr = dcc:ensure_circuit(ifc, 18)
@@ -302,7 +345,7 @@ check("foreign slots untouched", mock.db_slots[1].name == "minecraft:stone")
 
 -- LRU eviction: tiny DB, fill with broker entries, next miss evicts the coldest.
 local small_cfg = {}
-for k, v in pairs(Config) do small_cfg[k] = v end
+for k, v in pairs(LEGACY_CFG) do small_cfg[k] = v end
 small_cfg.database_slot_count = 2
 mock = fresh_mock({
   network_items = {
@@ -312,7 +355,7 @@ mock = fresh_mock({
   },
 })
 dcc = DescriptorCache.new({ config = small_cfg, component = mock.component })
-ifc = mock.component.proxy(Config.machines[1].interface_address)
+ifc = mock.component.proxy(mock_iface_addr(1))
 local _, lru_a = dcc:ensure_circuit(ifc, 14)   -- slot for 14
 dcc:ensure_circuit(ifc, 18)                     -- slot for 18 (DB now full)
 dcc:ensure_circuit(ifc, 14)                     -- touch 14 → 18 becomes coldest
@@ -326,7 +369,7 @@ check("circuit 18 evicted (was coldest)",
 -- Recipe switch end to end: stale slot 1 must not feed circuit 14 to a polyethylene lane.
 mock = fresh_mock()
 mock.db_slots[1] = { name = "gregtech:gt.integrated_circuit", damage = 14 }  -- leftover from a prior recipe
-local rok, rsum = BrokerCore.process_batch("polyethylene", 1000, { Config.machines[1] }, {
+local rok, rsum = BrokerCore.process_batch("polyethylene", 1000, { LEGACY_CFG.machines[1] }, {
   component = mock.component,
   execute_hardware = true,
 })
@@ -340,7 +383,7 @@ mock = fresh_mock({
   network_items = { { name = CIRCUIT, damage = 14, label = "Programmed Circuit", size = 64 } },
 })
 local cmv = CircuitManager.new({
-  config = Config,
+  config = LEGACY_CFG,
   component = mock.component,
   descriptor_cache = {
     ensure_circuit = function() return true, 5 end,  -- pretend slot 5 is ready...

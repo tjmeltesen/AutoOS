@@ -324,3 +324,11 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `tests/array_watch_test.lua` and `tests/phase2_broker_test.lua`: added processing-complete edge/negative recovery tests and shared-interface recovery coverage.
 - Changed `README.md`: updated topology and Phase 3 language/diagram to reflect transposer + adapter watch mode, shared/per-lane recovery interface options, and processing-complete recovery semantics.
 - Desktop verification: `lua55 tests\array_watch_test.lua` (10/10 pass) and `lua55 tests\phase2_broker_test.lua` (62/62 pass).
+
+## 2026-06-15 — Transposer-only circuit recover (no OC me_interface)
+
+- Changed `subnet_broker/circuit_manager.lua`: `recover_circuit` always transfers bus→`recover_side` via transposer; OC `me_interface` proxy is optional and only used for `setInterfaceConfiguration` clear when `interface_address` / `shared_interface_address` is configured.
+- Changed `subnet_broker/config.lua`: default `interface_mode = "transposer"`; removed `interface_address` from machine template; validation no longer requires OC interface UUIDs for watch mode.
+- Changed `subnet_broker/diag.lua` and `subnet_broker/pre_p3_checklist.lua`: skip recover-interface UUID walk when `interface_mode` is `transposer`.
+- Changed `README.md`: document transposer-only recovery as default Array Watch topology.
+- Changed tests: transposer-only recover case in `phase2_broker_test.lua`; mock/test helpers synthesize legacy interface UUIDs for demoted dispatch tests only.

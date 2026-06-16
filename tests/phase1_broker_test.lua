@@ -63,17 +63,17 @@ check("duplicate id rejected", select(1, Config.validate(dup_cfg)) == nil)
 
 local miss_cfg = {
   database_address = "db",
-  machines = { { id = "a", gt_address = "1", interface_address = "i", transposer_address = "t", item_bus_side = 0 } },
+  machines = { { id = "a", gt_address = "1", transposer_address = "t" } },
   constraints = { recipe_baselines = { x = { fluid_requirement = 100, fluid_label = "Test Fluid" } } },
 }
 check("missing item_bus_side rejected", select(1, Config.validate(miss_cfg)) == nil)
 
-local miss_fluid = {
+local bad_side = {
   database_address = "db",
-  machines = { { id = "a", gt_address = "1", interface_address = "i", transposer_address = "t", pull_side = 0, push_side = 3 } },
+  machines = { { id = "a", gt_address = "1", transposer_address = "t", item_bus_side = 9 } },
   constraints = { recipe_baselines = { x = { fluid_requirement = 100, fluid_label = "Test Fluid" } } },
 }
-check("missing fluid_push_side rejected", select(1, Config.validate(miss_fluid)) == nil)
+check("invalid item_bus_side rejected", select(1, Config.validate(bad_side)) == nil)
 
 check("total_operations 15000/1440 = 10", LoadBalancer.total_operations(15000, 1440) == 10)
 
@@ -89,7 +89,7 @@ local list_d = ops_in_order(pool3, 14400, 1440)
 check("14400L/1440/3 lanes → 4,3,3", lists_equal(list_d, { 4, 3, 3 }), table.concat(list_d or {}, ","))
 
 local map_a = LoadBalancer.calculate_distribution(pool4, 15000, 1440)
-check("allocation has interface_address", map_a and map_a.machine_01 and map_a.machine_01.interface_address ~= nil)
+check("allocation has transposer_address", map_a and map_a.machine_01 and map_a.machine_01.transposer_address ~= nil)
 
 check("empty pool error", select(1, LoadBalancer.calculate_distribution({}, 15000, 1440)) == nil)
 check("short batch error", select(1, LoadBalancer.calculate_distribution(pool4, 500, 1440)) == nil)

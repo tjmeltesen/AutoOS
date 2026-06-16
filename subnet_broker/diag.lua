@@ -44,9 +44,12 @@ package.path = here .. sep .. "?.lua;" .. package.path
 
 local Config = require("config")
 local LoadBalancer = require("demoted.load_balancer")
-local interface_mode = Config.interface_mode or "per_lane"
+local interface_mode = Config.interface_mode or "transposer"
 
 local function recover_interface_address(machine_row)
+  if interface_mode == "transposer" then
+    return nil
+  end
   if interface_mode == "shared" then
     return Config.shared_interface_address
   end
@@ -91,8 +94,12 @@ if component_api and next(component_addrs) then
     print(string.format("[AutoOS] %s gt_address %s %s",
       m.id, m.gt_address, type_label(component_addrs[m.gt_address])))
     local iface_addr = recover_interface_address(m)
-    print(string.format("[AutoOS] %s recover_interface %s %s",
-      m.id, tostring(iface_addr), type_label(component_addrs[iface_addr])))
+    if iface_addr and iface_addr ~= "" then
+      print(string.format("[AutoOS] %s recover_interface (optional OC) %s %s",
+        m.id, tostring(iface_addr), type_label(component_addrs[iface_addr])))
+    else
+      print(string.format("[AutoOS] %s recover: transposer-only (no OC me_interface)", m.id))
+    end
     print(string.format("[AutoOS] %s transposer_address %s %s",
       m.id, m.transposer_address, type_label(component_addrs[m.transposer_address])))
   end

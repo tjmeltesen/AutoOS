@@ -39,6 +39,10 @@ local BrokerCore = {}
 local _deps = {}
 local _shared_descriptor_cache = nil
 
+local function active_config()
+  return _deps.config or config
+end
+
 function BrokerCore.set_deps(deps)
   _deps = deps or {}
   if deps.descriptor_cache then
@@ -62,9 +66,10 @@ local function get_component(opts)
 end
 
 local function recipe_rules(recipe_key)
-  return config.constraints
-    and config.constraints.recipe_baselines
-    and config.constraints.recipe_baselines[recipe_key]
+  local cfg = active_config()
+  return cfg.constraints
+    and cfg.constraints.recipe_baselines
+    and cfg.constraints.recipe_baselines[recipe_key]
 end
 
 local function lane_is_idle(st)
@@ -80,7 +85,7 @@ local function build_idle_pool(poll, poll_results)
   end
   poll_results = poll_results or {}
   local pool = {}
-  for _, machine in ipairs(config.machines) do
+  for _, machine in ipairs(active_config().machines) do
     if lane_is_idle(poll_results[machine.id]) then
       pool[#pool + 1] = machine
     end
@@ -89,7 +94,7 @@ local function build_idle_pool(poll, poll_results)
 end
 
 local function find_machine_row(machine_id)
-  for _, m in ipairs(config.machines) do
+  for _, m in ipairs(active_config().machines) do
     if m.id == machine_id then return m end
   end
   return nil
@@ -102,7 +107,7 @@ local function get_machine_poll(opts)
   if component then
     local ok, MachinePoll = pcall(require, "machine_poll")
     if ok then
-      return MachinePoll.new({ config = config, component = component })
+      return MachinePoll.new({ config = active_config(), component = component })
     end
   end
   return nil
@@ -114,7 +119,7 @@ local function get_descriptor_cache(opts, component)
   if _shared_descriptor_cache then return _shared_descriptor_cache end
   component = component or get_component(opts)
   if component then
-    _shared_descriptor_cache = DescriptorCache.new({ config = config, component = component })
+    _shared_descriptor_cache = DescriptorCache.new({ config = active_config(), component = component })
     return _shared_descriptor_cache
   end
   return nil
@@ -128,7 +133,7 @@ local function get_circuit_manager(opts, component)
     local ok, CircuitManager = pcall(require, "circuit_manager")
     if ok then
       return CircuitManager.new({
-        config = config,
+        config = active_config(),
         component = component,
         descriptor_cache = get_descriptor_cache(opts, component),
       })
@@ -159,7 +164,7 @@ function BrokerCore.execute_lane(machine_row, allocation, recipe_key, component,
     return false, "no recipe baseline for " .. tostring(recipe_key)
   end
 
-  local db = config.database_address
+  local db = active_config().database_address
   if not db or db == "" then
     return false, "database_address not configured"
   end
@@ -272,10 +277,10 @@ end
 local function resolve_active_pool(opts)
   local poll = get_machine_poll(opts)
   if not poll then
-    return config.machines
+    return active_config().machines
   end
   local poll_results = opts.poll_results or poll:poll_all()
-  for _, machine in ipairs(config.machines) do
+  for _, machine in ipairs(active_config().machines) do
     local st = poll_results[machine.id]
     if st and st.available and not st.healthy then
       print(string.format(
@@ -299,7 +304,7 @@ end
 function BrokerCore.process_batch(recipe_key, current_buffer_volume, active_pool, opts)
   opts = opts or {}
 
-  print(string.format("\n[AutoOS] Subnet '%s' Initializing lane dispatch...", config.subnet_id))
+  print(string.format("\n[AutoOS] Subnet '%s' Initializing lane dispatch...", active_config().subnet_id))
 
   local rules = recipe_rules(recipe_key)
   if not rules or not rules.fluid_requirement then
@@ -413,7 +418,7 @@ local function resolve_job_pool(job, jobs, base_pool, claimed, only_idle, poll_r
       end
       return pool
     end
-    for _, m in ipairs(config.machines) do
+    for _, m in ipairs(active_config().machines) do
       if not claimed[m.id] and row_in_pool(m, base_pool) then
         pool[#pool + 1] = m
       end
@@ -421,7 +426,7 @@ local function resolve_job_pool(job, jobs, base_pool, claimed, only_idle, poll_r
     return pool
   end
 
-  for _, m in ipairs(config.machines) do
+  for _, m in ipairs(active_config().machines) do
     if want[m.id] and not claimed[m.id] and row_in_pool(m, base_pool) then
       pool[#pool + 1] = m
     elseif want[m.id] and only_idle then
@@ -462,7 +467,7 @@ local function partition_auto_lanes(jobs, base_pool)
   if #auto_indices <= 1 then return slices end
 
   local free = {}
-  for _, m in ipairs(config.machines) do
+  for _, m in ipairs(active_config().machines) do
     if row_in_pool(m, base_pool) then free[#free + 1] = m end
   end
 
@@ -500,7 +505,7 @@ function BrokerCore.process_multi(jobs, opts)
   if interleave == nil then interleave = true end
 
   print(string.format("\n[AutoOS] Subnet '%s' Initializing multi-recipe dispatch (%d job(s))...",
-    config.subnet_id, #jobs))
+    active_config().subnet_id, #jobs))
 
   local poll = get_machine_poll(opts)
   local poll_results = opts.poll_results
@@ -514,7 +519,7 @@ function BrokerCore.process_multi(jobs, opts)
       and build_idle_pool(poll, poll_results)
       or poll:build_active_pool(poll_results)
   else
-    base_pool = config.machines
+    base_pool = active_config().machines
   end
 
   if #base_pool == 0 then
