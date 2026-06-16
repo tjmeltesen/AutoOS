@@ -4,6 +4,10 @@
   Run from OC shell:
     loadfile("/home/subnet_broker/diag.lua")()
 
+  Transposer wiring probe (which face touches bus / ME):
+    loadfile("/home/subnet_broker/probe_transposer.lua")()
+    loadfile("/home/subnet_broker/probe_transposer.lua")("machine_01")
+
   Checks, in order:
     1. Config validation
     2. Every configured UUID is on the OC network with the right type
@@ -15,13 +19,9 @@
     CIRCUIT_TEST_LANE = "machine_01"
     CIRCUIT_TEST_RECOVER = true   -- sweep circuit back after push+fluid
 
-  REPL recover debug (paste in OC shell):
+  REPL recover (after probe_transposer sets sides):
+    package.loaded["circuit_manager"] = nil
     local C = require("circuit_manager").new({ config = require("config"), component = require("component") })
-    local cfg = require("config").machines[1]
-    for _, h in ipairs(C:scan_transposer("machine_01") or {}) do
-      print(string.format("circuit side %d slot %d dmg %s", h.side, h.slot, tostring(h.damage)))
-    end
-    print("item_bus_side", cfg.item_bus_side, "recover_side", cfg.recover_side)
     local ok, err = C:recover_circuit("machine_01", nil)
     print("recover", ok, err or "")
 

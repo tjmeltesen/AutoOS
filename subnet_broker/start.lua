@@ -21,6 +21,7 @@
     wget -f .../subnet_broker/demoted/broker_core.lua /home/subnet_broker/demoted/broker_core.lua    -- optional legacy/manual
     wget -f .../subnet_broker/demoted/load_balancer.lua /home/subnet_broker/demoted/load_balancer.lua  -- optional legacy/manual
     wget -f .../subnet_broker/demoted/fluid_lane.lua /home/subnet_broker/demoted/fluid_lane.lua        -- optional legacy/manual
+    wget -f .../subnet_broker/probe_transposer.lua /home/subnet_broker/probe_transposer.lua
     wget -f .../subnet_broker/diag.lua /home/subnet_broker/diag.lua
     wget -f .../subnet_broker/test.lua /home/subnet_broker/test.lua
     wget -f .../subnet_broker/pre_p3_checklist.lua /home/subnet_broker/pre_p3_checklist.lua

@@ -338,3 +338,8 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/circuit_manager.lua`: `scan_transposer()` for REPL side scan; wrong-side hint when circuit not on `item_bus_side`; retry dest slots 1/auto; normalize `transferItem` return values.
 - Changed `subnet_broker/config.lua`: default `recover_slot = 1`.
 - Changed `subnet_broker/diag.lua`: REPL recover debug snippet in header.
+
+## 2026-06-15 — probe_transposer.lua (in-game face map)
+
+- Added `subnet_broker/probe_transposer.lua`: maps all transposer faces (items + fluid), flags config sides, suggests recover_side candidate.
+- Changed `subnet_broker/start.lua` and `subnet_broker/diag.lua`: document probe entry points.
