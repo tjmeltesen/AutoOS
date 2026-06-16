@@ -4,7 +4,7 @@
   Seeds from config baselines, grows via AE pattern scan, persists uids.
 ]]
 
-local RegistryStore = require("registry_store")
+local RegistryStore = require("demoted.registry_store")
 
 local BrokerRegistry = {}
 BrokerRegistry.__index = BrokerRegistry

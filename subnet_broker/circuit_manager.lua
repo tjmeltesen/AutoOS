@@ -1,12 +1,11 @@
 --[[
-  AutoOS — Circuit Manager (1:1:1 lane topology)
+  AutoOS — Circuit Manager (Array Watch topology + legacy dispatch)
 
   Push and recover programmed integrated circuits per lane:
     ME interface item stocking → transposer transferItem → clear interface.
 
-  Circuits are non-consumable: push before the batch, recover after the
-  machine finishes. Pushing is idempotent — if the right circuit is already
-  on the bus the push is skipped; a different circuit is a hard error.
+  Production path is recover-only (Array Watch): recover after machine finishes.
+  push_circuit is kept for legacy/demoted dispatch tooling.
 
   References: references/OC-GTNH-docs-main/docs/components/me_interface.lua
 ]]
@@ -87,6 +86,14 @@ function CircuitManager:_transfer_with_retries(tp, from_side, to_side, from_slot
   return 0
 end
 
+function CircuitManager:_resolve_recover_interface_address(machine)
+  local mode = self.config.interface_mode or "per_lane"
+  if mode == "shared" then
+    return self.config.shared_interface_address
+  end
+  return machine.interface_address
+end
+
 --- Stock a circuit from subnet ME and move it onto the machine input bus.
 ---@param machine_id string
 ---@param circuit_damage integer
@@ -109,6 +116,9 @@ function CircuitManager:push_circuit(machine_id, circuit_damage)
     )
   end
 
+  if not machine.interface_address or machine.interface_address == "" then
+    return false, "push_circuit requires machines[].interface_address"
+  end
   local iface, if_err = HW.require_proxy(self.component, "me_interface", machine.interface_address, "me_interface")
   if not iface then return false, if_err end
   if not iface.setInterfaceConfiguration then
@@ -211,15 +221,20 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
     return false, "unknown machine_id " .. tostring(machine_id)
   end
 
-  local iface, if_err = HW.require_proxy(self.component, "me_interface", machine.interface_address, "me_interface")
+  local iface_addr = self:_resolve_recover_interface_address(machine)
+  if not iface_addr or iface_addr == "" then
+    return false, "recover interface address not configured (per_lane: interface_address, shared: shared_interface_address)"
+  end
+
+  local iface, if_err = HW.require_proxy(self.component, "me_interface", iface_addr, "me_interface")
   if not iface then return false, if_err end
 
   local tp, tp_err = HW.require_proxy(self.component, "transposer", machine.transposer_address, "transposer")
   if not tp then return false, tp_err end
 
-  local iface_side = LaneSides.interface_item_side(machine)
+  local iface_side = LaneSides.recover_side(machine)
   local bus_side = LaneSides.item_bus_side(machine)
-  local iface_slot = machine.interface_item_slot or 1
+  local iface_slot = LaneSides.recover_slot(machine)
 
   local bus_slot = self:_find_circuit_on_side(tp, bus_side, circuit_damage)
   if not bus_slot and circuit_damage then
@@ -238,7 +253,7 @@ function CircuitManager:recover_circuit(machine_id, circuit_damage)
   end
 
   -- Return the circuit from the interface buffer to subnet ME (matches push clear).
-  if iface.setInterfaceConfiguration then
+  if self.config.recover_clear_interface ~= false and iface.setInterfaceConfiguration then
     pcall(iface.setInterfaceConfiguration, iface_slot)
   end
   HW.sleep(STOCK_WAIT_SLEEP)

@@ -2,14 +2,11 @@
   AutoOS Orchestrator OC — boot helper
 
   Deploy ALL of these to /home/orchestrator/ on the manager PC (wget from orchestrator/ in the repo):
-    network_protocols.lua  hw.lua  orchestrator_config.lua
-    registry_store.lua  ae_recipe_registry.lua  recipe_scanner.lua
-    main_net_cache.lua  craft_resolver.lua  main_net_craft.lua
+    network_protocols.lua  orchestrator_config.lua
     orchestrator.lua  orchestrator_main.lua  start.lua
 
   Edit orchestrator_config.lua:
-    me_address      — main net ME controller/interface UUID
-    broker_address  — subnet broker OC modem (or "" to learn)
+    broker_address  — broker OC modem address for health telemetry
 ]]
 
 local sep = package.config:sub(1, 1)
@@ -17,9 +14,7 @@ local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/orchestra
 package.path = here .. sep .. "?.lua;" .. package.path
 
 local REQUIRED = {
-  "network_protocols.lua", "hw.lua", "orchestrator_config.lua",
-  "registry_store.lua", "ae_recipe_registry.lua", "recipe_scanner.lua",
-  "main_net_cache.lua", "craft_resolver.lua", "main_net_craft.lua",
+  "network_protocols.lua", "orchestrator_config.lua",
   "orchestrator.lua", "orchestrator_main.lua",
 }
 
@@ -35,32 +30,18 @@ if #missing > 0 then
 end
 
 local Config = require("orchestrator_config")
-local Registry = require("ae_recipe_registry")
-
 local ok, err = Config.validate(Config)
 if ok then
-  print("[AutoOS] Orchestrator config: OK — main net, subnet '" .. tostring(Config.subnet_id) .. "'")
+  print("[AutoOS] Orchestrator config: OK — telemetry subnet '" .. tostring(Config.subnet_id) .. "'")
 else
   print("[AutoOS] Orchestrator config FAILED: " .. tostring(err))
-end
-
-local registry = Registry.new({ config = Config })
-local seeded, seed_err = registry:seed_from_config()
-if seeded then
-  print("[AutoOS] Recipe registry seeded:")
-  for key, row in pairs(registry.entries) do
-    print(string.format("   uid=%-5d %-22s circuit=%s fluid=%s",
-      row.recipe_uid, key, tostring(row.circuit_damage), tostring(row.fluid_label)))
-  end
-else
-  print("[AutoOS] Registry seed FAILED: " .. tostring(seed_err))
 end
 
 print("[AutoOS] Orchestrator loaded. Usage:")
 print("  Modem test:  lua modem_info.lua")
 print("               lua modem_listen.lua   (broker runs listen first)")
 print("               lua modem_ping.lua")
-print("  Start loop:  lua orchestrator_main.lua")
+print("  Start loop:  lua orchestrator_main.lua   (health aggregator)")
 print("  Or:          loadfile('" .. here .. "/orchestrator_main.lua')().run()")
 
 return Config

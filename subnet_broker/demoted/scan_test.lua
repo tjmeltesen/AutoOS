@@ -13,8 +13,8 @@ package.path = here .. sep .. "?.lua;" .. package.path
 
 local component = require("component")
 local Config = require("config")
-local BrokerRegistry = require("broker_registry")
-local RecipeScanner = require("recipe_scanner")
+local BrokerRegistry = require("demoted.broker_registry")
+local RecipeScanner = require("demoted.recipe_scanner")
 
 if not Config.subnet_me_address or Config.subnet_me_address == "" then
   print("[scan_test] set subnet_me_address in config.lua")

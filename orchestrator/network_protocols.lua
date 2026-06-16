@@ -5,15 +5,9 @@
   safe to require on either OC and in desktop tests.
 
   Message kinds (field order matters):
-    DISPATCH_JOB |job_id|recipe_uid|recipe_key|volume_mB|subnet_id|mode
-    BROKER_STATUS|subnet_id|job_id|phase|detail
+    BROKER_HEALTH|subnet_id|machine_id|state|detail
     BROKER_EVENT |subnet_id|event|label|volume|job_id
-    CRAFT_ACK    |job_id|subnet_id
-    CRAFT_DONE   |job_id|subnet_id
-    CRAFT_FAIL   |job_id|subnet_id|detail
-    TRIGGER_CRAFT|job_id|me_label|volume_mB|subnet_id
-    SUBNET_DELIVERY|subnet_id|job_id|recipe_uid|recipe_key|volume_mB|source
-    DELIVERY_ACK |job_id|subnet_id
+    (legacy/compat) DISPATCH_JOB / SUBNET_DELIVERY / BROKER_STATUS / CRAFT_*
 
   Deploy: copy this file into BOTH /home/orchestrator and /home/subnet_broker
   (each OC requires it locally as "network_protocols").
@@ -24,6 +18,7 @@ local Protocols = {}
 Protocols.PORT_DEFAULT = 105
 
 Protocols.KIND = {
+  BROKER_HEALTH = "BROKER_HEALTH",
   DISPATCH_JOB = "DISPATCH_JOB",
   BROKER_STATUS = "BROKER_STATUS",
   BROKER_EVENT = "BROKER_EVENT",
@@ -48,6 +43,9 @@ Protocols.EVENT = {
   DISPATCH_START = "dispatch_start",
   JOB_COMPLETE = "job_complete",
   JOB_FAILED = "job_failed",
+  CIRCUIT_RECOVERED = "circuit_recovered",
+  CIRCUIT_RECOVER_FAILED = "circuit_recover_failed",
+  MACHINE_FAULT = "machine_fault",
 }
 
 Protocols.MODE = { BATCH = "batch", MULTI = "multi" }
@@ -73,6 +71,12 @@ local function split(message)
 end
 
 -- Encoders --------------------------------------------------------------------
+
+function Protocols.broker_health(subnet_id, machine_id, state, detail)
+  return table.concat({
+    Protocols.KIND.BROKER_HEALTH, clean(subnet_id), clean(machine_id), clean(state), clean(detail),
+  }, "|")
+end
 
 function Protocols.dispatch_job(job_id, recipe_uid, recipe_key, volume_mB, subnet_id, mode)
   return table.concat({
@@ -136,7 +140,11 @@ function Protocols.parse(message)
   local kind = p[1]
   local K = Protocols.KIND
 
-  if kind == K.DISPATCH_JOB then
+  if kind == K.BROKER_HEALTH then
+    return {
+      kind = kind, subnet_id = p[2], machine_id = p[3], state = p[4], detail = p[5],
+    }
+  elseif kind == K.DISPATCH_JOB then
     return {
       kind = kind, job_id = p[2], recipe_uid = tonumber(p[3]),
       recipe_key = p[4], volume_mB = tonumber(p[5]) or 0,

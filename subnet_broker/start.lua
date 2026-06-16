@@ -1,31 +1,26 @@
 --[[
   AutoOS Subnet Broker — in-game boot helper
 
-  HDD layout:
+  HDD layout (array watch mode):
     /home/subnet_broker/
-      config.lua, hw.lua, lane_sides.lua, load_balancer.lua,
-      maintenance_parse.lua, machine_poll.lua, descriptor_cache.lua,
-      fluid_lane.lua, circuit_manager.lua, broker_core.lua,
-      network_protocols.lua, broker_main.lua,
+      config.lua, hw.lua, lane_sides.lua, maintenance_parse.lua,
+      machine_poll.lua, descriptor_cache.lua, circuit_manager.lua,
+      array_watch.lua, network_protocols.lua, broker_main.lua,
       start.lua, diag.lua, test.lua, pre_p3_checklist.lua
 
   Deploy via floppy/USB or wget raw URLs (do NOT wget the HTML repo page):
     wget -f .../subnet_broker/config.lua /home/subnet_broker/config.lua
     wget -f .../subnet_broker/hw.lua /home/subnet_broker/hw.lua
     wget -f .../subnet_broker/lane_sides.lua /home/subnet_broker/lane_sides.lua
-    wget -f .../subnet_broker/load_balancer.lua /home/subnet_broker/load_balancer.lua
     wget -f .../subnet_broker/maintenance_parse.lua /home/subnet_broker/maintenance_parse.lua
     wget -f .../subnet_broker/machine_poll.lua /home/subnet_broker/machine_poll.lua
     wget -f .../subnet_broker/descriptor_cache.lua /home/subnet_broker/descriptor_cache.lua
-    wget -f .../subnet_broker/fluid_lane.lua /home/subnet_broker/fluid_lane.lua
     wget -f .../subnet_broker/circuit_manager.lua /home/subnet_broker/circuit_manager.lua
-    wget -f .../subnet_broker/broker_core.lua /home/subnet_broker/broker_core.lua
     wget -f .../subnet_broker/network_protocols.lua /home/subnet_broker/network_protocols.lua
-    wget -f .../subnet_broker/broker_registry.lua /home/subnet_broker/broker_registry.lua
-    wget -f .../subnet_broker/registry_store.lua /home/subnet_broker/registry_store.lua
-    wget -f .../subnet_broker/recipe_scanner.lua /home/subnet_broker/recipe_scanner.lua
-    wget -f .../subnet_broker/craft_resolver.lua /home/subnet_broker/craft_resolver.lua
-    wget -f .../subnet_broker/subnet_cache.lua /home/subnet_broker/subnet_cache.lua
+    wget -f .../subnet_broker/array_watch.lua /home/subnet_broker/array_watch.lua
+    wget -f .../subnet_broker/demoted/broker_core.lua /home/subnet_broker/demoted/broker_core.lua    -- optional legacy/manual
+    wget -f .../subnet_broker/demoted/load_balancer.lua /home/subnet_broker/demoted/load_balancer.lua  -- optional legacy/manual
+    wget -f .../subnet_broker/demoted/fluid_lane.lua /home/subnet_broker/demoted/fluid_lane.lua        -- optional legacy/manual
     wget -f .../subnet_broker/diag.lua /home/subnet_broker/diag.lua
     wget -f .../subnet_broker/test.lua /home/subnet_broker/test.lua
     wget -f .../subnet_broker/pre_p3_checklist.lua /home/subnet_broker/pre_p3_checklist.lua
@@ -42,8 +37,7 @@ local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_br
 package.path = here .. sep .. "?.lua;" .. package.path
 
 local P3_REQUIRED = {
-  "subnet_cache.lua", "broker_registry.lua", "craft_resolver.lua",
-  "registry_store.lua", "recipe_scanner.lua",
+  "array_watch.lua", "machine_poll.lua", "circuit_manager.lua",
   "network_protocols.lua", "broker_main.lua",
 }
 local missing = {}
@@ -57,8 +51,6 @@ if #missing > 0 then
 end
 
 local Config = require("config")
-local BrokerCore = require("broker_core")
-
 local ok, err = Config.validate(Config)
 if ok then
   print("[AutoOS] Config validate: OK — subnet '" .. tostring(Config.subnet_id) .. "'")
@@ -73,13 +65,13 @@ print("               lua modem_ping.lua")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
 print("  Full lines:  loadfile('" .. here .. "/test.lua')()")
 print("  Pre-P3 gate: loadfile('" .. here .. "/pre_p3_checklist.lua')()")
-print("  P3 broker:   lua broker_main.lua   (watches subnet ME + AE pattern scan)")
-print("  P3 orch:     lua orchestrator_main.lua   (coordinator — listens for broker)")
-print("  One lane:    require('broker_core').manual_lane_test('machine_01', 'polyethylene', 1000)")
-print("  Full batch:  require('broker_core').process_batch('polyethylene', 3000)")
-print("  Multi jobs:  require('broker_core').process_multi({")
+print("  Watch loop:  lua broker_main.lua   (health + circuit recover only)")
+print("  Orchestrator lua orchestrator_main.lua   (aggregates broker telemetry)")
+print("  One lane:    require('demoted.broker_core').manual_lane_test('machine_01', 'polyethylene', 1000)")
+print("  Full batch:  require('demoted.broker_core').process_batch('polyethylene', 3000)   -- legacy/manual")
+print("  Multi jobs:  require('demoted.broker_core').process_multi({")
 print("                 { recipe='polyethylene', volume=2000, lanes={'machine_01','machine_02'} },")
 print("                 { recipe='molten_soldering_alloy', volume=2880, lanes={'machine_03','machine_04'} },")
 print("               })")
 
-return BrokerCore
+return Config

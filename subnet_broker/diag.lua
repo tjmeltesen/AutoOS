@@ -1,5 +1,5 @@
 --[[
-  AutoOS Subnet Broker — in-game diagnostic (1:1:1 lane topology)
+  AutoOS Subnet Broker — in-game diagnostic (Array Watch topology)
 
   Run from OC shell:
     loadfile("/home/subnet_broker/diag.lua")()
@@ -16,14 +16,14 @@
     CIRCUIT_TEST_RECOVER = true   -- sweep circuit back after push+fluid
 
   REPL one-liners:
-    local B = require("broker_core")
+    local B = require("demoted.broker_core")
     B.manual_lane_test("machine_01", "polyethylene", 1000, { recover_circuits = true })
     local C = require("circuit_manager").new({ config = require("config"), component = require("component") })
     C:push_circuit("machine_01", 18)
     C:recover_circuit("machine_01", 18)
 
   Fluid probe (mB visible per transposer face):
-    local F = require("fluid_lane")
+    local F = require("demoted.fluid_lane")
     local tp = require("component").proxy(require("config").machines[1].transposer_address)
     print(F.transposer_tank_summary(tp))
 
@@ -43,7 +43,15 @@ local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_br
 package.path = here .. sep .. "?.lua;" .. package.path
 
 local Config = require("config")
-local LoadBalancer = require("load_balancer")
+local LoadBalancer = require("demoted.load_balancer")
+local interface_mode = Config.interface_mode or "per_lane"
+
+local function recover_interface_address(machine_row)
+  if interface_mode == "shared" then
+    return Config.shared_interface_address
+  end
+  return machine_row.interface_address
+end
 
 local all_pass = true
 local warn = false
@@ -82,8 +90,9 @@ if component_api and next(component_addrs) then
   for _, m in ipairs(Config.machines) do
     print(string.format("[AutoOS] %s gt_address %s %s",
       m.id, m.gt_address, type_label(component_addrs[m.gt_address])))
-    print(string.format("[AutoOS] %s interface_address %s %s",
-      m.id, m.interface_address, type_label(component_addrs[m.interface_address])))
+    local iface_addr = recover_interface_address(m)
+    print(string.format("[AutoOS] %s recover_interface %s %s",
+      m.id, tostring(iface_addr), type_label(component_addrs[iface_addr])))
     print(string.format("[AutoOS] %s transposer_address %s %s",
       m.id, m.transposer_address, type_label(component_addrs[m.transposer_address])))
   end
@@ -124,7 +133,7 @@ end
 if component_api then
   pcall(function()
     local m = Config.machines[1]
-    local iface = component_api.proxy(m.interface_address)
+    local iface = component_api.proxy(recover_interface_address(m))
     if iface and iface.getItemsInNetwork then
       local drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop" })
       local n = type(drops) == "table" and #drops or 0
@@ -195,7 +204,7 @@ if CIRCUIT_TEST_LANE and component_api then
     "[AutoOS] CIRCUIT TEST lane=%s recipe=%s volume=%d recover=%s",
     CIRCUIT_TEST_LANE, CIRCUIT_TEST_RECIPE, CIRCUIT_TEST_VOLUME, tostring(CIRCUIT_TEST_RECOVER)))
   local ok_test, test_err = pcall(function()
-    local BrokerCore = require("broker_core")
+    local BrokerCore = require("demoted.broker_core")
     local ok_lane, lane_err = BrokerCore.manual_lane_test(
       CIRCUIT_TEST_LANE,
       CIRCUIT_TEST_RECIPE,

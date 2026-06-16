@@ -297,3 +297,30 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/recipe_scanner.lua`, `orchestrator/recipe_scanner.lua`: guard nil `me` in `collect_seed_labels` and `scan()` (no crash when proxy missing)
 - Changed `subnet_broker/broker_main.lua`: fail fast with component-list hint when `subnet_me_address` proxy is nil
 - Added `subnet_broker/scan_test.lua`: one-shot in-game pattern scan test (`lua scan_test.lua`)
+
+## 2026-06-15 — Architectural revision: Array Watch mode
+
+- Added `subnet_broker/array_watch.lua`: broker runtime loop for lane health monitoring, maintenance shutdown, idle-edge circuit recovery, and telemetry emit.
+- Replaced `subnet_broker/broker_main.lua`: production path is now watch-only (no recipe dispatch, no subnet scanner, no `process_batch` orchestration).
+- Changed `shared/network_protocols.lua` and deploy copies (`orchestrator/network_protocols.lua`, `subnet_broker/network_protocols.lua`): added `BROKER_HEALTH` and new broker event enums for fault/recovery.
+- Replaced `orchestrator/orchestrator.lua`, `orchestrator/orchestrator_main.lua`, `orchestrator/orchestrator_config.lua`: orchestrator is now a broker health aggregator (no recipe registry or main-net scan loop).
+- Changed `subnet_broker/config.lua`: slim validation for watch mode (machine + side wiring focused); recipe baselines are now optional legacy settings.
+- Changed boot helpers `subnet_broker/start.lua` and `orchestrator/start.lua`: deploy/required-file lists and usage updated for watch architecture.
+- Changed `README.md` Phase 3 section: replaced dispatch flow with Array Watch topology and health protocol description.
+
+## 2026-06-15 — Demoted modules moved out of primary folders
+
+- Moved legacy subnet-dispatch modules into `subnet_broker/demoted/`: `broker_core.lua`, `load_balancer.lua`, `fluid_lane.lua`, `recipe_scanner.lua`, `broker_registry.lua`, `registry_store.lua`, `craft_resolver.lua`, `subnet_cache.lua`, `scan_test.lua`.
+- Moved legacy orchestrator recipe modules into `orchestrator/demoted/`: `ae_recipe_registry.lua`, `registry_store.lua`, `recipe_scanner.lua`, `main_net_cache.lua`, `craft_resolver.lua`, `main_net_craft.lua`.
+- Updated legacy/manual callers (`subnet_broker/diag.lua`, `subnet_broker/test.lua`, `subnet_broker/pre_p3_checklist.lua`, and phase tests) to require `demoted.*` module paths.
+- Updated `subnet_broker/start.lua` legacy wget examples to point at `subnet_broker/demoted/*`.
+
+## 2026-06-15 — Transposer-only watch topology + processing-complete recovery
+
+- Changed `subnet_broker/config.lua`: added `interface_mode` (`per_lane`/`shared`), `shared_interface_address`, and recovery-focused validation; slimmed machine template fields for watch mode while keeping legacy constraints for demoted dispatch/tests.
+- Changed `subnet_broker/lane_sides.lua` and `subnet_broker/circuit_manager.lua`: added `recover_side`/`recover_slot` aliases and shared-interface-aware recovery path (`recover_circuit` resolves per-lane or shared ME interface).
+- Changed `subnet_broker/array_watch.lua` and `subnet_broker/machine_poll.lua`: recovery now triggers on `isMachineActive` falling edge (processing complete), not generic idle; poll now includes optional progress fields.
+- Changed `subnet_broker/diag.lua` and `subnet_broker/pre_p3_checklist.lua`: topology checks now validate recovery interface by mode (`per_lane` or `shared`) and use resolved interface for subnet visibility checks.
+- Changed `tests/array_watch_test.lua` and `tests/phase2_broker_test.lua`: added processing-complete edge/negative recovery tests and shared-interface recovery coverage.
+- Changed `README.md`: updated topology and Phase 3 language/diagram to reflect transposer + adapter watch mode, shared/per-lane recovery interface options, and processing-complete recovery semantics.
+- Desktop verification: `lua55 tests\array_watch_test.lua` (10/10 pass) and `lua55 tests\phase2_broker_test.lua` (62/62 pass).

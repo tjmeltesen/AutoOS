@@ -41,10 +41,11 @@ package.loaded["load_balancer"] = nil
 package.loaded["circuit_manager"] = nil
 
 local Config = require("config")
-local LoadBalancer = require("load_balancer")
-local BrokerCore = require("broker_core")
+local LoadBalancer = require("demoted.load_balancer")
+local BrokerCore = require("demoted.broker_core")
 local MachinePoll = require("machine_poll")
 local LaneSides = require("lane_sides")
+local interface_mode = Config.interface_mode or "per_lane"
 
 local component_api
 pcall(function() component_api = require("component") end)
@@ -76,6 +77,13 @@ local function find_machine(id)
     if m.id == id then return m end
   end
   return nil
+end
+
+local function recover_interface_address(machine_row)
+  if interface_mode == "shared" then
+    return Config.shared_interface_address
+  end
+  return machine_row and machine_row.interface_address or nil
 end
 
 local function lane_is_idle(st)
@@ -167,11 +175,16 @@ else
   for addr, name in component_api.list() do addrs[addr] = name end
   local missing = 0
   for _, m in ipairs(Config.machines) do
-    for _, field in ipairs({ "gt_address", "interface_address", "transposer_address" }) do
+    for _, field in ipairs({ "gt_address", "transposer_address" }) do
       if not addrs[m[field]] then
         missing = missing + 1
         fail("G1 UUID " .. m.id .. " " .. field, "not on OC network")
       end
+    end
+    local iface_addr = recover_interface_address(m)
+    if not addrs[iface_addr] then
+      missing = missing + 1
+      fail("G1 UUID " .. m.id .. " recover_interface", "not on OC network")
     end
   end
   if not addrs[Config.database_address] then
@@ -182,7 +195,7 @@ else
 
   pcall(function()
     local m1 = Config.machines[1]
-    local iface = component_api.proxy(m1.interface_address)
+    local iface = component_api.proxy(recover_interface_address(m1))
     if iface and iface.getItemsInNetwork then
       local drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop" })
       local n = type(drops) == "table" and #drops or 0

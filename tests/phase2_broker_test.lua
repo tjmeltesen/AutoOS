@@ -17,11 +17,11 @@ package.path = table.concat({
 local Mock = require("mock_broker_hardware")
 local MaintenanceParse = require("maintenance_parse")
 local MachinePoll = require("machine_poll")
-local LoadBalancer = require("load_balancer")
+local LoadBalancer = require("demoted.load_balancer")
 local CircuitManager = require("circuit_manager")
 local DescriptorCache = require("descriptor_cache")
-local FluidLane = require("fluid_lane")
-local BrokerCore = require("broker_core")
+local FluidLane = require("demoted.fluid_lane")
+local BrokerCore = require("demoted.broker_core")
 local Config = require("config")
 
 local ESC = string.char(27)
@@ -107,6 +107,25 @@ local ok_rec, rec_err = cm:recover_circuit("machine_01", 14)
 check("recover_circuit ok", ok_rec == true, rec_err)
 check("bus empty after recover", mock.bus_stack("machine_01", 1) == nil)
 check("recover idempotent (empty bus)", cm:recover_circuit("machine_01", 14) == true)
+
+-- Shared recover interface mode: recover uses shared_interface_address.
+local shared_mock = fresh_mock()
+shared_mock.put_bus_stack("machine_01", 1, { name = CIRCUIT, damage = 14, size = 1 })
+local shared_cfg = {}
+for k, v in pairs(Config) do shared_cfg[k] = v end
+shared_cfg.interface_mode = "shared"
+shared_cfg.shared_interface_address = Config.machines[2].interface_address
+shared_cfg.machines = {}
+for i, m in ipairs(Config.machines) do
+  local row = {}
+  for k, v in pairs(m) do row[k] = v end
+  if i == 1 then row.interface_address = "broken-address" end
+  shared_cfg.machines[i] = row
+end
+local cm_shared = CircuitManager.new({ config = shared_cfg, component = shared_mock.component })
+local ok_shared, err_shared = cm_shared:recover_circuit("machine_01", 14)
+check("shared interface mode recover uses shared address", ok_shared == true, err_shared)
+check("shared mode clears bus", shared_mock.bus_stack("machine_01", 1) == nil)
 
 -- Wrong circuit recover: damage filter falls back to any circuit on bus.
 mock.put_bus_stack("machine_01", 1, { name = CIRCUIT, damage = 18, size = 1 })

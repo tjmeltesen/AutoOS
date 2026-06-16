@@ -27,9 +27,9 @@
 ]]
 
 local config = require("config")
-local balancer = require("load_balancer")
+local balancer = require("demoted.load_balancer")
 local DescriptorCache = require("descriptor_cache")
-local FluidLane = require("fluid_lane")
+local FluidLane = require("demoted.fluid_lane")
 local HW = require("hw")
 local LaneSides = require("lane_sides")
 local MachinePoll = require("machine_poll")

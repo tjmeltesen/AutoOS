@@ -41,7 +41,7 @@ package.loaded["machine_poll"] = nil
 package.loaded["broker_core"] = nil
 
 local Config = require("config")
-local BrokerCore = require("broker_core")
+local BrokerCore = require("demoted.broker_core")
 local MachinePoll = require("machine_poll")
 
 local component_api = require("component")

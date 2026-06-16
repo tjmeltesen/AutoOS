@@ -52,20 +52,20 @@ graph TD
 
 **Isolated Subnet Broker Nodes:** Micro-controllers physically dedicated to localized machine groupings. They operate entirely off immediate localized conditions and are decoupled from the core base infrastructure.
 
-### Architecture Revision Addendum: 1:1:1 Transposer Topology
+### Architecture Revision Addendum: Array Watch transposer topology
 
-The centralized fluid/item routing buffer, export bus, and circuit vault are **abandoned**. Each of exactly **four** multiblocks uses strict hardware isolation:
+The broker no longer does lane-level stocking. AE2 handles bulk input delivery directly to machine buses/hatches. Broker-side lane wiring is now focused on safety + recovery:
 
 
 | Per lane (multiblock) | Count | Role |
 | --------------------- | ----- | ---- |
-| **Subnet ME Interface** | 1 | OC adapter sets `setFluidInterfaceConfiguration` to pull exact quantized amounts from subnet storage into the interface buffer |
-| **OC Transposer** | 1 | Item path: `pull_side`→`push_side` (input bus). Fluid path: `fluid_pull_side`→`fluid_push_side` (fluid hatch) |
-| **gt_machine adapter** | 1 | Maintenance poll via `getSensorInformation()` — never used for routing |
+| **ME Interface (recover sink)** | per lane or shared | Receives recovered circuits from transposer after machine completes processing |
+| **OC Transposer** | 1 | Recovery path only: input bus side → recover interface side |
+| **gt_machine adapter** | 1 | Maintenance poll via `getSensorInformation()` + `setWorkAllowed(false)` on fault |
 
-There is **no shared transposer, export bus, or circuit vault**. Circuits and solids arrive via AE2 patterns into subnet storage (not a separate vault). A four-machine array means four interfaces, four transposers, four `gt_machine` proxies.
+Use `interface_mode = "per_lane"` (one interface per machine) or `interface_mode = "shared"` (one dump interface for all lanes).
 
-The broker assigns **integer operation budgets per machine** (`load_balancer.lua`), then executes **one lane at a time** in pool order: configure interface → transposer transfer → clear interface.
+Recovery is triggered by processing completion (`isMachineActive` falling edge), not generic idle state.
 
 ---
 
@@ -136,19 +136,18 @@ Provides localized environmental context to the broker. This file is the only fi
 local Config = {
     subnet_id = "universal_chemical_mv_01",
     main_net_channel = 105,
-    database_address = "database-00a12",  -- shared OC database for fluid/item descriptors
+    interface_mode = "per_lane",  -- or "shared"
+    shared_interface_address = nil, -- required when interface_mode == "shared"
+    database_address = "database-00a12",  -- optional for watch mode; used by legacy dispatch
 
     machines = {
         {
             id = "machine_01",
             gt_address = "gt-uuid-01",
-            interface_address = "me-interface-uuid-01",
+            interface_address = "me-interface-uuid-01", -- per_lane mode
             transposer_address = "transposer-uuid-01",
-            pull_side = 0,        -- item: transposer side facing ME interface
-            push_side = 3,        -- item: transposer side facing input bus
-            fluid_pull_side = 0,  -- fluid: ME interface face (defaults to pull_side)
-            fluid_push_side = 2,  -- fluid: transposer side facing fluid hatch
-            interface_fluid_side = 1,  -- ME interface API face for fluid stocking
+            item_bus_side = 0,         -- transposer face touching GT input bus
+            recover_side = 1,          -- transposer face touching recover ME interface
         },
         -- machine_02 .. machine_04: same fields, unique UUIDs per lane
     },
@@ -434,56 +433,51 @@ Write two compliant Lua modules for an OpenComputers project named AutoOS runnin
 
 Write `subnet_broker/machine_poll.lua` and `subnet_broker/maintenance_parse.lua`. `machine_poll` must verify active multiblock maintenance flags via `gt_machine.getSensorInformation()` and drop faulted lanes from the active pool. Rewrite `broker_core.lua` for the **1:1:1 topology**: per-lane `component.proxy` of ME Interface and Transposer, `setFluidInterfaceConfiguration` → `transferFluid` → clear interface. No `circuit_manager` or centralized vault.
 
-### Phase 3 (Implemented) — Orchestrator OC + Broker OC (split nodes)
+### Phase 3 (Revised) — Array Watch mode
 
-Phase 3 splits the brain from the muscle across **two OpenComputers**:
+Phase 3 now keeps the two-OC topology, but removes OC-side recipe dispatch:
 
 | Computer | Home | Role |
 | -------- | ---- | ---- |
-| **Orchestrator OC** | `/home/orchestrator/` | Coordinator on modem port 105. Receives `SUBNET_DELIVERY` / `BROKER_STATUS` from broker; broadcasts events. Does not watch subnet ME or dispatch lanes. |
-| **Broker OC** | `/home/subnet_broker/` | Watches **subnet ME** for delivery deltas, resolves recipe (uid token or fluid fallback), notifies orchestrator, runs `process_batch`, replies status. |
+| **Orchestrator OC** | `/home/orchestrator/` | Aggregates broker telemetry and presents status. No recipe registry, no lane dispatch. |
+| **Broker OC** | `/home/subnet_broker/` | Per-array watcher. Polls machine health, shuts down faulted lanes, and recovers circuits from input buses when processing completes. |
 
 ```mermaid
-flowchart LR
-  subgraph orchOC [Orchestrator OC coordinator]
-    OrchFSM[orchestrator]
+flowchart TB
+  subgraph mainNet [Main AE2]
+    AE[Patterns + bulk crafts]
   end
-  subgraph brokerOC [Broker OC on subnet]
-    SubnetME[subnet_cache]
-    Resolver[craft_resolver]
-    BrokerMain[broker_main]
-    BrokerCore[broker_core]
-    Lanes[4 lanes]
+  subgraph array [Processing Array]
+    AE --> InputBuses[Input buses + fluids]
+    InputBuses --> GT[GT multiblocks]
+    RecoverIF[ME interface recover sink]
+    Broker[Broker OC]
+    Broker -->|poll| GT
+    Broker -->|recover circuit| RecoverIF
   end
-  SubnetNet[Subnet AE2 storage] --> SubnetME
-  SubnetME --> Resolver --> BrokerMain
-  BrokerMain -->|"modem: SUBNET_DELIVERY"| OrchFSM
-  BrokerMain -->|"modem: BROKER_STATUS"| OrchFSM
-  OrchFSM -->|"broadcast: BROKER_EVENT"| Listeners[Overseer / other PCs]
-  BrokerMain --> BrokerCore --> Lanes
+  subgraph coord [Orchestrator OC]
+    Orch[Health aggregator]
+  end
+  Broker -->|"modem: BROKER_HEALTH / BROKER_EVENT"| Orch
 ```
 
-Place AE crafting patterns on the **subnet** ME. The broker periodically scans
-`getCraftables` (filtered by fluids on the subnet + config seeds — never every
-tick) and grows `broker_registry` with auto-allocated `recipe_uid` values.
-`recipe_baselines` in config remain optional overrides for `fluid_requirement`,
-`circuit_damage`, and explicit uids. When fluid or craft-token (uid) lands in
-subnet storage, the broker detects the delta, resolves the recipe, tells the
-orchestrator, and runs the lanes.
+AE2 handles bulk stock/craft volume. OC logic is universal:
+
+1. Parse maintenance faults from `getSensorInformation()`
+2. Call `setWorkAllowed(false)` on faulted lanes
+3. On processing complete (`isMachineActive: true -> false`), recover circuit from input bus back to ME
+4. Emit broker health/event telemetry for operator display
 
 **Wire protocol** (`shared/network_protocols.lua`, copied into both OC homes):
 
 ```text
-SUBNET_DELIVERY|subnet_id|job_id|recipe_uid|recipe_key|volume_mB|source
-DELIVERY_ACK   |job_id|subnet_id
-DISPATCH_JOB   |job_id|recipe_uid|recipe_key|volume_mB|subnet_id|mode   (legacy / link_test)
-BROKER_STATUS|subnet_id|job_id|phase|detail     (dispatching|running|recovering|complete|failed)
-BROKER_EVENT |subnet_id|event|label|volume|job_id (dispatch_start|job_complete|job_failed)
-CRAFT_DONE / CRAFT_FAIL / TRIGGER_CRAFT
+BROKER_HEALTH|subnet_id|machine_id|state|detail
+BROKER_EVENT |subnet_id|event|label|volume|job_id
+  event: machine_fault | circuit_recovered | circuit_recover_failed | ...
 ```
 
-Boot: `loadfile('/home/orchestrator/orchestrator_main.lua')().run()` on the
-orchestrator; `require('broker_main').run()` on the broker.
+Boot: `lua /home/orchestrator/orchestrator_main.lua` on orchestrator and
+`lua /home/subnet_broker/broker_main.lua` on broker.
 
 ### Phase 4 Prompt (Macro Overseer Layer)
 

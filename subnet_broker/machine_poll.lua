@@ -44,6 +44,8 @@ function MachinePoll:poll_machine(machine_row)
     work_allowed = nil,
     active = false,
     has_work = false,
+    work_progress = 0,
+    work_max_progress = 0,
     sensor = {},
   }
 
@@ -62,6 +64,12 @@ function MachinePoll:poll_machine(machine_row)
   end
   if proxy.hasWork then
     status.has_work = proxy.hasWork() or false
+  end
+  if proxy.getWorkProgress then
+    status.work_progress = proxy.getWorkProgress() or 0
+  end
+  if proxy.getWorkMaxProgress then
+    status.work_max_progress = proxy.getWorkMaxProgress() or 0
   end
 
   local sensor = proxy.getSensorInformation and proxy.getSensorInformation() or {}

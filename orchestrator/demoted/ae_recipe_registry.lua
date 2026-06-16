@@ -16,7 +16,7 @@
   References: plan phase_3_orchestrator "Dynamic AE recipe registry"
 ]]
 
-local RegistryStore = require("registry_store")
+local RegistryStore = require("demoted.registry_store")
 
 local Registry = {}
 Registry.__index = Registry

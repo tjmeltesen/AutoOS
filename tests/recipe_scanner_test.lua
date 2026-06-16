@@ -15,9 +15,9 @@ package.path = table.concat({
   package.path,
 }, ";")
 
-local RecipeScanner = require("recipe_scanner")
-local BrokerRegistry = require("broker_registry")
-local Registry = require("ae_recipe_registry")
+local RecipeScanner = require("demoted.recipe_scanner")
+local BrokerRegistry = require("demoted.broker_registry")
+local Registry = require("demoted.ae_recipe_registry")
 local BrokerConfig = require("config")
 local OrchConfig = require("orchestrator_config")
 

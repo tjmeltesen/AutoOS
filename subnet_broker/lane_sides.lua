@@ -1,15 +1,15 @@
 --[[
-  AutoOS — Per-lane side helpers (1:1:1 topology)
+  AutoOS — Per-lane side helpers (Array Watch + legacy dispatch)
 
   Two distinct side systems:
     * Transposer faces (0-5 from the transposer's point of view):
-        interface_item_side  — face touching the ME interface (items)
+        recover_side         — face touching ME interface for circuit recovery
+        interface_item_side  — legacy alias used by demoted dispatch
         item_bus_side        — face touching the GT item input bus
-        fluid_pull_side      — face the stocked fluid is pulled from
-        fluid_push_side      — face touching the GT fluid input hatch
+        fluid_pull_side      — legacy dispatch: face stocked fluid is pulled from
+        fluid_push_side      — legacy dispatch: face touching GT fluid hatch
     * ME interface block faces (0-5 from the interface's point of view):
-        interface_fluid_side — face whose internal tank gets the fluid config
-          (interface above the transposer → its bottom face, 0)
+        interface_fluid_side — legacy dispatch-only fluid config face
 ]]
 
 local LaneSides = {}
@@ -19,6 +19,23 @@ local LaneSides = {}
 ---@return number
 function LaneSides.interface_item_side(m)
   if type(m.interface_item_side) == "number" then return m.interface_item_side end
+  return 1
+end
+
+--- Transposer face used to dump recovered circuits into ME interface.
+---@param m table
+---@return number
+function LaneSides.recover_side(m)
+  if type(m.recover_side) == "number" then return m.recover_side end
+  return LaneSides.interface_item_side(m)
+end
+
+--- Slot on recover side where recovered circuit is inserted.
+---@param m table
+---@return number
+function LaneSides.recover_slot(m)
+  if type(m.recover_slot) == "number" and m.recover_slot >= 1 then return m.recover_slot end
+  if type(m.interface_item_slot) == "number" and m.interface_item_slot >= 1 then return m.interface_item_slot end
   return 1
 end
 

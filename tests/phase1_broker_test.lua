@@ -14,8 +14,8 @@ package.path = table.concat({
 }, ";")
 
 local Config = require("config")
-local LoadBalancer = require("load_balancer")
-local BrokerCore = require("broker_core")
+local LoadBalancer = require("demoted.load_balancer")
+local BrokerCore = require("demoted.broker_core")
 
 local ESC = string.char(27)
 local function color(code, t) return ESC .. "[" .. code .. "m" .. t .. ESC .. "[0m" end
