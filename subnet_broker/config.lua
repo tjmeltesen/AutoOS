@@ -64,7 +64,7 @@ Config.machines = {
   },
   {
     id = "machine_03",
-    gt_address = "61351d4f-0a11-4066-b1b9-eb1fe9393ce8",
+    gt_address = "194191a4-1c59-4216-b49e-97268de0b600",
     transposer_address = "66962f00-68ff-4d10-8151-348481a0bb6e",
     side_buffer = 1,
     side_bus_b = 4,
@@ -76,7 +76,7 @@ Config.machines = {
   },
   {
     id = "machine_04",
-    gt_address = "194191a4-1c59-4216-b49e-97268de0b600",
+    gt_address = "890321a4-b96c-43c4-a239-be3563b97eab",
     transposer_address = "8e8c359c-1a45-49b7-96bf-fe97142edce7",
     side_buffer = 1,
     side_bus_b = 4,
