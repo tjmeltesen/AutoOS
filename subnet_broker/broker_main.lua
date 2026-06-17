@@ -68,6 +68,8 @@ function BrokerMain.run()
 
   print(string.format("[Broker] online — LCR dispatch, subnet=%s, listen %d → %d, orch=%s",
     Config.subnet_id, listen_port, orch_port, Config.orchestrator_address or "(none)"))
+  print("[Broker] headless — no GPU UI; status lines below + modem telemetry to orchestrator")
+  print_lane_status(poll, Config.machines)
 
   while true do
     local interval = watch:any_fast_tick()
@@ -89,10 +91,34 @@ function BrokerMain.run()
 end
 
 local function is_direct_run()
-  if not arg or not arg[0] then return false end
-  local script = arg[0]:gsub("\\", "/")
-  local name = script:match("([^/]+)$") or script
-  return name == "broker_main.lua" or name:find("broker_main", 1, true) ~= nil
+  -- ponytail: OpenOS has no global arg[] — use process.info() when arg is missing
+  if arg and arg[0] then
+    local script = arg[0]:gsub("\\", "/")
+    local name = script:match("([^/]+)$") or script
+    if name == "broker_main.lua" or name:find("broker_main", 1, true) then return true end
+  end
+  local ok, proc = pcall(require, "process")
+  if ok and proc and proc.info then
+    local path = proc.info()
+    if type(path) == "string" and path:find("broker_main", 1, true) then return true end
+  end
+  return false
+end
+
+local function print_lane_status(poll, machines)
+  local results = poll:poll_all()
+  for _, m in ipairs(machines) do
+    local st = results[m.id]
+    if not st or not st.available then
+      print(string.format("[Broker] %s OFFLINE — %s",
+        m.id, tostring(st and st.fault_message or "no gt_machine proxy")))
+    elseif st.healthy then
+      print(string.format("[Broker] %s OK (active=%s has_work=%s)",
+        m.id, tostring(st.active), tostring(st.has_work)))
+    else
+      print(string.format("[Broker] %s FAULT — %s", m.id, tostring(st.fault_message)))
+    end
+  end
 end
 
 if is_direct_run() then

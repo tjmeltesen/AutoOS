@@ -56,7 +56,8 @@ local healthy = 0
 for _, m in ipairs(Config.machines) do
   local st = results[m.id]
   if not st or not st.available then
-    print(string.format("[AutoOS] %s poll=UNAVAILABLE", m.id))
+    print(string.format("[AutoOS] %s poll=UNAVAILABLE (%s)", m.id,
+      tostring(st and st.fault_message or "no gt_machine proxy")))
   elseif st.healthy then
     healthy = healthy + 1
     print(string.format("[AutoOS] %s poll=OK active=%s has_work=%s",

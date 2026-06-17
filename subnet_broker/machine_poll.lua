@@ -7,6 +7,7 @@
 ]]
 
 local MaintenanceParse = require("maintenance_parse")
+local HW = require("hw")
 
 local MachinePoll = {}
 MachinePoll.__index = MachinePoll
@@ -17,12 +18,16 @@ function MachinePoll.new(deps)
   self.config = deps.config or error("MachinePoll.new: config required")
   self.component = deps.component
   self.proxies = {}
+  self.proxy_errors = {}
 
   if self.component and self.component.proxy then
     for _, machine in ipairs(self.config.machines) do
-      local ok, proxy = pcall(self.component.proxy, machine.gt_address, "gt_machine")
-      if ok and proxy then
+      local proxy, err = HW.require_proxy(
+        self.component, "gt_machine", machine.gt_address, "gt_machine")
+      if proxy then
         self.proxies[machine.id] = proxy
+      else
+        self.proxy_errors[machine.id] = err
       end
     end
   end
@@ -51,6 +56,8 @@ function MachinePoll:poll_machine(machine_row)
 
   local proxy = self.proxies[machine_row.id]
   if not proxy then
+    status.fault_message = self.proxy_errors[machine_row.id]
+      or "gt_machine proxy unavailable"
     return status
   end
 

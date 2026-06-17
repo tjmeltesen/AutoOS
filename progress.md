@@ -387,3 +387,10 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/probe_transposer.lua`: fix table.concat crash when side hint was flattened to string
 - Added `subnet_broker/find.lua`: list broker .lua files, clear package.loaded cache, run scripts via loadfile fresh
 - Changed `subnet_broker/find.lua`, `probe_transposer.lua`: rewrite probe (string hints, build 2026-06-16b); find embeds probe when disk file stale; find mirrors output to find.txt
+
+## 2026-06-16 — Fix broker silent exit on OpenOS
+
+- Changed `subnet_broker/broker_main.lua`: detect direct run via `process.info()` (OpenOS has no `arg[]`); print lane poll status at startup; note headless operation
+- Changed `orchestrator/orchestrator_main.lua`: same `process.info()` direct-run fix
+- Changed `subnet_broker/machine_poll.lua`, `diag.lua`: use `hw.require_proxy` and surface why gt_machine poll failed
+- Changed `subnet_broker/start.lua`: clarify headless broker + `loadfile` launch fallback

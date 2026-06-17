@@ -38,10 +38,9 @@ else
 end
 
 print("[AutoOS] Broker loaded. Usage:")
-print("  Modem test:  lua modem_info.lua")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
-print("  Find/reload:   loadfile('" .. here .. "/find.lua')('probe')  → also writes find.txt")
-print("  Watch loop:  lua broker_main.lua")
-print("  Orchestrator: lua orchestrator_main.lua")
+print("  Find/probe:  loadfile('" .. here .. "/find.lua')('probe')  → also writes find.txt")
+print("  Watch loop:  lua broker_main.lua   (or: loadfile('" .. here .. "/broker_main.lua")())")
+print("  Note: broker is headless — no GPU screen; watch terminal output")
 
 return Config

@@ -9,7 +9,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L1",
       "id": "legacy_adapter_lua",
-      "community": 12,
+      "community": 11,
       "norm_label": "adapter.lua"
     },
     {
@@ -18,7 +18,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L29",
       "id": "adapter_strip_format",
-      "community": 12,
+      "community": 11,
       "norm_label": "strip_format()"
     },
     {
@@ -27,7 +27,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L42",
       "id": "adapter_detect_power_loss",
-      "community": 12,
+      "community": 11,
       "norm_label": "detect_power_loss()"
     },
     {
@@ -36,7 +36,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L57",
       "id": "adapter_parse_eu_pair",
-      "community": 12,
+      "community": 11,
       "norm_label": "parse_eu_pair()"
     },
     {
@@ -45,7 +45,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L68",
       "id": "adapter_parse_stored_eu_from_sensor",
-      "community": 12,
+      "community": 11,
       "norm_label": "parse_stored_eu_from_sensor()"
     },
     {
@@ -54,7 +54,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L96",
       "id": "adapter_parse_eu_rate",
-      "community": 12,
+      "community": 11,
       "norm_label": "parse_eu_rate()"
     },
     {
@@ -63,7 +63,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L102",
       "id": "adapter_parse_eu_usage_from_sensor",
-      "community": 12,
+      "community": 11,
       "norm_label": "parse_eu_usage_from_sensor()"
     },
     {
@@ -81,7 +81,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L141",
       "id": "adapter_poll_item",
-      "community": 12,
+      "community": 11,
       "norm_label": "poll_item()"
     },
     {
@@ -90,7 +90,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L152",
       "id": "adapter_find_fluid",
-      "community": 12,
+      "community": 11,
       "norm_label": "find_fluid()"
     },
     {
@@ -99,7 +99,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L164",
       "id": "adapter_adapter_poll_inventory",
-      "community": 12,
+      "community": 11,
       "norm_label": "adapter:poll_inventory()"
     },
     {
@@ -108,7 +108,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L196",
       "id": "adapter_adapter_poll_craftables",
-      "community": 12,
+      "community": 11,
       "norm_label": "adapter:poll_craftables()"
     },
     {
@@ -117,7 +117,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L243",
       "id": "adapter_adapter_append_history",
-      "community": 12,
+      "community": 11,
       "norm_label": "adapter:append_history()"
     },
     {
@@ -126,7 +126,7 @@
       "source_file": "legacy\\adapter.lua",
       "source_location": "L283",
       "id": "adapter_adapter_poll",
-      "community": 12,
+      "community": 11,
       "norm_label": "adapter:poll()"
     },
     {
@@ -288,7 +288,7 @@
       "source_file": "legacy\\dump.lua",
       "source_location": "L1",
       "id": "legacy_dump_lua",
-      "community": 0,
+      "community": 4,
       "norm_label": "dump.lua"
     },
     {
@@ -297,7 +297,7 @@
       "source_file": "legacy\\dump.lua",
       "source_location": "L21",
       "id": "dump_try",
-      "community": 0,
+      "community": 4,
       "norm_label": "try()"
     },
     {
@@ -306,7 +306,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L1",
       "id": "legacy_main_lua",
-      "community": 15,
+      "community": 14,
       "norm_label": "main.lua"
     },
     {
@@ -315,7 +315,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L33",
       "id": "main_stable_craft_reason",
-      "community": 15,
+      "community": 14,
       "norm_label": "stable_craft_reason()"
     },
     {
@@ -324,7 +324,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L57",
       "id": "main_sensor_line_noisy",
-      "community": 15,
+      "community": 14,
       "norm_label": "sensor_line_noisy()"
     },
     {
@@ -342,7 +342,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L171",
       "id": "main_kernel_state_changed",
-      "community": 15,
+      "community": 14,
       "norm_label": "kernel:state_changed()"
     },
     {
@@ -351,7 +351,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L188",
       "id": "main_kernel_remember",
-      "community": 15,
+      "community": 14,
       "norm_label": "kernel:_remember()"
     },
     {
@@ -360,7 +360,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L198",
       "id": "main_log_sensor_lines",
-      "community": 15,
+      "community": 14,
       "norm_label": "log_sensor_lines()"
     },
     {
@@ -369,7 +369,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L222",
       "id": "main_kernel_tick",
-      "community": 15,
+      "community": 14,
       "norm_label": "kernel:tick()"
     },
     {
@@ -378,7 +378,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L349",
       "id": "main_kernel_snapshot",
-      "community": 15,
+      "community": 14,
       "norm_label": "kernel:_snapshot()"
     },
     {
@@ -387,7 +387,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L405",
       "id": "main_kernel_display_key",
-      "community": 15,
+      "community": 14,
       "norm_label": "kernel:_display_key()"
     },
     {
@@ -396,7 +396,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L434",
       "id": "main_kernel_log_tick",
-      "community": 15,
+      "community": 14,
       "norm_label": "kernel:log_tick()"
     },
     {
@@ -405,7 +405,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L517",
       "id": "main_kernel_run",
-      "community": 15,
+      "community": 14,
       "norm_label": "kernel:run()"
     },
     {
@@ -414,7 +414,7 @@
       "source_file": "legacy\\main.lua",
       "source_location": "L544",
       "id": "main_build_oc_deps",
-      "community": 15,
+      "community": 14,
       "norm_label": "build_oc_deps()"
     },
     {
@@ -423,7 +423,7 @@
       "source_file": "legacy\\me_dump.lua",
       "source_location": "L1",
       "id": "legacy_me_dump_lua",
-      "community": 4,
+      "community": 5,
       "norm_label": "me_dump.lua"
     },
     {
@@ -432,7 +432,7 @@
       "source_file": "legacy\\me_dump.lua",
       "source_location": "L17",
       "id": "me_dump_me_proxy",
-      "community": 4,
+      "community": 5,
       "norm_label": "me_proxy()"
     },
     {
@@ -441,7 +441,7 @@
       "source_file": "legacy\\me_dump.lua",
       "source_location": "L37",
       "id": "me_dump_matches",
-      "community": 4,
+      "community": 5,
       "norm_label": "matches()"
     },
     {
@@ -729,7 +729,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L1",
       "id": "legacy_tests_lua_visual_test_lua",
-      "community": 10,
+      "community": 9,
       "norm_label": "lua_visual_test.lua"
     },
     {
@@ -738,7 +738,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L20",
       "id": "lua_visual_test_enable_ansi_windows",
-      "community": 10,
+      "community": 9,
       "norm_label": "enable_ansi_windows()"
     },
     {
@@ -747,7 +747,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L26",
       "id": "lua_visual_test_c",
-      "community": 10,
+      "community": 9,
       "norm_label": "c()"
     },
     {
@@ -756,7 +756,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L41",
       "id": "lua_visual_test_sleep",
-      "community": 10,
+      "community": 9,
       "norm_label": "sleep()"
     },
     {
@@ -765,7 +765,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L50",
       "id": "lua_visual_test_line",
-      "community": 10,
+      "community": 9,
       "norm_label": "line()"
     },
     {
@@ -774,7 +774,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L54",
       "id": "lua_visual_test_platform_label",
-      "community": 10,
+      "community": 9,
       "norm_label": "platform_label()"
     },
     {
@@ -783,7 +783,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L62",
       "id": "lua_visual_test_check",
-      "community": 10,
+      "community": 9,
       "norm_label": "check()"
     },
     {
@@ -792,7 +792,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L144",
       "id": "lua_visual_test_tick",
-      "community": 10,
+      "community": 9,
       "norm_label": "tick()"
     },
     {
@@ -801,7 +801,7 @@
       "source_file": "legacy\\tests\\lua_visual_test.lua",
       "source_location": "L152",
       "id": "lua_visual_test_push",
-      "community": 10,
+      "community": 9,
       "norm_label": "push()"
     },
     {
@@ -891,7 +891,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L1",
       "id": "legacy_tests_phase2_test_lua",
-      "community": 18,
+      "community": 17,
       "norm_label": "phase2_test.lua"
     },
     {
@@ -900,7 +900,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L36",
       "id": "phase2_test_color",
-      "community": 18,
+      "community": 17,
       "norm_label": "color()"
     },
     {
@@ -909,7 +909,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L37",
       "id": "phase2_test_green",
-      "community": 18,
+      "community": 17,
       "norm_label": "green()"
     },
     {
@@ -918,7 +918,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L38",
       "id": "phase2_test_red",
-      "community": 18,
+      "community": 17,
       "norm_label": "red()"
     },
     {
@@ -927,7 +927,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L39",
       "id": "phase2_test_dim",
-      "community": 18,
+      "community": 17,
       "norm_label": "dim()"
     },
     {
@@ -936,7 +936,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L40",
       "id": "phase2_test_bold",
-      "community": 18,
+      "community": 17,
       "norm_label": "bold()"
     },
     {
@@ -945,7 +945,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L44",
       "id": "phase2_test_check",
-      "community": 18,
+      "community": 17,
       "norm_label": "check()"
     },
     {
@@ -954,7 +954,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L62",
       "id": "phase2_test_cache_with",
-      "community": 18,
+      "community": 17,
       "norm_label": "cache_with()"
     },
     {
@@ -963,7 +963,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L66",
       "id": "phase2_test_pc_config",
-      "community": 18,
+      "community": 17,
       "norm_label": "pc_config()"
     },
     {
@@ -972,7 +972,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L70",
       "id": "phase2_test_cache_with_craft",
-      "community": 18,
+      "community": 17,
       "norm_label": "cache_with_craft()"
     },
     {
@@ -981,7 +981,7 @@
       "source_file": "legacy\\tests\\phase2_test.lua",
       "source_location": "L78",
       "id": "phase2_test_find_intent",
-      "community": 18,
+      "community": 17,
       "norm_label": "find_intent()"
     },
     {
@@ -990,7 +990,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L1",
       "id": "legacy_tests_phase3_test_lua",
-      "community": 13,
+      "community": 12,
       "norm_label": "phase3_test.lua"
     },
     {
@@ -999,7 +999,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L37",
       "id": "phase3_test_color",
-      "community": 13,
+      "community": 12,
       "norm_label": "color()"
     },
     {
@@ -1008,7 +1008,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L38",
       "id": "phase3_test_green",
-      "community": 13,
+      "community": 12,
       "norm_label": "green()"
     },
     {
@@ -1017,7 +1017,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L39",
       "id": "phase3_test_red",
-      "community": 13,
+      "community": 12,
       "norm_label": "red()"
     },
     {
@@ -1026,7 +1026,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L40",
       "id": "phase3_test_dim",
-      "community": 13,
+      "community": 12,
       "norm_label": "dim()"
     },
     {
@@ -1035,7 +1035,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L41",
       "id": "phase3_test_bold",
-      "community": 13,
+      "community": 12,
       "norm_label": "bold()"
     },
     {
@@ -1044,7 +1044,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L45",
       "id": "phase3_test_check",
-      "community": 13,
+      "community": 12,
       "norm_label": "check()"
     },
     {
@@ -1053,7 +1053,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L63",
       "id": "phase3_test_rm_config",
-      "community": 13,
+      "community": 12,
       "norm_label": "rm_config()"
     },
     {
@@ -1062,7 +1062,7 @@
       "source_file": "legacy\\tests\\phase3_test.lua",
       "source_location": "L269",
       "id": "phase3_test_pc_rm_kernel",
-      "community": 13,
+      "community": 12,
       "norm_label": "pc_rm_kernel()"
     },
     {
@@ -1080,7 +1080,7 @@
       "source_file": "orchestrator\\hw.lua",
       "source_location": "L1",
       "id": "orchestrator_hw_lua",
-      "community": 9,
+      "community": 0,
       "norm_label": "hw.lua"
     },
     {
@@ -1089,7 +1089,7 @@
       "source_file": "subnet_broker\\hw.lua",
       "source_location": "L12",
       "id": "hw_hw_sleep",
-      "community": 9,
+      "community": 0,
       "norm_label": "hw.sleep()"
     },
     {
@@ -1098,7 +1098,7 @@
       "source_file": "subnet_broker\\hw.lua",
       "source_location": "L22",
       "id": "hw_hw_proxy",
-      "community": 9,
+      "community": 0,
       "norm_label": "hw.proxy()"
     },
     {
@@ -1107,7 +1107,7 @@
       "source_file": "subnet_broker\\hw.lua",
       "source_location": "L38",
       "id": "hw_hw_on_network",
-      "community": 9,
+      "community": 0,
       "norm_label": "hw.on_network()"
     },
     {
@@ -1116,7 +1116,7 @@
       "source_file": "subnet_broker\\hw.lua",
       "source_location": "L51",
       "id": "hw_hw_require_proxy",
-      "community": 9,
+      "community": 0,
       "norm_label": "hw.require_proxy()"
     },
     {
@@ -1125,7 +1125,7 @@
       "source_file": "orchestrator\\modem_comm_test.lua",
       "source_location": "L1",
       "id": "orchestrator_modem_comm_test_lua",
-      "community": 0,
+      "community": 4,
       "norm_label": "modem_comm_test.lua"
     },
     {
@@ -1134,7 +1134,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L41",
       "id": "modem_comm_test_modem_list",
-      "community": 0,
+      "community": 4,
       "norm_label": "modem_list()"
     },
     {
@@ -1143,7 +1143,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L49",
       "id": "modem_comm_test_get_modem",
-      "community": 0,
+      "community": 4,
       "norm_label": "get_modem()"
     },
     {
@@ -1152,7 +1152,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L54",
       "id": "modem_comm_test_open_ports",
-      "community": 0,
+      "community": 4,
       "norm_label": "open_ports()"
     },
     {
@@ -1161,7 +1161,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L64",
       "id": "modem_comm_test_print_rx",
-      "community": 0,
+      "community": 4,
       "norm_label": "print_rx()"
     },
     {
@@ -1170,7 +1170,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L69",
       "id": "modem_comm_test_cmd_info",
-      "community": 0,
+      "community": 4,
       "norm_label": "cmd_info()"
     },
     {
@@ -1179,7 +1179,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L87",
       "id": "modem_comm_test_cmd_listen",
-      "community": 0,
+      "community": 4,
       "norm_label": "cmd_listen()"
     },
     {
@@ -1188,7 +1188,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L111",
       "id": "modem_comm_test_cmd_ping",
-      "community": 0,
+      "community": 4,
       "norm_label": "cmd_ping()"
     },
     {
@@ -1197,7 +1197,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L147",
       "id": "modem_comm_test_resolve_mode",
-      "community": 0,
+      "community": 4,
       "norm_label": "resolve_mode()"
     },
     {
@@ -1368,7 +1368,7 @@
       "source_file": "orchestrator\\orchestrator.lua",
       "source_location": "L1",
       "id": "orchestrator_orchestrator_lua",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator.lua"
     },
     {
@@ -1377,7 +1377,7 @@
       "source_file": "orchestrator\\orchestrator.lua",
       "source_location": "L13",
       "id": "orchestrator_orchestrator_new",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator.new()"
     },
     {
@@ -1386,7 +1386,7 @@
       "source_file": "orchestrator\\orchestrator.lua",
       "source_location": "L24",
       "id": "orchestrator_orchestrator_log",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator:log()"
     },
     {
@@ -1395,7 +1395,7 @@
       "source_file": "orchestrator\\orchestrator.lua",
       "source_location": "L28",
       "id": "orchestrator_orchestrator_broker",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator:_broker()"
     },
     {
@@ -1404,7 +1404,7 @@
       "source_file": "orchestrator\\orchestrator.lua",
       "source_location": "L36",
       "id": "orchestrator_orchestrator_on_health",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator:_on_health()"
     },
     {
@@ -1413,7 +1413,7 @@
       "source_file": "orchestrator\\orchestrator.lua",
       "source_location": "L50",
       "id": "orchestrator_orchestrator_on_event",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator:_on_event()"
     },
     {
@@ -1422,7 +1422,7 @@
       "source_file": "orchestrator\\orchestrator.lua",
       "source_location": "L64",
       "id": "orchestrator_orchestrator_on_message",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator:on_message()"
     },
     {
@@ -1431,7 +1431,7 @@
       "source_file": "orchestrator\\orchestrator.lua",
       "source_location": "L75",
       "id": "orchestrator_orchestrator_tick",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator:tick()"
     },
     {
@@ -1458,7 +1458,7 @@
       "source_file": "orchestrator\\orchestrator_main.lua",
       "source_location": "L1",
       "id": "orchestrator_orchestrator_main_lua",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestrator_main.lua"
     },
     {
@@ -1467,7 +1467,7 @@
       "source_file": "orchestrator\\orchestrator_main.lua",
       "source_location": "L20",
       "id": "orchestrator_main_orchestratormain_build",
-      "community": 4,
+      "community": 5,
       "norm_label": "orchestratormain.build()"
     },
     {
@@ -1485,7 +1485,7 @@
       "source_file": "orchestrator\\orchestrator_main.lua",
       "source_location": "L70",
       "id": "orchestrator_main_is_direct_run",
-      "community": 4,
+      "community": 5,
       "norm_label": "is_direct_run()"
     },
     {
@@ -1593,7 +1593,7 @@
       "source_file": "references\\cc_gtceu_multipurpose-main\\multipurpose.lua",
       "source_location": "L140",
       "id": "multipurpose_out_write",
-      "community": 0,
+      "community": 2,
       "norm_label": "out:_write()"
     },
     {
@@ -2151,7 +2151,7 @@
       "source_file": "references\\Level-Maintainer-master\\src\\Utility.lua",
       "source_location": "L1",
       "id": "references_level_maintainer_master_src_utility_lua",
-      "community": 0,
+      "community": 4,
       "norm_label": "utility.lua"
     },
     {
@@ -2160,7 +2160,7 @@
       "source_file": "references\\Level-Maintainer-master\\src\\Utility.lua",
       "source_location": "L1",
       "id": "utility_dump",
-      "community": 0,
+      "community": 4,
       "norm_label": "dump()"
     },
     {
@@ -2169,7 +2169,7 @@
       "source_file": "references\\Level-Maintainer-master\\src\\Utility.lua",
       "source_location": "L18",
       "id": "utility_parser",
-      "community": 0,
+      "community": 4,
       "norm_label": "parser()"
     },
     {
@@ -2178,7 +2178,7 @@
       "source_file": "references\\Level-Maintainer-master\\src\\Utility.lua",
       "source_location": "L30",
       "id": "utility_loginfo",
-      "community": 0,
+      "community": 4,
       "norm_label": "loginfo()"
     },
     {
@@ -2187,7 +2187,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L1",
       "id": "references_oc_gtnh_docs_main_docs_component_lua",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.lua"
     },
     {
@@ -2196,7 +2196,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L26",
       "id": "component_component_doc",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.doc()"
     },
     {
@@ -2205,7 +2205,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L36",
       "id": "component_component_invoke",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.invoke()"
     },
     {
@@ -2214,7 +2214,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L43",
       "id": "component_component_list",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.list()"
     },
     {
@@ -2223,7 +2223,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L49",
       "id": "component_component_methods",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.methods()"
     },
     {
@@ -2232,7 +2232,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L64",
       "id": "component_component_proxy",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.proxy()"
     },
     {
@@ -2241,7 +2241,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L71",
       "id": "component_component_type",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.type()"
     },
     {
@@ -2250,7 +2250,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L78",
       "id": "component_component_slot",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.slot()"
     },
     {
@@ -2259,7 +2259,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L93",
       "id": "component_component_get",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.get()"
     },
     {
@@ -2268,7 +2268,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L99",
       "id": "component_component_isavailable",
-      "community": 4,
+      "community": 5,
       "norm_label": "component.isavailable()"
     },
     {
@@ -2277,7 +2277,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L108",
       "id": "component_component_getprimary",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.getprimary()"
     },
     {
@@ -2286,7 +2286,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\component.lua",
       "source_location": "L116",
       "id": "component_component_setprimary",
-      "community": 9,
+      "community": 18,
       "norm_label": "component.setprimary()"
     },
     {
@@ -2295,7 +2295,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\event.lua",
       "source_location": "L1",
       "id": "references_oc_gtnh_docs_main_docs_event_lua",
-      "community": 0,
+      "community": 4,
       "norm_label": "event.lua"
     },
     {
@@ -2304,7 +2304,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\event.lua",
       "source_location": "L11",
       "id": "event_event_listen",
-      "community": 0,
+      "community": 4,
       "norm_label": "event.listen()"
     },
     {
@@ -2313,7 +2313,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\event.lua",
       "source_location": "L19",
       "id": "event_event_ignore",
-      "community": 0,
+      "community": 4,
       "norm_label": "event.ignore()"
     },
     {
@@ -2322,7 +2322,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\event.lua",
       "source_location": "L27",
       "id": "event_event_timer",
-      "community": 0,
+      "community": 4,
       "norm_label": "event.timer()"
     },
     {
@@ -2331,7 +2331,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\event.lua",
       "source_location": "L32",
       "id": "event_event_cancel",
-      "community": 0,
+      "community": 4,
       "norm_label": "event.cancel()"
     },
     {
@@ -2340,7 +2340,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\event.lua",
       "source_location": "L38",
       "id": "event_event_pull",
-      "community": 0,
+      "community": 4,
       "norm_label": "event.pull()"
     },
     {
@@ -2349,7 +2349,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\event.lua",
       "source_location": "L43",
       "id": "event_event_pullfiltered",
-      "community": 0,
+      "community": 4,
       "norm_label": "event.pullfiltered()"
     },
     {
@@ -3042,7 +3042,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L1",
       "id": "references_oc_gtnh_docs_main_docs_components_glasses_lua",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.lua"
     },
     {
@@ -3051,7 +3051,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L9",
       "id": "glasses_glasses_getbindplayers",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.getbindplayers()"
     },
     {
@@ -3060,7 +3060,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L14",
       "id": "glasses_glasses_getobjectcount",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.getobjectcount()"
     },
     {
@@ -3069,7 +3069,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L20",
       "id": "glasses_glasses_removeobject",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.removeobject()"
     },
     {
@@ -3078,7 +3078,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L24",
       "id": "glasses_glasses_removeall",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.removeall()"
     },
     {
@@ -3087,7 +3087,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L29",
       "id": "glasses_glasses_newuniquekey",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.newuniquekey()"
     },
     {
@@ -3096,7 +3096,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L37",
       "id": "glasses_glasses_addrect",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addrect()"
     },
     {
@@ -3105,7 +3105,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L42",
       "id": "glasses_glasses_adddot",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.adddot()"
     },
     {
@@ -3114,7 +3114,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L47",
       "id": "glasses_glasses_additem",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.additem()"
     },
     {
@@ -3123,7 +3123,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L52",
       "id": "glasses_glasses_addcube3d",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addcube3d()"
     },
     {
@@ -3132,7 +3132,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L57",
       "id": "glasses_glasses_addfloatingtext",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addfloatingtext()"
     },
     {
@@ -3141,7 +3141,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L62",
       "id": "glasses_glasses_addtriangle",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addtriangle()"
     },
     {
@@ -3150,7 +3150,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L67",
       "id": "glasses_glasses_adddot3d",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.adddot3d()"
     },
     {
@@ -3159,7 +3159,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L72",
       "id": "glasses_glasses_addtextlabel",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addtextlabel()"
     },
     {
@@ -3168,7 +3168,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L77",
       "id": "glasses_glasses_addline3d",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addline3d()"
     },
     {
@@ -3177,7 +3177,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L82",
       "id": "glasses_glasses_addtriangle3d",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addtriangle3d()"
     },
     {
@@ -3186,7 +3186,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L87",
       "id": "glasses_glasses_addquad3d",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addquad3d()"
     },
     {
@@ -3195,7 +3195,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\glasses.lua",
       "source_location": "L92",
       "id": "glasses_glasses_addquad",
-      "community": 11,
+      "community": 10,
       "norm_label": "glasses.addquad()"
     },
     {
@@ -3861,7 +3861,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L1",
       "id": "references_oc_gtnh_docs_main_docs_components_me_interface_lua",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.lua"
     },
     {
@@ -3870,7 +3870,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L14",
       "id": "me_interface_me_interface_getinterfaceconfiguration",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.getinterfaceconfiguration()"
     },
     {
@@ -3879,7 +3879,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L20",
       "id": "me_interface_me_interface_setinterfaceconfiguration",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.setinterfaceconfiguration()"
     },
     {
@@ -3888,7 +3888,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L48",
       "id": "me_interface_me_interface_getfluidinterfaceconfiguration",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.getfluidinterfaceconfiguration()"
     },
     {
@@ -3897,7 +3897,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L54",
       "id": "me_interface_me_interface_setfluidinterfaceconfiguration",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.setfluidinterfaceconfiguration()"
     },
     {
@@ -3906,7 +3906,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L74",
       "id": "me_interface_me_interface_getinterfacepattern",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.getinterfacepattern()"
     },
     {
@@ -3915,7 +3915,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L84",
       "id": "me_interface_me_interface_setinterfacepatterninput",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.setinterfacepatterninput()"
     },
     {
@@ -3924,7 +3924,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L94",
       "id": "me_interface_me_interface_setinterfacepatternoutput",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.setinterfacepatternoutput()"
     },
     {
@@ -3933,7 +3933,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L101",
       "id": "me_interface_me_interface_clearinterfacepatterninput",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.clearinterfacepatterninput()"
     },
     {
@@ -3942,7 +3942,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L108",
       "id": "me_interface_me_interface_clearinterfacepatternoutput",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.clearinterfacepatternoutput()"
     },
     {
@@ -3951,7 +3951,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L124",
       "id": "me_interface_me_interface_storeinterfacepatterninput",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.storeinterfacepatterninput()"
     },
     {
@@ -3960,7 +3960,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\me_interface.lua",
       "source_location": "L134",
       "id": "me_interface_me_interface_storeinterfacepatternoutput",
-      "community": 16,
+      "community": 15,
       "norm_label": "me_interface.storeinterfacepatternoutput()"
     },
     {
@@ -3969,7 +3969,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L1",
       "id": "references_oc_gtnh_docs_main_docs_components_modem_lua",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.lua"
     },
     {
@@ -3978,7 +3978,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L9",
       "id": "modem_modem_iswireless",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.iswireless()"
     },
     {
@@ -3987,7 +3987,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L16",
       "id": "modem_modem_maxpacketsize",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.maxpacketsize()"
     },
     {
@@ -3996,7 +3996,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L21",
       "id": "modem_modem_open",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.open()"
     },
     {
@@ -4005,7 +4005,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L27",
       "id": "modem_modem_isopen",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.isopen()"
     },
     {
@@ -4014,7 +4014,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L32",
       "id": "modem_modem_close",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.close()"
     },
     {
@@ -4023,7 +4023,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L40",
       "id": "modem_modem_send",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.send()"
     },
     {
@@ -4032,7 +4032,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L45",
       "id": "modem_modem_broadcast",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.broadcast()"
     },
     {
@@ -4041,7 +4041,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L51",
       "id": "modem_modem_setwakemessage",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.setwakemessage()"
     },
     {
@@ -4050,7 +4050,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\modem.lua",
       "source_location": "L56",
       "id": "modem_modem_getwakemessage",
-      "community": 4,
+      "community": 5,
       "norm_label": "modem.getwakemessage()"
     },
     {
@@ -4203,7 +4203,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L1",
       "id": "references_oc_gtnh_docs_main_docs_components_abstracts_commonnetworkapi_lua",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.lua"
     },
     {
@@ -4212,7 +4212,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L12",
       "id": "commonnetworkapi_commonnetworkapi_allitems",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.allitems()"
     },
     {
@@ -4221,7 +4221,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L18",
       "id": "commonnetworkapi_commonnetworkapi_getitemsinnetwork",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getitemsinnetwork()"
     },
     {
@@ -4230,7 +4230,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L23",
       "id": "commonnetworkapi_commonnetworkapi_getfluidsinnetwork",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getfluidsinnetwork()"
     },
     {
@@ -4239,7 +4239,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L28",
       "id": "commonnetworkapi_commonnetworkapi_getessentiainnetwork",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getessentiainnetwork()"
     },
     {
@@ -4248,7 +4248,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L37",
       "id": "commonnetworkapi_commonnetworkapi_store",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.store()"
     },
     {
@@ -4257,7 +4257,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L48",
       "id": "commonnetworkapi_commonnetworkapi_getcpus",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getcpus()"
     },
     {
@@ -4266,7 +4266,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L53",
       "id": "commonnetworkapi_commonnetworkapi_getcraftables",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getcraftables()"
     },
     {
@@ -4275,7 +4275,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L64",
       "id": "commonnetworkapi_commonnetworkapi_getavgpowerinjection",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getavgpowerinjection()"
     },
     {
@@ -4284,7 +4284,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L69",
       "id": "commonnetworkapi_commonnetworkapi_getavgpowerusage",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getavgpowerusage()"
     },
     {
@@ -4293,7 +4293,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L74",
       "id": "commonnetworkapi_commonnetworkapi_getmaxstoredpower",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getmaxstoredpower()"
     },
     {
@@ -4302,7 +4302,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L79",
       "id": "commonnetworkapi_commonnetworkapi_getstoredpower",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getstoredpower()"
     },
     {
@@ -4311,7 +4311,7 @@
       "source_file": "references\\OC-GTNH-docs-main\\docs\\components\\abstracts\\CommonNetworkAPI.lua",
       "source_location": "L84",
       "id": "commonnetworkapi_commonnetworkapi_getidlepowerusage",
-      "community": 14,
+      "community": 13,
       "norm_label": "commonnetworkapi.getidlepowerusage()"
     },
     {
@@ -5076,7 +5076,7 @@
       "source_file": "subnet_broker\\array_watch.lua",
       "source_location": "L15",
       "id": "array_watch_arraywatch_new",
-      "community": 4,
+      "community": 5,
       "norm_label": "arraywatch.new()"
     },
     {
@@ -5139,7 +5139,7 @@
       "source_file": "subnet_broker\\broker_main.lua",
       "source_location": "L1",
       "id": "subnet_broker_broker_main_lua",
-      "community": 4,
+      "community": 5,
       "norm_label": "broker_main.lua"
     },
     {
@@ -5148,17 +5148,26 @@
       "source_file": "subnet_broker\\broker_main.lua",
       "source_location": "L15",
       "id": "broker_main_brokermain_run",
-      "community": 4,
+      "community": 5,
       "norm_label": "brokermain.run()"
     },
     {
       "label": "is_direct_run()",
       "file_type": "code",
       "source_file": "subnet_broker\\broker_main.lua",
-      "source_location": "L91",
+      "source_location": "L93",
       "id": "broker_main_is_direct_run",
-      "community": 4,
+      "community": 5,
       "norm_label": "is_direct_run()"
+    },
+    {
+      "label": "print_lane_status()",
+      "file_type": "code",
+      "source_file": "subnet_broker\\broker_main.lua",
+      "source_location": "L108",
+      "id": "broker_main_print_lane_status",
+      "community": 5,
+      "norm_label": "print_lane_status()"
     },
     {
       "label": "circuit_manager.lua",
@@ -5184,7 +5193,7 @@
       "source_file": "subnet_broker\\circuit_manager.lua",
       "source_location": "L22",
       "id": "circuit_manager_circuitmanager_new",
-      "community": 10,
+      "community": 9,
       "norm_label": "circuitmanager.new()"
     },
     {
@@ -5238,7 +5247,7 @@
       "source_file": "subnet_broker\\circuit_manager.lua",
       "source_location": "L89",
       "id": "circuit_manager_circuitmanager_transfer_with_retries",
-      "community": 9,
+      "community": 0,
       "norm_label": "circuitmanager:_transfer_with_retries()"
     },
     {
@@ -5265,7 +5274,7 @@
       "source_file": "subnet_broker\\config.lua",
       "source_location": "L1",
       "id": "subnet_broker_config_lua",
-      "community": 4,
+      "community": 5,
       "norm_label": "config.lua"
     },
     {
@@ -5274,7 +5283,7 @@
       "source_file": "subnet_broker\\config.lua",
       "source_location": "L103",
       "id": "config_normalize_machine",
-      "community": 4,
+      "community": 5,
       "norm_label": "normalize_machine()"
     },
     {
@@ -5283,7 +5292,7 @@
       "source_file": "subnet_broker\\config.lua",
       "source_location": "L113",
       "id": "config_config_validate",
-      "community": 4,
+      "community": 5,
       "norm_label": "config.validate()"
     },
     {
@@ -5310,7 +5319,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L1",
       "id": "subnet_broker_find_lua",
-      "community": 0,
+      "community": 4,
       "norm_label": "find.lua"
     },
     {
@@ -5319,7 +5328,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L32",
       "id": "find_join",
-      "community": 0,
+      "community": 4,
       "norm_label": "join()"
     },
     {
@@ -5328,7 +5337,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L40",
       "id": "find_print",
-      "community": 0,
+      "community": 4,
       "norm_label": "print()"
     },
     {
@@ -5337,7 +5346,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L49",
       "id": "find_export_done",
-      "community": 0,
+      "community": 4,
       "norm_label": "export_done()"
     },
     {
@@ -5346,7 +5355,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L58",
       "id": "find_clear_all",
-      "community": 0,
+      "community": 4,
       "norm_label": "clear_all()"
     },
     {
@@ -5355,7 +5364,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L64",
       "id": "find_read_head",
-      "community": 0,
+      "community": 4,
       "norm_label": "read_head()"
     },
     {
@@ -5364,7 +5373,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L73",
       "id": "find_run_fresh",
-      "community": 0,
+      "community": 4,
       "norm_label": "run_fresh()"
     },
     {
@@ -5373,7 +5382,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L95",
       "id": "find_list_lua",
-      "community": 0,
+      "community": 4,
       "norm_label": "list_lua()"
     },
     {
@@ -5391,7 +5400,7 @@
       "source_file": "subnet_broker\\find.lua",
       "source_location": "L186",
       "id": "find_main",
-      "community": 0,
+      "community": 4,
       "norm_label": "main()"
     },
     {
@@ -5400,7 +5409,7 @@
       "source_file": "subnet_broker\\hw.lua",
       "source_location": "L1",
       "id": "subnet_broker_hw_lua",
-      "community": 9,
+      "community": 0,
       "norm_label": "hw.lua"
     },
     {
@@ -5409,7 +5418,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L1",
       "id": "subnet_broker_lane_dispatch_lua",
-      "community": 5,
+      "community": 0,
       "norm_label": "lane_dispatch.lua"
     },
     {
@@ -5418,7 +5427,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L24",
       "id": "lane_dispatch_lanedispatch_new",
-      "community": 4,
+      "community": 5,
       "norm_label": "lanedispatch.new()"
     },
     {
@@ -5427,7 +5436,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L43",
       "id": "lane_dispatch_lane_default",
-      "community": 5,
+      "community": 0,
       "norm_label": "lane_default()"
     },
     {
@@ -5436,7 +5445,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L54",
       "id": "lane_dispatch_lanedispatch_lane",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_lane()"
     },
     {
@@ -5445,7 +5454,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L62",
       "id": "lane_dispatch_lanedispatch_get_lane_debug",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:get_lane_debug()"
     },
     {
@@ -5454,7 +5463,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L73",
       "id": "lane_dispatch_lanedispatch_reset_lane",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:reset_lane()"
     },
     {
@@ -5463,7 +5472,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L77",
       "id": "lane_dispatch_lanedispatch_any_fast_tick",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:any_fast_tick()"
     },
     {
@@ -5472,7 +5481,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L84",
       "id": "lane_dispatch_lanedispatch_is_lane_busy",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:is_lane_busy()"
     },
     {
@@ -5481,7 +5490,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L89",
       "id": "lane_dispatch_lanedispatch_transition",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_transition()"
     },
     {
@@ -5490,7 +5499,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L97",
       "id": "lane_dispatch_lanedispatch_chest_start",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_chest_start()"
     },
     {
@@ -5499,7 +5508,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L101",
       "id": "lane_dispatch_lanedispatch_item_tp",
-      "community": 9,
+      "community": 0,
       "norm_label": "lanedispatch:_item_tp()"
     },
     {
@@ -5508,7 +5517,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L106",
       "id": "lane_dispatch_lanedispatch_fluid_tp",
-      "community": 9,
+      "community": 0,
       "norm_label": "lanedispatch:_fluid_tp()"
     },
     {
@@ -5517,7 +5526,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L110",
       "id": "lane_dispatch_lanedispatch_slot_count",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_slot_count()"
     },
     {
@@ -5526,7 +5535,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L116",
       "id": "lane_dispatch_lanedispatch_slot_size",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_slot_size()"
     },
     {
@@ -5535,7 +5544,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L122",
       "id": "lane_dispatch_lanedispatch_fluid_level",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_fluid_level()"
     },
     {
@@ -5544,7 +5553,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L128",
       "id": "lane_dispatch_lanedispatch_buffer_has_items",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_buffer_has_items()"
     },
     {
@@ -5553,7 +5562,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L138",
       "id": "lane_dispatch_lanedispatch_buffer_has_fluid",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_buffer_has_fluid()"
     },
     {
@@ -5562,7 +5571,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L147",
       "id": "lane_dispatch_lanedispatch_adapter_has_items",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_adapter_has_items()"
     },
     {
@@ -5571,7 +5580,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L162",
       "id": "lane_dispatch_lanedispatch_buffer_gate",
-      "community": 9,
+      "community": 0,
       "norm_label": "lanedispatch:_buffer_gate()"
     },
     {
@@ -5580,7 +5589,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L171",
       "id": "lane_dispatch_lanedispatch_buffer_ready",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_buffer_ready()"
     },
     {
@@ -5589,7 +5598,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L177",
       "id": "lane_dispatch_lanedispatch_transfer_fluids",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_transfer_fluids()"
     },
     {
@@ -5598,7 +5607,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L189",
       "id": "lane_dispatch_lanedispatch_transfer_items",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_transfer_items()"
     },
     {
@@ -5607,7 +5616,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L211",
       "id": "lane_dispatch_lanedispatch_fluid_drained",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_fluid_drained()"
     },
     {
@@ -5616,7 +5625,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L216",
       "id": "lane_dispatch_lanedispatch_item_drained",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_item_drained()"
     },
     {
@@ -5625,7 +5634,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L222",
       "id": "lane_dispatch_lanedispatch_drain_complete",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_drain_complete()"
     },
     {
@@ -5634,7 +5643,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L228",
       "id": "lane_dispatch_lanedispatch_completion_ready",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:_completion_ready()"
     },
     {
@@ -5643,7 +5652,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L252",
       "id": "lane_dispatch_lanedispatch_tick_lane",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:tick_lane()"
     },
     {
@@ -5652,7 +5661,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L406",
       "id": "lane_dispatch_lanedispatch_lane_order",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:lane_order()"
     },
     {
@@ -5661,7 +5670,7 @@
       "source_file": "subnet_broker\\lane_dispatch.lua",
       "source_location": "L418",
       "id": "lane_dispatch_lanedispatch_advance_round_robin",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanedispatch:advance_round_robin()"
     },
     {
@@ -5670,7 +5679,7 @@
       "source_file": "subnet_broker\\lane_sides.lua",
       "source_location": "L1",
       "id": "subnet_broker_lane_sides_lua",
-      "community": 5,
+      "community": 0,
       "norm_label": "lane_sides.lua"
     },
     {
@@ -5679,7 +5688,7 @@
       "source_file": "subnet_broker\\lane_sides.lua",
       "source_location": "L10",
       "id": "lane_sides_lanesides_buffer_side",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanesides.buffer_side()"
     },
     {
@@ -5688,7 +5697,7 @@
       "source_file": "subnet_broker\\lane_sides.lua",
       "source_location": "L15",
       "id": "lane_sides_lanesides_bus_side",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanesides.bus_side()"
     },
     {
@@ -5697,7 +5706,7 @@
       "source_file": "subnet_broker\\lane_sides.lua",
       "source_location": "L21",
       "id": "lane_sides_lanesides_return_side",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanesides.return_side()"
     },
     {
@@ -5706,7 +5715,7 @@
       "source_file": "subnet_broker\\lane_sides.lua",
       "source_location": "L26",
       "id": "lane_sides_lanesides_return_slot",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanesides.return_slot()"
     },
     {
@@ -5715,7 +5724,7 @@
       "source_file": "subnet_broker\\lane_sides.lua",
       "source_location": "L31",
       "id": "lane_sides_lanesides_fluid_buffer_side",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanesides.fluid_buffer_side()"
     },
     {
@@ -5724,7 +5733,7 @@
       "source_file": "subnet_broker\\lane_sides.lua",
       "source_location": "L36",
       "id": "lane_sides_lanesides_fluid_hatch_side",
-      "community": 5,
+      "community": 0,
       "norm_label": "lanesides.fluid_hatch_side()"
     },
     {
@@ -5751,70 +5760,70 @@
       "source_file": "subnet_broker\\machine_poll.lua",
       "source_location": "L1",
       "id": "subnet_broker_machine_poll_lua",
-      "community": 17,
+      "community": 16,
       "norm_label": "machine_poll.lua"
     },
     {
       "label": "MachinePoll.new()",
       "file_type": "code",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L14",
+      "source_location": "L15",
       "id": "machine_poll_machinepoll_new",
-      "community": 17,
+      "community": 16,
       "norm_label": "machinepoll.new()"
     },
     {
       "label": "MachinePoll:get_proxy()",
       "file_type": "code",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L33",
+      "source_location": "L38",
       "id": "machine_poll_machinepoll_get_proxy",
-      "community": 17,
+      "community": 16,
       "norm_label": "machinepoll:get_proxy()"
     },
     {
       "label": "MachinePoll:poll_machine()",
       "file_type": "code",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L37",
+      "source_location": "L42",
       "id": "machine_poll_machinepoll_poll_machine",
-      "community": 17,
+      "community": 16,
       "norm_label": "machinepoll:poll_machine()"
     },
     {
       "label": "MachinePoll:poll_all()",
       "file_type": "code",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L86",
+      "source_location": "L93",
       "id": "machine_poll_machinepoll_poll_all",
-      "community": 17,
+      "community": 16,
       "norm_label": "machinepoll:poll_all()"
     },
     {
       "label": "MachinePoll:build_active_pool()",
       "file_type": "code",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L94",
+      "source_location": "L101",
       "id": "machine_poll_machinepoll_build_active_pool",
-      "community": 17,
+      "community": 16,
       "norm_label": "machinepoll:build_active_pool()"
     },
     {
       "label": "MachinePoll.is_idle()",
       "file_type": "code",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L109",
+      "source_location": "L116",
       "id": "machine_poll_machinepoll_is_idle",
-      "community": 17,
+      "community": 16,
       "norm_label": "machinepoll.is_idle()"
     },
     {
       "label": "MachinePoll:build_idle_pool()",
       "file_type": "code",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L121",
+      "source_location": "L128",
       "id": "machine_poll_machinepoll_build_idle_pool",
-      "community": 17,
+      "community": 16,
       "norm_label": "machinepoll:build_idle_pool()"
     },
     {
@@ -5823,7 +5832,7 @@
       "source_file": "subnet_broker\\maintenance_parse.lua",
       "source_location": "L1",
       "id": "subnet_broker_maintenance_parse_lua",
-      "community": 17,
+      "community": 16,
       "norm_label": "maintenance_parse.lua"
     },
     {
@@ -5832,7 +5841,7 @@
       "source_file": "subnet_broker\\maintenance_parse.lua",
       "source_location": "L11",
       "id": "maintenance_parse_strip_format",
-      "community": 17,
+      "community": 16,
       "norm_label": "strip_format()"
     },
     {
@@ -5841,7 +5850,7 @@
       "source_file": "subnet_broker\\maintenance_parse.lua",
       "source_location": "L40",
       "id": "maintenance_parse_problems_count",
-      "community": 17,
+      "community": 16,
       "norm_label": "problems_count()"
     },
     {
@@ -5850,7 +5859,7 @@
       "source_file": "subnet_broker\\maintenance_parse.lua",
       "source_location": "L48",
       "id": "maintenance_parse_maintenanceparse_has_fault",
-      "community": 17,
+      "community": 16,
       "norm_label": "maintenanceparse.has_fault()"
     },
     {
@@ -5859,7 +5868,7 @@
       "source_file": "subnet_broker\\modem_comm_test.lua",
       "source_location": "L1",
       "id": "subnet_broker_modem_comm_test_lua",
-      "community": 0,
+      "community": 4,
       "norm_label": "modem_comm_test.lua"
     },
     {
@@ -5985,7 +5994,7 @@
       "source_file": "subnet_broker\\test_recover_transfer.lua",
       "source_location": "L1",
       "id": "subnet_broker_test_recover_transfer_lua",
-      "community": 0,
+      "community": 4,
       "norm_label": "test_recover_transfer.lua"
     },
     {
@@ -5994,7 +6003,7 @@
       "source_file": "subnet_broker\\test_recover_transfer.lua",
       "source_location": "L31",
       "id": "test_recover_transfer_is_circuit",
-      "community": 0,
+      "community": 4,
       "norm_label": "is_circuit()"
     },
     {
@@ -6003,7 +6012,7 @@
       "source_file": "subnet_broker\\test_recover_transfer.lua",
       "source_location": "L70",
       "id": "test_recover_transfer_try_call",
-      "community": 0,
+      "community": 4,
       "norm_label": "try_call()"
     },
     {
@@ -6066,7 +6075,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L1",
       "id": "tests_lane_dispatch_test_lua",
-      "community": 10,
+      "community": 9,
       "norm_label": "lane_dispatch_test.lua"
     },
     {
@@ -6075,7 +6084,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L21",
       "id": "lane_dispatch_test_color",
-      "community": 10,
+      "community": 9,
       "norm_label": "color()"
     },
     {
@@ -6084,7 +6093,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L22",
       "id": "lane_dispatch_test_green",
-      "community": 10,
+      "community": 9,
       "norm_label": "green()"
     },
     {
@@ -6093,7 +6102,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L23",
       "id": "lane_dispatch_test_red",
-      "community": 10,
+      "community": 9,
       "norm_label": "red()"
     },
     {
@@ -6102,7 +6111,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L24",
       "id": "lane_dispatch_test_bold",
-      "community": 10,
+      "community": 9,
       "norm_label": "bold()"
     },
     {
@@ -6111,7 +6120,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L27",
       "id": "lane_dispatch_test_check",
-      "community": 10,
+      "community": 9,
       "norm_label": "check()"
     },
     {
@@ -6120,7 +6129,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L34",
       "id": "lane_dispatch_test_stack",
-      "community": 10,
+      "community": 9,
       "norm_label": "stack()"
     },
     {
@@ -6129,7 +6138,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L38",
       "id": "lane_dispatch_test_new_item_tp",
-      "community": 10,
+      "community": 9,
       "norm_label": "new_item_tp()"
     },
     {
@@ -6138,7 +6147,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L74",
       "id": "lane_dispatch_test_new_fluid_tp",
-      "community": 10,
+      "community": 9,
       "norm_label": "new_fluid_tp()"
     },
     {
@@ -6147,7 +6156,7 @@
       "source_file": "tests\\lane_dispatch_test.lua",
       "source_location": "L97",
       "id": "lane_dispatch_test_make_fixture",
-      "community": 10,
+      "community": 9,
       "norm_label": "make_fixture()"
     },
     {
@@ -6156,7 +6165,7 @@
       "source_file": "tests\\mock_broker_hardware.lua",
       "source_location": "L1",
       "id": "tests_mock_broker_hardware_lua",
-      "community": 13,
+      "community": 12,
       "norm_label": "mock_broker_hardware.lua"
     },
     {
@@ -6165,7 +6174,7 @@
       "source_file": "tests\\mock_broker_hardware.lua",
       "source_location": "L27",
       "id": "mock_broker_hardware_filter_match",
-      "community": 13,
+      "community": 12,
       "norm_label": "filter_match()"
     },
     {
@@ -6174,7 +6183,7 @@
       "source_file": "tests\\mock_broker_hardware.lua",
       "source_location": "L35",
       "id": "mock_broker_hardware_mock_new",
-      "community": 13,
+      "community": 12,
       "norm_label": "mock.new()"
     },
     {
@@ -6183,7 +6192,7 @@
       "source_file": "tests\\mock_broker_hardware.lua",
       "source_location": "L425",
       "id": "mock_broker_hardware_mock_machines_from_config",
-      "community": 13,
+      "community": 12,
       "norm_label": "mock.machines_from_config()"
     },
     {
@@ -8488,6 +8497,18 @@
       "_tgt": "lane_dispatch_lanedispatch_fluid_tp",
       "source": "hw_hw_require_proxy",
       "target": "lane_dispatch_lanedispatch_fluid_tp"
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "subnet_broker\\machine_poll.lua",
+      "source_location": "L25",
+      "weight": 1.0,
+      "_src": "machine_poll_machinepoll_new",
+      "_tgt": "hw_hw_require_proxy",
+      "source": "hw_hw_require_proxy",
+      "target": "machine_poll_machinepoll_new"
     },
     {
       "relation": "contains",
@@ -14205,12 +14226,36 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\broker_main.lua",
-      "source_location": "L91",
+      "source_location": "L93",
       "weight": 1.0,
       "_src": "subnet_broker_broker_main_lua",
       "_tgt": "broker_main_is_direct_run",
       "source": "subnet_broker_broker_main_lua",
       "target": "broker_main_is_direct_run",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "subnet_broker\\broker_main.lua",
+      "source_location": "L108",
+      "weight": 1.0,
+      "_src": "subnet_broker_broker_main_lua",
+      "_tgt": "broker_main_print_lane_status",
+      "source": "subnet_broker_broker_main_lua",
+      "target": "broker_main_print_lane_status",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "subnet_broker\\broker_main.lua",
+      "source_location": "L72",
+      "weight": 1.0,
+      "_src": "broker_main_brokermain_run",
+      "_tgt": "broker_main_print_lane_status",
+      "source": "broker_main_brokermain_run",
+      "target": "broker_main_print_lane_status",
       "confidence_score": 1.0
     },
     {
@@ -14272,6 +14317,18 @@
       "_tgt": "lane_dispatch_lanedispatch_new",
       "source": "broker_main_brokermain_run",
       "target": "lane_dispatch_lanedispatch_new"
+    },
+    {
+      "relation": "calls",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "subnet_broker\\broker_main.lua",
+      "source_location": "L113",
+      "weight": 1.0,
+      "_src": "broker_main_print_lane_status",
+      "_tgt": "find_print",
+      "source": "broker_main_print_lane_status",
+      "target": "find_print"
     },
     {
       "relation": "contains",
@@ -14664,8 +14721,8 @@
       "source_file": "subnet_broker\\probe_transposer.lua",
       "source_location": "L68",
       "weight": 1.0,
-      "_src": "probe_transposer_probe_one",
-      "_tgt": "find_print",
+      "_src": "find_print",
+      "_tgt": "probe_transposer_probe_one",
       "source": "find_print",
       "target": "probe_transposer_probe_one"
     },
@@ -14676,8 +14733,8 @@
       "source_file": "subnet_broker\\probe_transposer.lua",
       "source_location": "L80",
       "weight": 1.0,
-      "_src": "probe_transposer_print_lane",
-      "_tgt": "find_print",
+      "_src": "find_print",
+      "_tgt": "probe_transposer_print_lane",
       "source": "find_print",
       "target": "probe_transposer_print_lane"
     },
@@ -14688,8 +14745,8 @@
       "source_file": "subnet_broker\\test_recover_transfer.lua",
       "source_location": "L73",
       "weight": 1.0,
-      "_src": "test_recover_transfer_try_call",
-      "_tgt": "find_print",
+      "_src": "find_print",
+      "_tgt": "test_recover_transfer_try_call",
       "source": "find_print",
       "target": "test_recover_transfer_try_call"
     },
@@ -15513,7 +15570,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L14",
+      "source_location": "L15",
       "weight": 1.0,
       "_src": "subnet_broker_machine_poll_lua",
       "_tgt": "machine_poll_machinepoll_new",
@@ -15525,7 +15582,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L33",
+      "source_location": "L38",
       "weight": 1.0,
       "_src": "subnet_broker_machine_poll_lua",
       "_tgt": "machine_poll_machinepoll_get_proxy",
@@ -15537,7 +15594,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L37",
+      "source_location": "L42",
       "weight": 1.0,
       "_src": "subnet_broker_machine_poll_lua",
       "_tgt": "machine_poll_machinepoll_poll_machine",
@@ -15549,7 +15606,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L86",
+      "source_location": "L93",
       "weight": 1.0,
       "_src": "subnet_broker_machine_poll_lua",
       "_tgt": "machine_poll_machinepoll_poll_all",
@@ -15561,7 +15618,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L94",
+      "source_location": "L101",
       "weight": 1.0,
       "_src": "subnet_broker_machine_poll_lua",
       "_tgt": "machine_poll_machinepoll_build_active_pool",
@@ -15573,7 +15630,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L109",
+      "source_location": "L116",
       "weight": 1.0,
       "_src": "subnet_broker_machine_poll_lua",
       "_tgt": "machine_poll_machinepoll_is_idle",
@@ -15585,7 +15642,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L121",
+      "source_location": "L128",
       "weight": 1.0,
       "_src": "subnet_broker_machine_poll_lua",
       "_tgt": "machine_poll_machinepoll_build_idle_pool",
@@ -15609,7 +15666,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "subnet_broker\\machine_poll.lua",
-      "source_location": "L126",
+      "source_location": "L133",
       "weight": 1.0,
       "_src": "machine_poll_machinepoll_build_idle_pool",
       "_tgt": "machine_poll_machinepoll_is_idle",

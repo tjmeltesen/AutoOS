@@ -68,10 +68,17 @@ function OrchestratorMain.run()
 end
 
 local function is_direct_run()
-  if not arg or not arg[0] then return false end
-  local script = arg[0]:gsub("\\", "/")
-  local name = script:match("([^/]+)$") or script
-  return name == "orchestrator_main.lua" or name:find("orchestrator_main", 1, true) ~= nil
+  if arg and arg[0] then
+    local script = arg[0]:gsub("\\", "/")
+    local name = script:match("([^/]+)$") or script
+    if name == "orchestrator_main.lua" or name:find("orchestrator_main", 1, true) then return true end
+  end
+  local ok, proc = pcall(require, "process")
+  if ok and proc and proc.info then
+    local path = proc.info()
+    if type(path) == "string" and path:find("orchestrator_main", 1, true) then return true end
+  end
+  return false
 end
 
 if is_direct_run() then
