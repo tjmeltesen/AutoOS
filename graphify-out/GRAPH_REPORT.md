@@ -1,7 +1,7 @@
 # Graph Report - AutoOS  (2026-06-16)
 
 ## Corpus Check
-- 123 files · ~76,000 words
+- 123 files · ~75,984 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -45,14 +45,14 @@
 ## Surprising Connections (you probably didn't know these)
 - `build_oc_deps()` --calls--> `component.isAvailable()`  [INFERRED]
   legacy\main.lua → references\OC-GTNH-docs-main\docs\component.lua
-- `Orchestrator:on_message()` --calls--> `Protocols.parse()`  [INFERRED]
-  orchestrator\orchestrator.lua → subnet_broker\network_protocols.lua
+- `Protocols.parse()` --calls--> `Orchestrator:on_message()`  [INFERRED]
+  subnet_broker\network_protocols.lua → orchestrator\orchestrator.lua
 - `BrokerMain.run()` --calls--> `MachinePoll.new()`  [INFERRED]
   subnet_broker\broker_main.lua → subnet_broker\machine_poll.lua
-- `Kernel.new()` --calls--> `Adapter.new()`  [INFERRED]
-  legacy\main.lua → legacy\adapter.lua
-- `Kernel.new()` --calls--> `Arbitrator.new()`  [INFERRED]
-  legacy\main.lua → legacy\arbitrator.lua
+- `Adapter.new()` --calls--> `Kernel.new()`  [INFERRED]
+  legacy\adapter.lua → legacy\main.lua
+- `Arbitrator.new()` --calls--> `Kernel.new()`  [INFERRED]
+  legacy\arbitrator.lua → legacy\main.lua
 
 ## Communities
 

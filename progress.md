@@ -384,4 +384,4 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Added `tests/lane_dispatch_test.lua` (9/9); updated `tests/array_watch_test.lua` (12/12)
 - Changed `README.md` Phase 3: LCR lane dispatch diagram and phases
 - Deleted legacy: `legacy/universal/`, `subnet_broker/demoted/`, `orchestrator/demoted/`, `circuit_loop.lua`, `descriptor_cache.lua`, `orchestrator/link_test.lua`, `tests/circuit_loop_test.lua`
-- Desktop: `lua55 tests\lane_dispatch_test.lua` 9/9; `lua55 tests\array_watch_test.lua` 12/12
+- Changed `subnet_broker/probe_transposer.lua`: fix table.concat crash when side hint was flattened to string

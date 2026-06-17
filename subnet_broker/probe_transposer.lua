@@ -56,7 +56,8 @@ local function probe_one(label, addr, machine, side_hints)
     if inv_size and inv_size > 0 then parts[#parts + 1] = inv_size .. " item slots" end
     if fluid_mb then parts[#parts + 1] = fluid_mb .. " mB fluid" end
     if #parts == 0 then parts[#parts + 1] = "empty" end
-    local markers = side_hints[side] or {}
+    local markers = side_hints[side]
+    if type(markers) ~= "table" then markers = {} end
     local mark = #markers > 0 and ("  <<" .. table.concat(markers, ", ") .. ">>") or ""
     print(string.format("    side %d (%s): %s%s", side, SIDE_NAMES[side] or "?", table.concat(parts, ", "), mark))
   end
@@ -86,16 +87,8 @@ local function print_lane(machine)
   fluid_hints[fh] = fluid_hints[fh] or {}
   fluid_hints[fh][#fluid_hints[fh] + 1] = "side_fluid_hatch"
 
-  local function flat(hints)
-    local out = {}
-    for side, list in pairs(hints) do
-      out[side] = table.concat(list, ", ")
-    end
-    return out
-  end
-
-  probe_one("item", LaneSides.item_transposer_address(machine), machine, flat(item_hints))
-  probe_one("fluid", LaneSides.fluid_transposer_address(machine), machine, flat(fluid_hints))
+  probe_one("item", LaneSides.item_transposer_address(machine), machine, item_hints)
+  probe_one("fluid", LaneSides.fluid_transposer_address(machine), machine, fluid_hints)
 end
 
 local only = LANE_ID
