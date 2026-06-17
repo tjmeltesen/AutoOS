@@ -40,7 +40,8 @@ end
 print("[AutoOS] Broker loaded. Usage:")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
 print("  Find/probe:  loadfile('" .. here .. "/find.lua')('probe')  → also writes find.txt")
-print("  Watch loop:  lua broker_main.lua   (or: loadfile('" .. here .. "/broker_main.lua")())")
-print("  Note: broker is headless — no GPU screen; watch terminal output")
+print("  Watch loop:  broker_main   (or loadfile('" .. here .. "/broker_main.lua")())")
+print("  One tick:    loadfile('" .. here .. "/broker_main.lua")('test')")
+print("  Note: broker is headless — no GPU screen; Ctrl+C stops the watch loop")
 
 return Config

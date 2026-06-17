@@ -1,20 +1,41 @@
 --[[
   AutoOS — Broker OC entry (LCR lane dispatch + array watch)
 
-  Run in-game: lua broker_main.lua
+  Run in-game:
+    broker_main              -- or: lua broker_main.lua
+    loadfile("/home/subnet_broker/broker_main.lua")()
+    loadfile("/home/subnet_broker/broker_main.lua")("test")  -- one tick, then exit
 ]]
+
+local BROKER_BUILD = "2026-06-16c"
 
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
 
 local Protocols = require("network_protocols")
+local mode = ({...})[1]
 
 local BrokerMain = {}
 
-function BrokerMain.run()
+local function print_lane_status(poll, machines)
+  local results = poll:poll_all()
+  for _, m in ipairs(machines) do
+    local st = results[m.id]
+    if not st or not st.available then
+      print(string.format("[Broker] %s OFFLINE — %s",
+        m.id, tostring(st and st.fault_message or "no gt_machine proxy")))
+    elseif st.healthy then
+      print(string.format("[Broker] %s OK (active=%s has_work=%s)",
+        m.id, tostring(st.active), tostring(st.has_work)))
+    else
+      print(string.format("[Broker] %s FAULT — %s", m.id, tostring(st.fault_message)))
+    end
+  end
+end
+
+function BrokerMain.build()
   local component = require("component")
-  local event = require("event")
   local computer = require("computer")
   local Config = require("config")
   local MachinePoll = require("machine_poll")
@@ -23,14 +44,10 @@ function BrokerMain.run()
   local ArrayWatch = require("array_watch")
 
   local ok, err = Config.validate(Config)
-  if not ok then
-    print("[Broker] config invalid: " .. tostring(err))
-    return
-  end
+  if not ok then return nil, "config invalid: " .. tostring(err) end
 
   if not component.isAvailable("modem") then
-    print("[Broker] no modem — needs a network card")
-    return
+    return nil, "no modem — needs a network card"
   end
 
   local modem = component.modem
@@ -66,23 +83,72 @@ function BrokerMain.run()
     now = computer.uptime,
   })
 
+  return {
+    config = Config,
+    poll = poll,
+    watch = watch,
+    lane_dispatch = lane_dispatch,
+    listen_port = listen_port,
+    orch_port = orch_port,
+  }
+end
+
+function BrokerMain.run_once()
+  print("[Broker] test tick " .. BROKER_BUILD)
+  local ctx, err = BrokerMain.build()
+  if not ctx then
+    print("[Broker] start FAILED: " .. tostring(err))
+    return false
+  end
+
+  print(string.format("[Broker] subnet=%s listen=%d orch=%s",
+    ctx.config.subnet_id, ctx.listen_port, ctx.config.orchestrator_address or "(none)"))
+  print_lane_status(ctx.poll, ctx.config.machines)
+
+  local ok_tick, err_tick = xpcall(function() ctx.watch:tick() end, debug.traceback)
+  if not ok_tick then
+    print("[Broker] tick error:\n" .. tostring(err_tick))
+    return false
+  end
+
+  for _, m in ipairs(ctx.config.machines) do
+    local dbg = ctx.lane_dispatch:get_lane_debug(m.id)
+    print(string.format("[Broker] %s dispatch=%s%s",
+      m.id, dbg.state,
+      dbg.last_error and (" err=" .. dbg.last_error) or ""))
+  end
+  print("[Broker] test tick done — load circuits in buffer chests to exercise dispatch")
+  return true
+end
+
+function BrokerMain.run()
+  print("[Broker] starting " .. BROKER_BUILD)
+  local ctx, err = BrokerMain.build()
+  if not ctx then
+    print("[Broker] start FAILED: " .. tostring(err))
+    return false
+  end
+
+  local event = require("event")
   print(string.format("[Broker] online — LCR dispatch, subnet=%s, listen %d → %d, orch=%s",
-    Config.subnet_id, listen_port, orch_port, Config.orchestrator_address or "(none)"))
-  print("[Broker] headless — no GPU UI; status lines below + modem telemetry to orchestrator")
-  print_lane_status(poll, Config.machines)
+    ctx.config.subnet_id, ctx.listen_port, ctx.orch_port,
+    ctx.config.orchestrator_address or "(none)"))
+  print("[Broker] headless — no GPU UI; Ctrl+C to stop; use loadfile(...)(\"test\") for one tick")
+  print_lane_status(ctx.poll, ctx.config.machines)
 
   while true do
-    local interval = watch:any_fast_tick()
-      and (Config.monitor_poll_s or 0.15)
-      or (Config.tick_interval or 1.0)
+    local interval = ctx.watch:any_fast_tick()
+      and (ctx.config.monitor_poll_s or 0.15)
+      or (ctx.config.tick_interval or 1.0)
     local id, _, from, _, _, message = event.pull(interval, "modem_message")
     if id == "modem_message" then
       local pkt = Protocols.parse(message)
       if pkt and pkt.kind == Protocols.KIND.TRIGGER_CRAFT then
-        print(string.format("[Broker] ignoring TRIGGER_CRAFT from %s (AE handles dispatch)", tostring(from)))
+        print(string.format("[Broker] ignoring TRIGGER_CRAFT from %s (AE handles dispatch)",
+          tostring(from)))
       end
     else
-      local ok_tick, err_tick = xpcall(function() watch:tick() end, debug.traceback)
+      local ok_tick, err_tick = xpcall(function() ctx.watch:tick() end, debug.traceback)
       if not ok_tick then
         print("[Broker] tick error:\n" .. tostring(err_tick))
       end
@@ -90,41 +156,21 @@ function BrokerMain.run()
   end
 end
 
-local function is_direct_run()
-  -- ponytail: OpenOS has no global arg[] — use process.info() when arg is missing
-  if arg and arg[0] then
-    local script = arg[0]:gsub("\\", "/")
-    local name = script:match("([^/]+)$") or script
-    if name == "broker_main.lua" or name:find("broker_main", 1, true) then return true end
-  end
-  local ok, proc = pcall(require, "process")
-  if ok and proc and proc.info then
-    local path = proc.info()
-    if type(path) == "string" and path:find("broker_main", 1, true) then return true end
-  end
-  return false
+local function should_autostart()
+  if mode == "test" or mode == "once" then return true end
+  -- ponytail: OpenOS has no arg[]; lua broker_main.lua runs under /bin/lua — skip require() only
+  local info = debug.getinfo(2, "S")
+  if info and info.what == "C" then return false end
+  return true
 end
 
-local function print_lane_status(poll, machines)
-  local results = poll:poll_all()
-  for _, m in ipairs(machines) do
-    local st = results[m.id]
-    if not st or not st.available then
-      print(string.format("[Broker] %s OFFLINE — %s",
-        m.id, tostring(st and st.fault_message or "no gt_machine proxy")))
-    elseif st.healthy then
-      print(string.format("[Broker] %s OK (active=%s has_work=%s)",
-        m.id, tostring(st.active), tostring(st.has_work)))
-    else
-      print(string.format("[Broker] %s FAULT — %s", m.id, tostring(st.fault_message)))
-    end
+if should_autostart() then
+  if mode == "test" or mode == "once" then
+    BrokerMain.run_once()
+  else
+    local ok, err = xpcall(BrokerMain.run, debug.traceback)
+    if not ok then print("[Broker] FATAL:\n" .. tostring(err)) end
   end
-end
-
-if is_direct_run() then
-  print("[Broker] starting...")
-  local ok, err = xpcall(BrokerMain.run, debug.traceback)
-  if not ok then print("[Broker] FATAL:\n" .. tostring(err)) end
 end
 
 return BrokerMain

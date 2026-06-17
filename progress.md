@@ -394,3 +394,8 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `orchestrator/orchestrator_main.lua`: same `process.info()` direct-run fix
 - Changed `subnet_broker/machine_poll.lua`, `diag.lua`: use `hw.require_proxy` and surface why gt_machine poll failed
 - Changed `subnet_broker/start.lua`: clarify headless broker + `loadfile` launch fallback
+
+## 2026-06-16 — Broker autostart fix (OpenOS lua wrapper)
+
+- Changed `subnet_broker/broker_main.lua`: autostart unless `require()`'d (fixes silent exit under `lua broker_main.lua`); added `run_once` / `("test")` one-tick mode; build 2026-06-16c
+- Changed `subnet_broker/start.lua`: document `broker_main` and test-tick usage
