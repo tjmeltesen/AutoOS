@@ -372,3 +372,16 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/diag.lua` and `README.md`: surface optional buffer-adapter wiring and status.
 - Changed `tests/circuit_loop_test.lua`: added adapter-empty skip test and adapter-missing fallback test.
 - Desktop verification: `lua55 tests\\circuit_loop_test.lua` (10/10 pass) and `lua55 tests\\array_watch_test.lua` (12/12 pass).
+
+## 2026-06-16 — GTCEU/LCR pivot: lane_dispatch (dual transposer)
+
+- Added `references/gtceu-lcr-gtnh-port-map.md`: LCR primary spec + GTCEU scheduling port map
+- Added `subnet_broker/lane_dispatch.lua`: per-lane LCR FSM (buffer→settle→transfer→wait→extract→import), dual transposer, `completion_mode=both`, round-robin lane order
+- Changed `subnet_broker/array_watch.lua`, `broker_main.lua`: wire `LaneDispatch` instead of `CircuitLoop`
+- Changed `subnet_broker/config.lua`: v1 schema (`item_transposer_address`, `fluid_transposer_address`, `side_fluid_*`, `input_mode=per_lane`)
+- Changed `subnet_broker/lane_sides.lua`, `circuit_manager.lua`: transposer-only helpers; removed ME push/recover/descriptor cache
+- Changed `subnet_broker/probe_transposer.lua`, `diag.lua`, `start.lua`, `test_recover_transfer.lua`: dual-transposer wiring
+- Added `tests/lane_dispatch_test.lua` (9/9); updated `tests/array_watch_test.lua` (12/12)
+- Changed `README.md` Phase 3: LCR lane dispatch diagram and phases
+- Deleted legacy: `legacy/universal/`, `subnet_broker/demoted/`, `orchestrator/demoted/`, `circuit_loop.lua`, `descriptor_cache.lua`, `orchestrator/link_test.lua`, `tests/circuit_loop_test.lua`
+- Desktop: `lua55 tests\lane_dispatch_test.lua` 9/9; `lua55 tests\array_watch_test.lua` 12/12

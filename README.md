@@ -117,16 +117,17 @@ AutoOS/
 │   ├── hysteresis_engine.lua     # Evaluates high/low triggers for restocking rules
 │   └── overseer_display.lua      # GPU panel: warehouse stock, crafts, broker links
 ├── subnet_broker/                # Broker OC (separate computer — lane hardware only)
-│   ├── config.lua                # Per-lane OC addresses + recipe baselines (+ recipe_uid, orchestrator_address)
-│   ├── broker_core.lua           # Lane dispatch: circuit push → fluid pump → clear
-│   ├── broker_main.lua           # Phase 3 modem slave: DISPATCH_JOB → process_batch → BROKER_STATUS
-│   ├── machine_poll.lua          # GT maintenance fault scanner; builds active/idle pools
+│   ├── config.lua                # Per-lane dual transposer UUIDs + sides
+│   ├── lane_dispatch.lua         # LCR per-lane FSM (buffer→transfer→extract)
+│   ├── array_watch.lua           # Health poll + lane dispatch + telemetry
+│   ├── broker_main.lua           # OC entry + modem event loop
+│   ├── machine_poll.lua          # gt_machine poll + maintenance gate
 │   ├── maintenance_parse.lua     # Parses getSensorInformation() fault strings
-│   ├── load_balancer.lua         # Pure integer operation distribution
-│   ├── circuit_manager.lua       # Per-lane circuit push/recover
-│   ├── descriptor_cache.lua      # ME→OC database slot cache (circuits + fluid drops)
-│   ├── diag.lua / test.lua / pre_p3_checklist.lua   # In-game smoke + gate tests
-│   └── start.lua                 # Boot helper + wget list
+│   ├── circuit_manager.lua       # Transposer transfer/scan helpers
+│   ├── lane_sides.lua            # Side alias helpers
+│   ├── probe_transposer.lua      # In-game face map (item + fluid TP)
+│   ├── diag.lua                  # Config + UUID + poll smoke test
+│   └── start.lua                 # Boot helper + required-file check
 └── shared/
     └── network_protocols.lua     # Pipe-delimited packet codec (copied into BOTH OC homes)
 ```
@@ -440,42 +441,53 @@ Write two compliant Lua modules for an OpenComputers project named AutoOS runnin
 
 Write `subnet_broker/machine_poll.lua` and `subnet_broker/maintenance_parse.lua`. `machine_poll` must verify active multiblock maintenance flags via `gt_machine.getSensorInformation()` and drop faulted lanes from the active pool. Rewrite `broker_core.lua` for the **1:1:1 topology**: per-lane `component.proxy` of ME Interface and Transposer, `setFluidInterfaceConfiguration` → `transferFluid` → clear interface. No `circuit_manager` or centralized vault.
 
-### Phase 3 (Revised) — Array Watch mode
+### Phase 3 — LCR lane dispatch + orchestrator telemetry
 
-Phase 3 now keeps the two-OC topology, but removes OC-side recipe dispatch:
+Two OpenComputers: broker runs per-lane LCR automation (dual transposer); orchestrator aggregates health only.
 
 | Computer | Home | Role |
 | -------- | ---- | ---- |
-| **Orchestrator OC** | `/home/orchestrator/` | Aggregates broker telemetry and presents status. No recipe registry, no lane dispatch. |
-| **Broker OC** | `/home/subnet_broker/` | Per-array watcher. Polls machine health, shuts down faulted lanes, and recovers circuits from input buses when processing completes. |
+| **Orchestrator OC** | `/home/orchestrator/` | Listens for `BROKER_HEALTH` / `BROKER_EVENT`; no lane dispatch |
+| **Broker OC** | `/home/subnet_broker/` | LCR loop per lane + maintenance shutdown + modem telemetry |
 
 ```mermaid
 flowchart TB
   subgraph mainNet [Main AE2]
-    AE[Patterns + bulk crafts]
+    AE[Patterns deposit to per-lane buffers]
   end
-  subgraph array [Processing Array]
-    AE --> InputBuses[Input buses + fluids]
-    InputBuses --> GT[GT multiblocks]
-    RecoverIF[ME interface recover sink]
-    Broker[Broker OC]
-    Broker -->|poll| GT
-    Broker -->|recover circuit| RecoverIF
+  subgraph lane [Per lane]
+    Buf[Buffer chest]
+    ItemTP[Item transposer]
+    FluidTP[Fluid transposer]
+    Bus[GT input bus]
+    Hatch[Fluid hatch]
+    Ret[Return chest]
+    GT[gt_machine adapter]
+    Buf --> ItemTP --> Bus
+    Buf --> FluidTP --> Hatch
+    ItemTP --> Ret
   end
-  subgraph coord [Orchestrator OC]
-    Orch[Health aggregator]
-  end
-  Broker -->|"modem: BROKER_HEALTH / BROKER_EVENT"| Orch
+  Broker[Broker OC lane_dispatch]
+  Orch[Orchestrator OC]
+  Broker -->|poll| GT
+  Broker -->|transferItem/Fluid| ItemTP
+  Broker -->|transferItem/Fluid| FluidTP
+  Broker -->|"modem"| Orch
+  AE --> Buf
 ```
 
-AE2 handles bulk stock/craft volume. OC logic is universal:
+**Per-lane LCR phases** (`lane_dispatch.lua`, ref: `references/LCR Universal Automation.lua`):
 
-1. Parse maintenance faults from `getSensorInformation()`
-2. Call `setWorkAllowed(false)` on faulted lanes
-3. On processing complete (`isMachineActive: true -> false`), recover circuit from input bus back to ME
-4. Emit broker health/event telemetry for operator display
+1. Wait buffer (items + fluids)
+2. Settle (`settle_s`) for AE blocking deposit
+3. Transfer all items + fluids to machine
+4. Wait complete (`completion_mode=both`: adapter `isMachineActive` + drain gate)
+5. Extract circuit (bus slot 1 → return chest)
+6. Wait AE import on return face
 
-**Wire protocol** (`shared/network_protocols.lua`, copied into both OC homes):
+**Also:** maintenance fault → `setWorkAllowed(false)`; skip faulted lanes in round-robin order.
+
+**Wire protocol** (`network_protocols.lua` in both OC homes):
 
 ```text
 BROKER_HEALTH|subnet_id|machine_id|state|detail

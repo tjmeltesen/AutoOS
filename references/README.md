@@ -15,6 +15,9 @@ Curated reference for building AutoOS in **OpenComputers** on **GregTech: New Ho
 | [phase4-implementation.md](phase4-implementation.md) | **Phase 4 build guide** — multi-machine kernel, Add Machine UI |
 | [gtnh-opencomputers-overview.md](gtnh-opencomputers-overview.md) | Adapter/MFU wiring, ME interface vs controller, GTNH patterns |
 | [maintenance-and-safety.md](maintenance-and-safety.md) | GT multiblock maintenance faults & AutoOS shutdown logic |
+| [gtceu-lcr-gtnh-port-map.md](gtceu-lcr-gtnh-port-map.md) | LCR + GTCEU → AutoOS `lane_dispatch.lua` port map |
+| [LCR Universal Automation.lua](LCR%20Universal%20Automation.lua) | Working GTNH OC per-lane transposer reference |
+| [cc_gtceu_multipurpose-main/](cc_gtceu_multipurpose-main/) | GTCEU CC round-robin reference (scheduling only) |
 | [performance-pitfalls.md](performance-pitfalls.md) | Polling limits, `allItems`, "Computer Too Busy" |
 | [external-sources.md](external-sources.md) | Online sources + local doc index |
 | [Level-Maintainer-master/](Level-Maintainer-master/) | Companion ME passive autocraft reference |

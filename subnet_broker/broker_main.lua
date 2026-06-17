@@ -1,14 +1,7 @@
 --[[
-  AutoOS — Broker OC entry (Array Watch mode)
+  AutoOS — Broker OC entry (LCR lane dispatch + array watch)
 
-  AE2 handles bulk item/fluid dispatch. Broker now:
-    * polls machine health
-    * shuts machines down on maintenance faults
-    * recovers non-consumable circuits when a lane goes idle
-    * reports lane status to orchestrator
-
-  Run in-game:
-    lua broker_main.lua
+  Run in-game: lua broker_main.lua
 ]]
 
 local sep = package.config:sub(1, 1)
@@ -26,7 +19,7 @@ function BrokerMain.run()
   local Config = require("config")
   local MachinePoll = require("machine_poll")
   local CircuitManager = require("circuit_manager")
-  local CircuitLoop = require("circuit_loop")
+  local LaneDispatch = require("lane_dispatch")
   local ArrayWatch = require("array_watch")
 
   local ok, err = Config.validate(Config)
@@ -53,7 +46,7 @@ function BrokerMain.run()
 
   local poll = MachinePoll.new({ config = Config, component = component })
   local circuit_manager = CircuitManager.new({ config = Config, component = component })
-  local circuit_loop = CircuitLoop.new({
+  local lane_dispatch = LaneDispatch.new({
     config = Config,
     component = component,
     circuit_manager = circuit_manager,
@@ -66,14 +59,14 @@ function BrokerMain.run()
     component = component,
     poll = poll,
     circuit_manager = circuit_manager,
-    circuit_loop = circuit_loop,
+    lane_dispatch = lane_dispatch,
     link = link,
     reply_to = Config.orchestrator_address ~= "" and Config.orchestrator_address or nil,
     log = print,
     now = computer.uptime,
   })
 
-  print(string.format("[Broker] online — array watch mode, subnet=%s, listen %d → %d, orch=%s",
+  print(string.format("[Broker] online — LCR dispatch, subnet=%s, listen %d → %d, orch=%s",
     Config.subnet_id, listen_port, orch_port, Config.orchestrator_address or "(none)"))
 
   while true do

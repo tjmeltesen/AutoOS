@@ -34,7 +34,9 @@ local function is_circuit(stack)
   return n == CIRCUIT or n:find("integrated_circuit", 1, true) ~= nil
 end
 
-local tp = component.proxy(machine.transposer_address, "transposer") or component.proxy(machine.transposer_address)
+local LaneSides = require("lane_sides")
+local tp_addr = LaneSides.item_transposer_address(machine)
+local tp = component.proxy(tp_addr, "transposer") or component.proxy(tp_addr)
 if not tp or not tp.transferItem then
   print("transposer proxy failed")
   return

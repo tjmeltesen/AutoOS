@@ -55,11 +55,13 @@ do
   local watch = ArrayWatch.new({
     config = { subnet_id = "sub", machines = { { id = "machine_01" } } },
     poll = poll,
-    circuit_loop = {
+    lane_dispatch = {
       tick_lane = function() return false, {} end,
       reset_lane = function() end,
       get_lane_debug = function() return { state = "idle" } end,
       any_fast_tick = function() return false end,
+      lane_order = function(_, m) return m end,
+      advance_round_robin = function() end,
     },
     link = { send = function(_, _, msg) link_out[#link_out + 1] = msg end },
     reply_to = "orch-1",
@@ -100,6 +102,8 @@ do
     end,
     reset_lane = function() end,
     any_fast_tick = function() return tick_n < 3 end,
+    lane_order = function(_, m) return m end,
+    advance_round_robin = function() end,
   }
   local poll = {
     get_proxy = function() return nil end,
@@ -110,7 +114,7 @@ do
   local watch = ArrayWatch.new({
     config = { subnet_id = "sub", machines = { { id = "machine_01" } } },
     poll = poll,
-    circuit_loop = loop,
+    lane_dispatch = loop,
     link = { send = function(_, _, msg) msgs[#msgs + 1] = msg end },
     reply_to = "orch-1",
     now = function() return 12 end,
@@ -149,11 +153,13 @@ do
   local watch = ArrayWatch.new({
     config = { subnet_id = "sub", machines = { { id = "machine_01" } } },
     poll = poll,
-    circuit_loop = {
+    lane_dispatch = {
       tick_lane = function() return true, { { type = "recover_failed", detail = "jammed" } } end,
-      get_lane_debug = function() return { state = "extraction" } end,
+      get_lane_debug = function() return { state = "extract" } end,
       reset_lane = function() end,
       any_fast_tick = function() return true end,
+      lane_order = function(_, m) return m end,
+      advance_round_robin = function() end,
     },
     link = { send = function(_, _, msg) msgs[#msgs + 1] = msg end },
     reply_to = "orch-1",

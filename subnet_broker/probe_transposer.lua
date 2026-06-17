@@ -1,28 +1,15 @@
 --[[
   AutoOS — Transposer face probe (in-game wiring discovery)
 
-  Run from OC shell:
-    loadfile("/home/subnet_broker/probe_transposer.lua")()
-
-  Or one lane:
-    loadfile("/home/subnet_broker/probe_transposer.lua")("machine_02")
-
-  Maps every transposer face (0–5): slot count, items, fluid mB.
-  Use this to set:
-    side_buffer  (super-buffer/chest face)
-    side_bus_b   (GT circuit bus face)
-    side_return  (optional return face, default side_buffer)
+  Run: loadfile("/home/subnet_broker/probe_transposer.lua")()
+  One lane: loadfile("...")("machine_02")
 ]]
 
-local LANE_ID = nil  -- nil = all lanes; or set e.g. "machine_01"
+local LANE_ID = nil
 
 local SIDE_NAMES = {
-  [0] = "bottom",
-  [1] = "top",
-  [2] = "back",
-  [3] = "front",
-  [4] = "right",
-  [5] = "left",
+  [0] = "bottom", [1] = "top", [2] = "back",
+  [3] = "front", [4] = "right", [5] = "left",
 }
 
 local sep = package.config:sub(1, 1)
@@ -30,6 +17,7 @@ local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_br
 package.path = here .. sep .. "?.lua;" .. package.path
 
 local Config = require("config")
+local LaneSides = require("lane_sides")
 local component = require("component")
 
 local function is_circuit(stack, circuit_name)
@@ -41,21 +29,9 @@ end
 
 local function fluid_mb_on_side(tp, side)
   if not tp.getTankLevel then return nil end
-  local tanks = 1
-  if tp.getTankCount then
-    local ok, n = pcall(tp.getTankCount, side)
-    if ok and type(n) == "number" then tanks = n end
-  end
-  local total = 0
-  local any = false
-  for t = 1, math.max(tanks, 1) do
-    local ok, lvl = pcall(tp.getTankLevel, side, t)
-    if ok and type(lvl) == "number" and lvl > 0 then
-      total = total + lvl
-      any = true
-    end
-  end
-  return any and total or nil
+  local ok, lvl = pcall(tp.getTankLevel, side, 1)
+  if ok and type(lvl) == "number" and lvl > 0 then return lvl end
+  return nil
 end
 
 local function proxy_transposer(addr)
@@ -65,95 +41,61 @@ local function proxy_transposer(addr)
   return ok and tp or nil
 end
 
-local function print_lane(machine)
-  print(string.rep("-", 56))
-  print(string.format("[Probe] %s  transposer %s", machine.id, machine.transposer_address))
-  print(string.format("  config  side_buffer=%s  side_bus_b=%s  side_return=%s",
-    tostring(machine.side_buffer), tostring(machine.side_bus_b), tostring(machine.side_return or machine.side_buffer)))
-
-  local tp = proxy_transposer(machine.transposer_address)
+local function probe_one(label, addr, machine, side_hints)
+  print(string.format("  [%s] transposer %s", label, addr))
+  local tp = proxy_transposer(addr)
   if not tp then
-    print("  ERROR: transposer proxy failed — check UUID on component.list()")
+    print("    ERROR: proxy failed")
     return
   end
-
-  local circuit_name = Config.circuit_item_name or "gregtech:gt.integrated_circuit"
-  local faces_with_inv = 0
-  local circuit_faces = {}
-  local fluid_faces = {}
-
   for side = 0, 5 do
-    local label = SIDE_NAMES[side] or "?"
     local inv_ok, inv_size = pcall(tp.getInventorySize, side)
     inv_size = inv_ok and inv_size or 0
     local fluid_mb = fluid_mb_on_side(tp, side)
-
     local parts = {}
-    if inv_size and inv_size > 0 then
-      faces_with_inv = faces_with_inv + 1
-      parts[#parts + 1] = string.format("%d item slots", inv_size)
-    end
-    if fluid_mb then
-      parts[#parts + 1] = string.format("%d mB fluid", fluid_mb)
-      fluid_faces[#fluid_faces + 1] = side
-    end
-    if #parts == 0 then
-      parts[#parts + 1] = "no inventory / no fluid"
-    end
-
-    local markers = {}
-    if machine.side_bus_b == side then markers[#markers + 1] = "side_bus_b" end
-    if (machine.side_return or machine.side_buffer) == side then markers[#markers + 1] = "side_return" end
-    if machine.side_buffer == side then markers[#markers + 1] = "side_buffer" end
+    if inv_size and inv_size > 0 then parts[#parts + 1] = inv_size .. " item slots" end
+    if fluid_mb then parts[#parts + 1] = fluid_mb .. " mB fluid" end
+    if #parts == 0 then parts[#parts + 1] = "empty" end
+    local markers = side_hints[side] or {}
     local mark = #markers > 0 and ("  <<" .. table.concat(markers, ", ") .. ">>") or ""
+    print(string.format("    side %d (%s): %s%s", side, SIDE_NAMES[side] or "?", table.concat(parts, ", "), mark))
+  end
+end
 
-    print(string.format("  side %d (%s): %s%s", side, label, table.concat(parts, ", "), mark))
+local function print_lane(machine)
+  print(string.rep("-", 56))
+  print(string.format("[Probe] %s", machine.id))
+  print(string.format("  item  buffer=%s bus=%s return=%s",
+    tostring(machine.side_buffer), tostring(machine.side_bus_b), tostring(machine.side_return or machine.side_buffer)))
+  print(string.format("  fluid buffer=%s hatch=%s",
+    tostring(LaneSides.fluid_buffer_side(machine)), tostring(LaneSides.fluid_hatch_side(machine))))
 
-    if inv_size and inv_size > 0 then
-      local shown = 0
-      for slot = 1, inv_size do
-        local st = tp.getStackInSlot and tp.getStackInSlot(side, slot)
-        if st and (st.size or 0) > 0 then
-          shown = shown + 1
-          local tag = is_circuit(st, circuit_name) and " [CIRCUIT]" or ""
-          print(string.format("    slot %d: %s x%s dmg %s%s",
-            slot, tostring(st.name), tostring(st.size), tostring(st.damage), tag))
-          if is_circuit(st, circuit_name) then
-            circuit_faces[#circuit_faces + 1] = { side = side, slot = slot, damage = st.damage }
-          end
-        end
-      end
-      if shown == 0 then
-        print("    (empty — face has inventory handler but no items)")
-      end
+  local item_hints, fluid_hints = {}, {}
+  item_hints[machine.side_buffer] = item_hints[machine.side_buffer] or {}
+  item_hints[machine.side_buffer][#item_hints[machine.side_buffer] + 1] = "side_buffer"
+  item_hints[machine.side_bus_b] = item_hints[machine.side_bus_b] or {}
+  item_hints[machine.side_bus_b][#item_hints[machine.side_bus_b] + 1] = "side_bus_b"
+  local ret = machine.side_return or machine.side_buffer
+  item_hints[ret] = item_hints[ret] or {}
+  item_hints[ret][#item_hints[ret] + 1] = "side_return"
+
+  local fb = LaneSides.fluid_buffer_side(machine)
+  fluid_hints[fb] = fluid_hints[fb] or {}
+  fluid_hints[fb][#fluid_hints[fb] + 1] = "side_fluid_buffer"
+  local fh = LaneSides.fluid_hatch_side(machine)
+  fluid_hints[fh] = fluid_hints[fh] or {}
+  fluid_hints[fh][#fluid_hints[fh] + 1] = "side_fluid_hatch"
+
+  local function flat(hints)
+    local out = {}
+    for side, list in pairs(hints) do
+      out[side] = table.concat(list, ", ")
     end
+    return out
   end
 
-  print(string.format("  summary: %d face(s) with item inventory", faces_with_inv))
-  if #circuit_faces > 0 then
-    for _, c in ipairs(circuit_faces) do
-      print(string.format("  >> circuit on side %d slot %d (damage %s) — side_bus_b should be %d",
-        c.side, c.slot, tostring(c.damage), c.side))
-    end
-  else
-    print("  >> no circuit on transposer right now (run a recipe first, or wrong bus wiring)")
-  end
-  if faces_with_inv < 2 then
-    print("  >> WARN: need >= 2 faces with item slots (bus + ME import). ME may not touch transposer.")
-  elseif faces_with_inv >= 2 and #circuit_faces > 0 then
-    local bus = machine.side_bus_b
-    local recover_hint = nil
-    for side = 0, 5 do
-      if side ~= bus then
-        local ok_sz, sz = pcall(tp.getInventorySize, side)
-        if ok_sz and sz and sz > 0 then recover_hint = side; break end
-      end
-    end
-    if recover_hint and recover_hint ~= (machine.side_return or machine.side_buffer) then
-      print(string.format("  >> side_return candidate: %d (config has %s)",
-        recover_hint, tostring(machine.side_return or machine.side_buffer)))
-    end
-  end
+  probe_one("item", LaneSides.item_transposer_address(machine), machine, flat(item_hints))
+  probe_one("fluid", LaneSides.fluid_transposer_address(machine), machine, flat(fluid_hints))
 end
 
 local only = LANE_ID
@@ -161,11 +103,8 @@ local from_vararg = ...
 if from_vararg and from_vararg ~= "" then only = from_vararg end
 if arg and arg[1] and arg[1] ~= "" then only = arg[1] end
 
-print("[AutoOS] Transposer probe — sides 0=bottom 1=top 2=back 3=front 4=right 5=left")
+print("[AutoOS] Dual transposer probe — item + fluid per lane")
 for _, m in ipairs(Config.machines) do
-  if not only or m.id == only then
-    print_lane(m)
-  end
+  if not only or m.id == only then print_lane(m) end
 end
 print(string.rep("-", 56))
-print("[AutoOS] Done. Set side_bus_b to the face with [CIRCUIT]; set side_buffer (and optional side_return) to buffer slots.")
