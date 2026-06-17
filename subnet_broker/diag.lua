@@ -33,7 +33,7 @@ local addrs = {}
 for addr, ctype in component.list() do addrs[addr] = ctype end
 
 local function status_for(addr)
-  if not addr or addr == "" then return "N/A"
+  if not addr or addr == "" then return "N/A" end
   local ctype = addrs[addr]
   if ctype then return "FOUND " .. ctype end
   return "MISSING"
