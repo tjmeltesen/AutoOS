@@ -85,20 +85,21 @@ end
 local function make_central_fixture(opts)
   opts = opts or {}
   local now = opts.now or 0
+  local m1_bus, m2_bus = {}, {}
   local central_item, central_item_inv = new_item_tp(
     opts.central_item_sizes or { [2] = 9, [0] = 9, [1] = 9 },
-    opts.central_item_inv or { [2] = { [1] = stack(18) } })
+    opts.central_item_inv or { [2] = { [1] = stack(18) }, [0] = m1_bus, [1] = m2_bus })
   local central_fluid, central_fluid_tanks = new_fluid_tp(
     opts.central_fluid_tanks or { [2] = { { amount = 1000, name = "fluid" } }, [0] = {}, [1] = {} })
 
   local lane1_item, lane1_item_inv = new_item_tp(
     opts.lane1_item_sizes or { [4] = 9, [5] = 9 },
-    opts.lane1_item_inv or {})
+    opts.lane1_item_inv or { [4] = m1_bus, [5] = {} })
   local lane1_fluid, lane1_fluid_tanks = new_fluid_tp(opts.lane1_fluid_tanks or { [0] = {} })
 
   local lane2_item, lane2_item_inv = new_item_tp(
     opts.lane2_item_sizes or { [4] = 9, [5] = 9 },
-    opts.lane2_item_inv or {})
+    opts.lane2_item_inv or { [4] = m2_bus, [5] = {} })
   local lane2_fluid, lane2_fluid_tanks = new_fluid_tp(opts.lane2_fluid_tanks or { [0] = {} })
 
   local component = {
@@ -197,7 +198,8 @@ end
 -- RR skips busy lane -----------------------------------------------------------
 do
   local fx = make_central_fixture({})
-  fx.lane_dispatch:bind_from_central("machine_01")
+  fx.lane1_item_inv[4][1] = stack(18)
+  fx.lane_dispatch:bind_from_central(fx.cfg.machines[1])
   local m = fx.central:find_available_machine_rr(fx.cfg.machines, fx.results, fx.lane_dispatch)
   check("RR skips busy machine_01", m and m.id == "machine_02")
 end
@@ -238,8 +240,10 @@ end
 -- no machine available -> wait -------------------------------------------------
 do
   local fx = make_central_fixture({})
-  fx.lane_dispatch:bind_from_central("machine_01")
-  fx.lane_dispatch:bind_from_central("machine_02")
+  fx.lane1_item_inv[4][1] = stack(18)
+  fx.lane2_item_inv[4][1] = stack(18)
+  fx.lane_dispatch:bind_from_central(fx.cfg.machines[1])
+  fx.lane_dispatch:bind_from_central(fx.cfg.machines[2])
   fx.central:tick(fx.results, fx.lane_dispatch)
   fx.advance(0.15)
   local ev = fx.central:tick(fx.results, fx.lane_dispatch)
@@ -258,9 +262,16 @@ end
 -- bind_from_central handoff ----------------------------------------------------
 do
   local fx = make_central_fixture({})
-  fx.lane_dispatch:bind_from_central("machine_01")
-  check("bind_from_central -> wait_complete",
-    fx.lane_dispatch:get_lane_debug("machine_01").state == "wait_complete")
+  fx.lane1_item_inv[4][1] = stack(18)
+  local ok = fx.lane_dispatch:bind_from_central(fx.cfg.machines[1])
+  check("bind_from_central -> wait_complete", ok and fx.lane_dispatch:get_lane_debug("machine_01").state == "wait_complete")
+end
+
+-- bind rejected when bus not wired ----------------------------------------------
+do
+  local fx = make_central_fixture({})
+  local ok = fx.lane_dispatch:bind_from_central(fx.cfg.machines[1])
+  check("bind rejected when lane bus empty", not ok and fx.lane_dispatch:get_lane_debug("machine_01").state == "idle")
 end
 
 io.write(string.rep("-", 60) .. "\n")

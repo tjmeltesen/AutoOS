@@ -413,3 +413,9 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/lane_dispatch.lua`: central mode skips buffer pickup; `bind_from_central()` → wait_complete
 - Changed `subnet_broker/array_watch.lua`, `lane_sides.lua`, `broker_main.lua`, `diag.lua`, `probe_transposer.lua`, `start.lua`, `find.lua`
 - Added `tests/central_dispatch_test.lua`; updated `references/gtceu-lcr-gtnh-port-map.md`, `README.md` Phase 3 central topology
+
+## 2026-06-16 — Central push wiring verification
+
+- Changed `subnet_broker/lane_dispatch.lua`: `verify_staged_on_bus()` + `bind_from_central(machine)` rejects bind when lane `side_bus_b` empty; central mode requires `saw_active` before completion; timeout/no-circuit → `recover_failed`
+- Changed `subnet_broker/central_dispatch.lua`: multi-pass item transfer; log buffer/out/bus sides; skip bound state when bind verify fails
+- Changed `tests/central_dispatch_test.lua`: linked central-out ↔ lane-bus mock inventories; bind rejection test

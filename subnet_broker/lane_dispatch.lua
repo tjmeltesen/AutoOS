@@ -46,6 +46,7 @@ local function lane_default(now, deadline_s)
     deadline = now + deadline_s,
     settle_at = now,
     saw_active = false,
+    staged_ok = false,
     fast_tick = false,
     last_error = nil,
   }
@@ -86,15 +87,48 @@ function LaneDispatch:is_lane_busy(machine_id)
   return lane and lane.state ~= STATE_IDLE
 end
 
+--- Central mode: confirm lane item TP sees inputs on side_bus_b after central push.
+---@return boolean ok
+---@return string|nil detail
+function LaneDispatch:verify_staged_on_bus(machine)
+  local itp, err = self:_item_tp(machine)
+  if not itp then return false, tostring(err) end
+  local bus = LaneSides.bus_side(machine)
+  local size = self:_slot_count(itp, bus)
+  if size < 1 then
+    return false, string.format(
+      "lane bus side %d has no slots — check side_bus_b wiring", bus)
+  end
+  for slot = 1, size do
+    if self:_slot_size(itp, bus, slot) > 0 then
+      return true, string.format("bus side %d slot %d has items", bus, slot)
+    end
+  end
+  return false, string.format(
+    "lane bus side %d empty after central push — central_item_side %s must land on the same GT input bus as side_bus_b",
+    bus, tostring(machine.central_item_side))
+end
+
 --- Central mode: lane receives batch from central_dispatch; start at wait_complete.
-function LaneDispatch:bind_from_central(machine_id)
+---@return boolean ok
+---@return string|nil err
+function LaneDispatch:bind_from_central(machine)
+  local machine_id = machine.id
+  local ok, detail = self:verify_staged_on_bus(machine)
+  if not ok then
+    self.log(string.format("[LaneDispatch] %s bind rejected: %s", machine_id, detail))
+    return false, detail
+  end
   local lane = self:_lane(machine_id)
   local now = self.now()
   lane.settle_at = now
   lane.deadline = now + self.staging_timeout_s
   lane.saw_active = false
+  lane.staged_ok = true
   lane.last_error = nil
-  self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "central push")
+  self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "central push verified")
+  self.log(string.format("[LaneDispatch] %s bind ok (%s)", machine_id, detail or ""))
+  return true
 end
 
 function LaneDispatch:_is_central_mode()
@@ -248,6 +282,11 @@ function LaneDispatch:_completion_ready(lane, poll_status, item_tp, fluid_tp, ma
   local drained = self:_drain_complete(item_tp, fluid_tp, machine)
   if not drained then return false end
 
+  -- ponytail: central push must reach lane bus; never "complete" on empty ghost batch
+  if self:_is_central_mode() and not lane.saw_active then
+    return false
+  end
+
   local mode = self.completion_mode
   if mode == "drain" then return true end
 
@@ -358,6 +397,15 @@ function LaneDispatch:tick_lane(machine, poll_status)
     end
 
     if now >= lane.deadline then
+      if self:_is_central_mode() and not lane.saw_active then
+        self:_transition(machine_id, lane, STATE_IDLE, "never ran — check central→bus wiring")
+        lane.staged_ok = false
+        events[#events + 1] = {
+          type = "recover_failed",
+          detail = lane.last_error or "machine never active after central push",
+        }
+        return false, events
+      end
       self:_transition(machine_id, lane, STATE_EXTRACT, "wait timeout")
       events[#events + 1] = { type = "extract_start", detail = "timeout" }
     end
@@ -379,7 +427,11 @@ function LaneDispatch:tick_lane(machine, poll_status)
     local size = self:_slot_size(itp, bus_side, circuit_slot)
     if size <= 0 then
       self:_transition(machine_id, lane, STATE_IDLE, "no circuit on bus")
-      events[#events + 1] = { type = "recover_ok", detail = "no circuit on bus" }
+      lane.staged_ok = false
+      events[#events + 1] = {
+        type = self:_is_central_mode() and "recover_failed" or "recover_ok",
+        detail = "no circuit on bus",
+      }
       return false, events
     end
 

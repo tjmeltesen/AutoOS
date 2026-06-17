@@ -232,18 +232,23 @@ function CentralDispatch:_transfer_items_to_machine(central_item_tp, machine)
   local start = self:_chest_start()
   local size = self:_slot_count(central_item_tp, from_side)
   local moved_any = false
-  for slot = start, size do
-    local count = self:_slot_size(central_item_tp, from_side, slot)
-    if count > 0 then
-      for _ = 1, TRANSFER_RETRIES do
-        local ok, moved = pcall(central_item_tp.transferItem, from_side, to_side, count, slot)
-        if ok and moved and moved >= 1 then
-          moved_any = true
-          break
+  for _pass = 1, 8 do
+    local moved_pass = false
+    for slot = start, size do
+      local count = self:_slot_size(central_item_tp, from_side, slot)
+      if count > 0 then
+        for _ = 1, TRANSFER_RETRIES do
+          local ok, moved = pcall(central_item_tp.transferItem, from_side, to_side, count, slot)
+          if ok and moved and moved >= 1 then
+            moved_any = true
+            moved_pass = true
+            break
+          end
+          self.sleep(0.05)
         end
-        self.sleep(0.05)
       end
     end
+    if not moved_pass then break end
   end
   return moved_any
 end
@@ -267,8 +272,16 @@ function CentralDispatch:_transfer_central_to_machine(machine)
   if not item_tp or not fluid_tp then
     return false, "central transposer unavailable"
   end
+  local buf_side = self:_buffer_side()
+  local out_item = LaneSides.central_item_out_side(machine)
+  local out_fluid = LaneSides.central_fluid_out_side(machine)
+  self.log(string.format(
+    "[CentralDispatch] transfer %s: buffer side %d → item out %s fluid out %s (lane bus side %s)",
+    machine.id, buf_side, tostring(out_item), tostring(out_fluid), tostring(machine.side_bus_b)))
+
   self:_transfer_fluids_to_machine(fluid_tp, machine)
   self:_transfer_items_to_machine(item_tp, machine)
+
   if not self:_central_buffer_empty(item_tp, fluid_tp) then
     self.log("[CentralDispatch] warning: central buffer not fully drained after transfer")
   end
@@ -341,7 +354,11 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     end
 
     if lane_dispatch and lane_dispatch.bind_from_central then
-      lane_dispatch:bind_from_central(machine.id)
+      local bound, bind_err = lane_dispatch:bind_from_central(machine)
+      if not bound then
+        self.log(string.format("[CentralDispatch] push did not reach lane bus: %s", tostring(bind_err)))
+        return { { type = "central_transfer_failed", detail = tostring(bind_err) } }
+      end
     end
 
     self._bound_machine_id = machine.id
