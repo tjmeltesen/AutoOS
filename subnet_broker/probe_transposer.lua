@@ -1,11 +1,13 @@
 --[[
   AutoOS — Transposer face probe (in-game wiring discovery)
+  build: 2026-06-16b
 
-  Run: loadfile("/home/subnet_broker/probe_transposer.lua")()
-  One lane: loadfile("...")("machine_02")
+  loadfile("/home/subnet_broker/probe_transposer.lua")()
+  loadfile("/home/subnet_broker/find.lua")("probe")
+  loadfile("/home/subnet_broker/find.lua")("probe", "machine_01")
 ]]
 
-local LANE_ID = nil
+local PROBE_BUILD = "2026-06-16b"
 
 local SIDE_NAMES = {
   [0] = "bottom", [1] = "top", [2] = "back",
@@ -16,15 +18,23 @@ local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
 
+package.loaded.config = nil
+package.loaded.lane_sides = nil
+
 local Config = require("config")
 local LaneSides = require("lane_sides")
 local component = require("component")
 
-local function is_circuit(stack, circuit_name)
-  if type(stack) ~= "table" then return false end
-  local name = stack.name or ""
-  circuit_name = circuit_name or "integrated_circuit"
-  return name == circuit_name or name:find(circuit_name, 1, true) ~= nil
+local function add_hint(hints, side, label)
+  if type(side) ~= "number" then return end
+  local prev = hints[side]
+  hints[side] = prev and (prev .. ", " .. label) or label
+end
+
+local function mark_for(side, hints)
+  local text = hints[side]
+  if not text or text == "" then return "" end
+  return "  <<" .. text .. ">>"
 end
 
 local function fluid_mb_on_side(tp, side)
@@ -41,63 +51,58 @@ local function proxy_transposer(addr)
   return ok and tp or nil
 end
 
-local function probe_one(label, addr, machine, side_hints)
-  print(string.format("  [%s] transposer %s", label, addr))
+local function describe_side(tp, side, hints)
+  local inv_ok, inv_size = pcall(tp.getInventorySize, side)
+  inv_size = inv_ok and inv_size or 0
+  local fluid_mb = fluid_mb_on_side(tp, side)
+  local desc = {}
+  if inv_size and inv_size > 0 then desc[#desc + 1] = inv_size .. " item slots" end
+  if fluid_mb then desc[#desc + 1] = fluid_mb .. " mB fluid" end
+  if #desc == 0 then desc[#desc + 1] = "empty" end
+  local body = table.concat(desc, ", ")
+  return string.format("    side %d (%s): %s%s",
+    side, SIDE_NAMES[side] or "?", body, mark_for(side, hints))
+end
+
+local function probe_one(label, addr, side_hints)
+  print(string.format("  [%s] transposer %s", label, tostring(addr)))
   local tp = proxy_transposer(addr)
   if not tp then
-    print("    ERROR: proxy failed")
+    print("    ERROR: transposer proxy failed")
     return
   end
   for side = 0, 5 do
-    local inv_ok, inv_size = pcall(tp.getInventorySize, side)
-    inv_size = inv_ok and inv_size or 0
-    local fluid_mb = fluid_mb_on_side(tp, side)
-    local parts = {}
-    if inv_size and inv_size > 0 then parts[#parts + 1] = inv_size .. " item slots" end
-    if fluid_mb then parts[#parts + 1] = fluid_mb .. " mB fluid" end
-    if #parts == 0 then parts[#parts + 1] = "empty" end
-    local markers = side_hints[side]
-    if type(markers) ~= "table" then markers = {} end
-    local mark = #markers > 0 and ("  <<" .. table.concat(markers, ", ") .. ">>") or ""
-    print(string.format("    side %d (%s): %s%s", side, SIDE_NAMES[side] or "?", table.concat(parts, ", "), mark))
+    print(describe_side(tp, side, side_hints))
   end
 end
 
 local function print_lane(machine)
   print(string.rep("-", 56))
   print(string.format("[Probe] %s", machine.id))
-  print(string.format("  item  buffer=%s bus=%s return=%s",
-    tostring(machine.side_buffer), tostring(machine.side_bus_b), tostring(machine.side_return or machine.side_buffer)))
-  print(string.format("  fluid buffer=%s hatch=%s",
-    tostring(LaneSides.fluid_buffer_side(machine)), tostring(LaneSides.fluid_hatch_side(machine))))
 
   local item_hints, fluid_hints = {}, {}
-  item_hints[machine.side_buffer] = item_hints[machine.side_buffer] or {}
-  item_hints[machine.side_buffer][#item_hints[machine.side_buffer] + 1] = "side_buffer"
-  item_hints[machine.side_bus_b] = item_hints[machine.side_bus_b] or {}
-  item_hints[machine.side_bus_b][#item_hints[machine.side_bus_b] + 1] = "side_bus_b"
-  local ret = machine.side_return or machine.side_buffer
-  item_hints[ret] = item_hints[ret] or {}
-  item_hints[ret][#item_hints[ret] + 1] = "side_return"
+  add_hint(item_hints, machine.side_buffer, "side_buffer")
+  add_hint(item_hints, machine.side_bus_b, "side_bus_b")
+  add_hint(item_hints, machine.side_return or machine.side_buffer, "side_return")
+  add_hint(fluid_hints, LaneSides.fluid_buffer_side(machine), "side_fluid_buffer")
+  add_hint(fluid_hints, LaneSides.fluid_hatch_side(machine), "side_fluid_hatch")
 
-  local fb = LaneSides.fluid_buffer_side(machine)
-  fluid_hints[fb] = fluid_hints[fb] or {}
-  fluid_hints[fb][#fluid_hints[fb] + 1] = "side_fluid_buffer"
-  local fh = LaneSides.fluid_hatch_side(machine)
-  fluid_hints[fh] = fluid_hints[fh] or {}
-  fluid_hints[fh][#fluid_hints[fh] + 1] = "side_fluid_hatch"
+  print(string.format("  item  buffer=%s bus=%s return=%s",
+    tostring(machine.side_buffer), tostring(machine.side_bus_b),
+    tostring(machine.side_return or machine.side_buffer)))
+  print(string.format("  fluid buffer=%s hatch=%s",
+    tostring(LaneSides.fluid_buffer_side(machine)),
+    tostring(LaneSides.fluid_hatch_side(machine))))
 
-  probe_one("item", LaneSides.item_transposer_address(machine), machine, item_hints)
-  probe_one("fluid", LaneSides.fluid_transposer_address(machine), machine, fluid_hints)
+  probe_one("item", LaneSides.item_transposer_address(machine), item_hints)
+  probe_one("fluid", LaneSides.fluid_transposer_address(machine), fluid_hints)
 end
 
-local only = LANE_ID
-local from_vararg = ...
-if from_vararg and from_vararg ~= "" then only = from_vararg end
-if arg and arg[1] and arg[1] ~= "" then only = arg[1] end
+local only = ...
+if (not only or only == "") and arg and arg[1] and arg[1] ~= "" then only = arg[1] end
 
-print("[AutoOS] Dual transposer probe — item + fluid per lane")
+print("[AutoOS] Dual transposer probe " .. PROBE_BUILD)
 for _, m in ipairs(Config.machines) do
-  if not only or m.id == only then print_lane(m) end
+  if not only or only == "" or m.id == only then print_lane(m) end
 end
 print(string.rep("-", 56))
