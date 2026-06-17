@@ -86,6 +86,21 @@ function LaneDispatch:is_lane_busy(machine_id)
   return lane and lane.state ~= STATE_IDLE
 end
 
+--- Central mode: lane receives batch from central_dispatch; start at wait_complete.
+function LaneDispatch:bind_from_central(machine_id)
+  local lane = self:_lane(machine_id)
+  local now = self.now()
+  lane.settle_at = now
+  lane.deadline = now + self.staging_timeout_s
+  lane.saw_active = false
+  lane.last_error = nil
+  self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "central push")
+end
+
+function LaneDispatch:_is_central_mode()
+  return self.config.input_mode == "central"
+end
+
 function LaneDispatch:_transition(machine_id, lane, next_state, reason)
   if lane.state ~= next_state then
     self.log(string.format("[LaneDispatch] %s %s -> %s (%s)", machine_id, lane.state, next_state, reason or ""))
@@ -273,6 +288,10 @@ function LaneDispatch:tick_lane(machine, poll_status)
   if lane.state == STATE_IDLE then
     lane.fast_tick = false
     lane.saw_active = false
+
+    if self:_is_central_mode() then
+      return false, events
+    end
 
     local gate, gate_err = self:_buffer_gate(machine)
     if gate == false then return false, events end

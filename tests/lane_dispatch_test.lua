@@ -160,7 +160,7 @@ io.write(string.rep("-", 60) .. "\n")
 -- idle stays idle without buffer ------------------------------------------------
 do
   local fx = make_fixture({})
-  local fast, ev = fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  local fast, ev = fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   check("idle without buffer", fast == false and #ev == 0)
 end
 
@@ -170,12 +170,12 @@ do
     item_inv = { [1] = { [1] = stack(18) }, [4] = {} },
     fluid_tanks = { [1] = { { amount = 1000, name = "fluid" } }, [4] = {} },
   })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   check("buffer triggers settle", fx.dispatch:get_lane_debug("machine_01").state == "settle")
   fx.advance(0.15)
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   check("settle -> transfer", fx.dispatch:get_lane_debug("machine_01").state == "transfer")
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   check("transfer moves item to bus", fx.item_tp.getStackInSlot(4, 1) ~= nil)
   check("transfer moves fluid to hatch", (fx.fluid_tanks[4] and fx.fluid_tanks[4][1].amount or 0) > 0)
   check("after transfer -> wait_complete", fx.dispatch:get_lane_debug("machine_01").state == "wait_complete")
@@ -187,16 +187,16 @@ do
     item_inv = { [1] = { [1] = stack(18) }, [4] = {} },
     fluid_tanks = { [1] = { { amount = 500, name = "f" } }, [4] = {} },
   })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   fx.advance(0.2)
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   -- simulate processing: active then drain
   fx.item_inv[4] = { [1] = stack(18) }
   fx.fluid_tanks[4] = { { amount = 0 } }
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = true })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
-  local _, ev = fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = true, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  local _, ev = fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   local extract = false
   for _, e in ipairs(ev) do if e.type == "extract_start" then extract = true end end
   check("adapter+drain triggers extract", extract or fx.dispatch:get_lane_debug("machine_01").state == "extract" or fx.dispatch:get_lane_debug("machine_01").state == "wait_import")
@@ -208,18 +208,18 @@ do
     item_inv = { [1] = { [1] = stack(14) }, [4] = {} },
     fluid_tanks = {},
   })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   fx.advance(0.2)
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   fx.item_inv[4] = { [1] = stack(14) }
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = true })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
-  fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = true, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   -- circuit on return face — simulate AE import
   fx.item_inv[1] = {}
-  local _, ev = fx.dispatch:tick_lane(fx.machine, { available = true, active = false })
+  local _, ev = fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
   local ok_ev = false
   for _, e in ipairs(ev) do if e.type == "recover_ok" then ok_ev = true end end
   check("full cycle recover_ok", ok_ev or fx.dispatch:get_lane_debug("machine_01").state == "idle")

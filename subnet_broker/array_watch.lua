@@ -1,11 +1,12 @@
 --[[
   AutoOS — Array Watch loop (broker)
 
-  Polls lane health, runs LCR lane dispatch, reports telemetry to orchestrator.
+  Polls lane health, runs central or per-lane dispatch, reports telemetry.
 ]]
 
 local Protocols = require("network_protocols")
 local LaneDispatch = require("lane_dispatch")
+local CentralDispatch = require("central_dispatch")
 
 local ArrayWatch = {}
 ArrayWatch.__index = ArrayWatch
@@ -31,6 +32,17 @@ function ArrayWatch.new(deps)
       config = self.config,
       component = deps.component or error("ArrayWatch.new: component required when lane_dispatch not injected"),
       circuit_manager = self.circuit_manager or error("ArrayWatch.new: circuit_manager required"),
+      log = self.log,
+      now = self.now,
+    })
+  end
+  self.central_dispatch = deps.central_dispatch
+  if self.config.input_mode == "central" and not self.central_dispatch then
+    self.central_dispatch = CentralDispatch.new({
+      config = self.config,
+      component = deps.component or error("ArrayWatch.new: component required for central_dispatch"),
+      circuit_manager = self.circuit_manager or error("ArrayWatch.new: circuit_manager required"),
+      lane_dispatch = self.lane_dispatch,
       log = self.log,
       now = self.now,
     })
@@ -117,13 +129,34 @@ function ArrayWatch:_run_lane_dispatch(machine, st)
   self.lane_state[machine_id] = lane
 end
 
+function ArrayWatch:_handle_central_events(events)
+  for _, ev in ipairs(events or {}) do
+    if ev.type == "central_staged" and ev.machine_id then
+      local lane = self.lane_state[ev.machine_id] or {}
+      self:_send_health(ev.machine_id, "running", ev.detail or "central batch assigned")
+      lane.last_state = "running"
+      self.lane_state[ev.machine_id] = lane
+    end
+  end
+end
+
 function ArrayWatch:any_fast_tick()
-  return self._fast_tick or (self.lane_dispatch and self.lane_dispatch:any_fast_tick()) or false
+  if self._fast_tick then return true end
+  if self.central_dispatch and self.central_dispatch:any_fast_tick() then return true end
+  return self.lane_dispatch and self.lane_dispatch:any_fast_tick() or false
 end
 
 function ArrayWatch:tick()
   self._fast_tick = false
   local results = self.poll:poll_all()
+  local is_central = self.config.input_mode == "central"
+
+  if is_central and self.central_dispatch then
+    local cev = self.central_dispatch:tick(results, self.lane_dispatch)
+    if self.central_dispatch:any_fast_tick() then self._fast_tick = true end
+    self:_handle_central_events(cev)
+  end
+
   local order = self.lane_dispatch:lane_order(self.config.machines)
   for _, machine in ipairs(order) do
     local st = results[machine.id] or { available = false, healthy = false }
@@ -136,10 +169,20 @@ function ArrayWatch:tick()
     elseif st.maintenance_fault then
       self:_handle_fault(machine.id, st)
     else
-      self:_run_lane_dispatch(machine, st)
+      if is_central then
+        local dbg = self.lane_dispatch:get_lane_debug(machine.id)
+        if dbg and dbg.state ~= "idle" then
+          self:_run_lane_dispatch(machine, st)
+        end
+      else
+        self:_run_lane_dispatch(machine, st)
+      end
     end
   end
-  self.lane_dispatch:advance_round_robin(self.config.machines)
+
+  if not is_central then
+    self.lane_dispatch:advance_round_robin(self.config.machines)
+  end
 
   local now = self.now()
   if now - self._last_heartbeat >= HEARTBEAT_S then

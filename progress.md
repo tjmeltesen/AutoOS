@@ -399,3 +399,17 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 
 - Changed `subnet_broker/broker_main.lua`: autostart unless `require()`'d (fixes silent exit under `lua broker_main.lua`); added `run_once` / `("test")` one-tick mode; build 2026-06-16c
 - Changed `subnet_broker/start.lua`: document `broker_main` and test-tick usage
+
+## 2026-06-16 — Lane admission gates (AE2 overstock fix)
+
+- Changed `subnet_broker/config.lua`: `max_concurrent_lanes`, `require_machine_idle`, `require_empty_return`, `max_circuits_in_buffer`; optional per-lane `circuit_damage`
+- Changed `subnet_broker/lane_dispatch.lua`: admission checks before buffer pickup (serial lanes, idle gate, return empty, circuit count/damage)
+- Changed `tests/lane_dispatch_test.lua`: admission tests + poll_status fixtures
+
+## 2026-06-16 — Central buffer RR dispatch (input_mode=central)
+
+- Added `subnet_broker/central_dispatch.lua`: shared buffer FSM, `find_available_machine_rr`, central TP push (multipurpose port)
+- Changed `subnet_broker/config.lua`: `input_mode` per_lane|central, `Config.central` block, `central_item_side`/`central_fluid_side` per machine
+- Changed `subnet_broker/lane_dispatch.lua`: central mode skips buffer pickup; `bind_from_central()` → wait_complete
+- Changed `subnet_broker/array_watch.lua`, `lane_sides.lua`, `broker_main.lua`, `diag.lua`, `probe_transposer.lua`, `start.lua`, `find.lua`
+- Added `tests/central_dispatch_test.lua`; updated `references/gtceu-lcr-gtnh-port-map.md`, `README.md` Phase 3 central topology

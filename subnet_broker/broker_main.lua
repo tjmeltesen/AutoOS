@@ -117,7 +117,12 @@ function BrokerMain.run_once()
       m.id, dbg.state,
       dbg.last_error and (" err=" .. dbg.last_error) or ""))
   end
-  print("[Broker] test tick done — load circuits in buffer chests to exercise dispatch")
+  if ctx.config.input_mode == "central" and ctx.watch.central_dispatch then
+    local cd = ctx.watch.central_dispatch:get_debug()
+    print(string.format("[Broker] central state=%s bound=%s rr=%s",
+      cd.state, tostring(cd.bound_machine or "none"), tostring(cd.rr_index)))
+  end
+  print("[Broker] test tick done")
   return true
 end
 
@@ -130,8 +135,8 @@ function BrokerMain.run()
   end
 
   local event = require("event")
-  print(string.format("[Broker] online — LCR dispatch, subnet=%s, listen %d → %d, orch=%s",
-    ctx.config.subnet_id, ctx.listen_port, ctx.orch_port,
+  print(string.format("[Broker] online — %s dispatch, subnet=%s, listen %d → %d, orch=%s",
+    ctx.config.input_mode or "per_lane", ctx.config.subnet_id, ctx.listen_port, ctx.orch_port,
     ctx.config.orchestrator_address or "(none)"))
   print("[Broker] headless — no GPU UI; Ctrl+C to stop; use loadfile(...)(\"test\") for one tick")
   print_lane_status(ctx.poll, ctx.config.machines)

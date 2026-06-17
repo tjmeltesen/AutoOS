@@ -2,7 +2,7 @@
   AutoOS Subnet Broker — in-game boot helper
 
   Deploy /home/subnet_broker/ with:
-    config.lua, hw.lua, lane_sides.lua, lane_dispatch.lua,
+    config.lua, hw.lua, lane_sides.lua, lane_dispatch.lua, central_dispatch.lua,
     maintenance_parse.lua, machine_poll.lua, circuit_manager.lua,
     array_watch.lua, network_protocols.lua, broker_main.lua,
     start.lua, diag.lua, probe_transposer.lua
@@ -16,7 +16,7 @@ local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_br
 package.path = here .. sep .. "?.lua;" .. package.path
 
 local REQUIRED = {
-  "array_watch.lua", "lane_dispatch.lua", "machine_poll.lua",
+  "array_watch.lua", "lane_dispatch.lua", "central_dispatch.lua", "machine_poll.lua",
   "circuit_manager.lua", "network_protocols.lua", "broker_main.lua",
 }
 local missing = {}

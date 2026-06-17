@@ -6,15 +6,18 @@ Reference sources:
 - [`LCR Universal Automation.lua`](LCR%20Universal%20Automation.lua) — **primary** GTNH OC per-lane transposer loop
 - Target: [`subnet_broker/lane_dispatch.lua`](../subnet_broker/lane_dispatch.lua)
 
-## v1 locked
+## v1 modes
 
-| Setting | Value |
-|---------|-------|
-| `input_mode` | `per_lane` |
-| `completion_mode` | `both` (adapter edge + LCR drain gate) |
-| Transposers | Dual per lane: item + fluid |
+| Setting | `per_lane` | `central` |
+|---------|------------|-----------|
+| `input_mode` | AE deposit per lane buffer | AE deposit to shared central chest/tank |
+| Input FSM | `lane_dispatch.lua` idle→transfer | `central_dispatch.lua` RR push |
+| Lane tail | wait_complete→extract→return | same |
+| `do_round_robin` | lane tick order only | `findAvailableMachineRR()` in central_dispatch |
 
-## LCR → `lane_dispatch.lua` (primary)
+Default template: `per_lane`. Set `input_mode = "central"` + `Config.central` UUIDs when using shared buffer.
+
+## LCR → `lane_dispatch.lua` (per_lane tail + central handoff)
 
 | LCR phase | LCR API | AutoOS module / field |
 |-----------|---------|------------------------|
@@ -27,11 +30,25 @@ Reference sources:
 | Extract circuit | `transferItem(s_machine, s_circuit, size, 1)` | `side_bus_b` → `side_return`, slot `circuit_bus_slot` |
 | Wait AE import | `getSlotStackSize(s_circuit, 1) == 0` | `WAIT_IMPORT` state |
 
+## GTCEU multipurpose → `central_dispatch.lua` (central mode)
+
+| Multipurpose | AutoOS |
+|--------------|--------|
+| `hasItemsInInput` / `hasFluidsInInput` | `CentralDispatch:_central_buffer_ready()` |
+| `findAvailableOutputRR()` | `CentralDispatch:find_available_machine_rr()` |
+| `output:isEmpty()` | `_machine_available()` — idle poll + empty bus/hatch/return |
+| `pushAll` / `pushItems` / `pushFluids` | `_transfer_central_to_machine()` via central item/fluid TPs |
+| `doRoundRobin` | `Config.do_round_robin` |
+
+| Central buffer | `Config.central.side_buffer` on central item + fluid TPs |
+| Per-machine route | `central_item_side`, `central_fluid_side` on central TPs |
+| Lane bus/hatch/return | unchanged `side_bus_b`, `side_fluid_hatch`, `side_return` on lane TPs |
+
 ## GTCEU → AutoOS (scheduling only)
 
 | GTCEU | AutoOS |
 |-------|--------|
-| `findAvailableOutputRR()` | Per-lane FSM; skip faulted lanes in `array_watch`; `do_round_robin` reserved for v2 central |
+| `findAvailableOutputRR()` | `central_dispatch.lua` when `input_mode=central`; else per-lane FSM in `array_watch` |
 | `pushAll` / `pushItems` / `pushFluids` | LCR transfer on dual transposers |
 | `setProgrammedCircuit` + paper `C:N` | **Not ported** — GTNH integrated circuit in bus slot 1 |
 | `getBlockId` auto-discovery | Explicit UUIDs in `config.lua` + `probe_transposer.lua` |

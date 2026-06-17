@@ -118,7 +118,8 @@ AutoOS/
 │   └── overseer_display.lua      # GPU panel: warehouse stock, crafts, broker links
 ├── subnet_broker/                # Broker OC (separate computer — lane hardware only)
 │   ├── config.lua                # Per-lane dual transposer UUIDs + sides
-│   ├── lane_dispatch.lua         # LCR per-lane FSM (buffer→transfer→extract)
+│   ├── lane_dispatch.lua         # LCR lane tail (wait_complete→extract→return)
+│   ├── central_dispatch.lua      # Shared buffer RR push (input_mode=central)
 │   ├── array_watch.lua           # Health poll + lane dispatch + telemetry
 │   ├── broker_main.lua           # OC entry + modem event loop
 │   ├── machine_poll.lua          # gt_machine poll + maintenance gate
@@ -441,51 +442,59 @@ Write two compliant Lua modules for an OpenComputers project named AutoOS runnin
 
 Write `subnet_broker/machine_poll.lua` and `subnet_broker/maintenance_parse.lua`. `machine_poll` must verify active multiblock maintenance flags via `gt_machine.getSensorInformation()` and drop faulted lanes from the active pool. Rewrite `broker_core.lua` for the **1:1:1 topology**: per-lane `component.proxy` of ME Interface and Transposer, `setFluidInterfaceConfiguration` → `transferFluid` → clear interface. No `circuit_manager` or centralized vault.
 
-### Phase 3 — LCR lane dispatch + orchestrator telemetry
+### Phase 3 — LCR dispatch + central buffer + orchestrator telemetry
 
-Two OpenComputers: broker runs per-lane LCR automation (dual transposer); orchestrator aggregates health only.
+Two OpenComputers: broker runs lane automation (dual transposer per lane); orchestrator aggregates health only.
+
+**Input modes** (`config.input_mode`):
+
+| Mode | AE deposit | Broker routing |
+|------|------------|----------------|
+| `per_lane` | One buffer per machine | Each lane FSM watches its own buffer (LCR reference) |
+| `central` | One shared chest + tank | `central_dispatch.lua` RR-pushes batch to next available machine (multipurpose reference) |
 
 | Computer | Home | Role |
 | -------- | ---- | ---- |
 | **Orchestrator OC** | `/home/orchestrator/` | Listens for `BROKER_HEALTH` / `BROKER_EVENT`; no lane dispatch |
-| **Broker OC** | `/home/subnet_broker/` | LCR loop per lane + maintenance shutdown + modem telemetry |
+| **Broker OC** | `/home/subnet_broker/` | Central or per-lane input + extract/return loop + modem telemetry |
 
 ```mermaid
 flowchart TB
   subgraph mainNet [Main AE2]
-    AE[Patterns deposit to per-lane buffers]
+    AE[Patterns deposit]
+  end
+  subgraph central [input_mode central]
+    CBuf[Central chest and tank]
+    CItemTP[Central item TP]
+    CFluidTP[Central fluid TP]
+    CBuf --> CItemTP
+    CBuf --> CFluidTP
   end
   subgraph lane [Per lane]
-    Buf[Buffer chest]
-    ItemTP[Item transposer]
-    FluidTP[Fluid transposer]
+    ItemTP[Lane item TP]
+    FluidTP[Lane fluid TP]
     Bus[GT input bus]
     Hatch[Fluid hatch]
     Ret[Return chest]
     GT[gt_machine adapter]
-    Buf --> ItemTP --> Bus
-    Buf --> FluidTP --> Hatch
+    ItemTP --> Bus
     ItemTP --> Ret
+    FluidTP --> Hatch
   end
-  Broker[Broker OC lane_dispatch]
+  Broker[Broker OC]
   Orch[Orchestrator OC]
+  AE --> CBuf
+  CItemTP --> Bus
+  CFluidTP --> Hatch
   Broker -->|poll| GT
-  Broker -->|transferItem/Fluid| ItemTP
-  Broker -->|transferItem/Fluid| FluidTP
   Broker -->|"modem"| Orch
-  AE --> Buf
 ```
 
-**Per-lane LCR phases** (`lane_dispatch.lua`, ref: `references/LCR Universal Automation.lua`):
+**Lane tail** (`lane_dispatch.lua`, all modes): wait complete → extract circuit → wait AE import.
 
-1. Wait buffer (items + fluids)
-2. Settle (`settle_s`) for AE blocking deposit
-3. Transfer all items + fluids to machine
-4. Wait complete (`completion_mode=both`: adapter `isMachineActive` + drain gate)
-5. Extract circuit (bus slot 1 → return chest)
-6. Wait AE import on return face
+**Per-lane input** (`per_lane`): idle → settle → transfer from lane buffer → wait complete …
 
-**Also:** maintenance fault → `setWorkAllowed(false)`; skip faulted lanes in round-robin order.
+**Central input** (`central`): central buffer → settle → RR assign → central TP push → bind lane at wait_complete …
 
 **Wire protocol** (`network_protocols.lua` in both OC homes):
 

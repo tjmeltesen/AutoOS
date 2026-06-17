@@ -19,7 +19,7 @@ package.path = here .. sep .. "?.lua;" .. package.path
 local fs = require("filesystem")
 
 local BROKER_MODULES = {
-  "config", "hw", "lane_sides", "lane_dispatch", "maintenance_parse",
+  "config", "hw", "lane_sides", "lane_dispatch", "central_dispatch", "maintenance_parse",
   "machine_poll", "circuit_manager", "array_watch", "network_protocols",
   "broker_main", "probe_transposer", "diag", "start", "find",
 }

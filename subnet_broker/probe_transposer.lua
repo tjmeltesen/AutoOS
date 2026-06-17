@@ -1,13 +1,12 @@
 --[[
   AutoOS — Transposer face probe (in-game wiring discovery)
-  build: 2026-06-16b
+  build: 2026-06-16c
 
   loadfile("/home/subnet_broker/probe_transposer.lua")()
   loadfile("/home/subnet_broker/find.lua")("probe")
-  loadfile("/home/subnet_broker/find.lua")("probe", "machine_01")
 ]]
 
-local PROBE_BUILD = "2026-06-16b"
+local PROBE_BUILD = "2026-06-16c"
 
 local SIDE_NAMES = {
   [0] = "bottom", [1] = "top", [2] = "back",
@@ -59,9 +58,8 @@ local function describe_side(tp, side, hints)
   if inv_size and inv_size > 0 then desc[#desc + 1] = inv_size .. " item slots" end
   if fluid_mb then desc[#desc + 1] = fluid_mb .. " mB fluid" end
   if #desc == 0 then desc[#desc + 1] = "empty" end
-  local body = table.concat(desc, ", ")
   return string.format("    side %d (%s): %s%s",
-    side, SIDE_NAMES[side] or "?", body, mark_for(side, hints))
+    side, SIDE_NAMES[side] or "?", table.concat(desc, ", "), mark_for(side, hints))
 end
 
 local function probe_one(label, addr, side_hints)
@@ -76,23 +74,49 @@ local function probe_one(label, addr, side_hints)
   end
 end
 
+local function probe_central()
+  if Config.input_mode ~= "central" or not Config.central then return end
+  local c = Config.central
+  print(string.rep("-", 56))
+  print("[Probe] CENTRAL shared buffer (side_buffer=" .. tostring(c.side_buffer) .. ")")
+  local item_hints, fluid_hints = {}, {}
+  add_hint(item_hints, c.side_buffer, "central_chest")
+  add_hint(fluid_hints, c.side_buffer, "central_tank")
+  for _, m in ipairs(Config.machines) do
+    add_hint(item_hints, m.central_item_side, m.id .. "_item_out")
+    add_hint(fluid_hints, m.central_fluid_side, m.id .. "_fluid_out")
+  end
+  probe_one("central-item", c.item_transposer_address, item_hints)
+  probe_one("central-fluid", c.fluid_transposer_address, fluid_hints)
+end
+
 local function print_lane(machine)
   print(string.rep("-", 56))
   print(string.format("[Probe] %s", machine.id))
 
   local item_hints, fluid_hints = {}, {}
-  add_hint(item_hints, machine.side_buffer, "side_buffer")
-  add_hint(item_hints, machine.side_bus_b, "side_bus_b")
-  add_hint(item_hints, machine.side_return or machine.side_buffer, "side_return")
-  add_hint(fluid_hints, LaneSides.fluid_buffer_side(machine), "side_fluid_buffer")
-  add_hint(fluid_hints, LaneSides.fluid_hatch_side(machine), "side_fluid_hatch")
-
-  print(string.format("  item  buffer=%s bus=%s return=%s",
-    tostring(machine.side_buffer), tostring(machine.side_bus_b),
-    tostring(machine.side_return or machine.side_buffer)))
-  print(string.format("  fluid buffer=%s hatch=%s",
-    tostring(LaneSides.fluid_buffer_side(machine)),
-    tostring(LaneSides.fluid_hatch_side(machine))))
+  if Config.input_mode == "central" then
+    add_hint(item_hints, machine.side_bus_b, "side_bus_b")
+    add_hint(item_hints, machine.side_return or machine.side_buffer, "side_return")
+    add_hint(fluid_hints, LaneSides.fluid_hatch_side(machine), "side_fluid_hatch")
+    print(string.format("  central out item=%s fluid=%s",
+      tostring(machine.central_item_side), tostring(machine.central_fluid_side)))
+    print(string.format("  lane  bus=%s return=%s hatch=%s",
+      tostring(machine.side_bus_b), tostring(machine.side_return or machine.side_buffer),
+      tostring(LaneSides.fluid_hatch_side(machine))))
+  else
+    add_hint(item_hints, machine.side_buffer, "side_buffer")
+    add_hint(item_hints, machine.side_bus_b, "side_bus_b")
+    add_hint(item_hints, machine.side_return or machine.side_buffer, "side_return")
+    add_hint(fluid_hints, LaneSides.fluid_buffer_side(machine), "side_fluid_buffer")
+    add_hint(fluid_hints, LaneSides.fluid_hatch_side(machine), "side_fluid_hatch")
+    print(string.format("  item  buffer=%s bus=%s return=%s",
+      tostring(machine.side_buffer), tostring(machine.side_bus_b),
+      tostring(machine.side_return or machine.side_buffer)))
+    print(string.format("  fluid buffer=%s hatch=%s",
+      tostring(LaneSides.fluid_buffer_side(machine)),
+      tostring(LaneSides.fluid_hatch_side(machine))))
+  end
 
   probe_one("item", LaneSides.item_transposer_address(machine), item_hints)
   probe_one("fluid", LaneSides.fluid_transposer_address(machine), fluid_hints)
@@ -101,7 +125,8 @@ end
 local only = ...
 if (not only or only == "") and arg and arg[1] and arg[1] ~= "" then only = arg[1] end
 
-print("[AutoOS] Dual transposer probe " .. PROBE_BUILD)
+print("[AutoOS] Transposer probe " .. PROBE_BUILD .. " (input_mode=" .. tostring(Config.input_mode) .. ")")
+probe_central()
 for _, m in ipairs(Config.machines) do
   if not only or only == "" or m.id == only then print_lane(m) end
 end
