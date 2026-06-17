@@ -27,9 +27,9 @@ Config.broker_modem_port = 106
 Config.machines = {
   {
     id = "machine_01",
-    gt_address = "972c1b95-2f92-4ba2-8524-1b3152f60dfd",
-    item_transposer_address = "06f8b305-6aed-464b-901c-5f63c891e131",
-    fluid_transposer_address = "06f8b305-6aed-464b-901c-5f63c891e131", -- replace with fluid hatch transposer UUID
+    gt_address = "f2b57d70-8bb4-48b7-8895-e510b1e24bca",
+    item_transposer_address = "c531d5a8-c65d-471d-9057-00bf235404cf",
+    fluid_transposer_address = "a4e34900-8fb9-4bf5-bcd7-3b59956d8791", -- replace with fluid hatch transposer UUID
     side_buffer = 1,
     side_bus_b = 4,
     side_return = 1,
@@ -41,9 +41,9 @@ Config.machines = {
   },
   {
     id = "machine_02",
-    gt_address = "73d06674-1dbd-4c71-97be-0f958ccea03f",
-    item_transposer_address = "dff356f1-ea3e-4333-872a-dc10af3eafaf",
-    fluid_transposer_address = "dff356f1-ea3e-4333-872a-dc10af3eafaf",
+    gt_address = "a02bf5f8-d20d-49e4-a7fb-108bcb0d268f",
+    item_transposer_address = "d9df7f7f-e157-44c8-8584-2e92f142ea81",
+    fluid_transposer_address = "a7e5a12e-4954-4652-8aac-e2a2a530f10a",
     side_buffer = 1,
     side_bus_b = 5,
     side_return = 1,
@@ -55,9 +55,9 @@ Config.machines = {
   },
   {
     id = "machine_03",
-    gt_address = "194191a4-1c59-4216-b49e-97268de0b600",
-    item_transposer_address = "66962f00-68ff-4d10-8151-348481a0bb6e",
-    fluid_transposer_address = "66962f00-68ff-4d10-8151-348481a0bb6e",
+    gt_address = "c2fa59cd-8e01-41f0-ae37-2a0bae0d6c9b",
+    item_transposer_address = "18dd04a6-1f7f-4df5-a2b4-3191768d9c6d",
+    fluid_transposer_address = "95a54203-571b-44e9-a6af-7bf3baf68c59",
     side_buffer = 1,
     side_bus_b = 4,
     side_return = 1,
@@ -69,9 +69,9 @@ Config.machines = {
   },
   {
     id = "machine_04",
-    gt_address = "890321a4-b96c-43c4-a239-be3563b97eab",
-    item_transposer_address = "8e8c359c-1a45-49b7-96bf-fe97142edce7",
-    fluid_transposer_address = "8e8c359c-1a45-49b7-96bf-fe97142edce7",
+    gt_address = "2a7ae941-bfec-4b8d-a4a9-58aa2bab898c",
+    item_transposer_address = "de4705f9-faae-4ce0-bbaf-74d9cd5f382d",
+    fluid_transposer_address = "757c0960-4e29-47f0-95a0-cdc31ea2751b",
     side_buffer = 1,
     side_bus_b = 4,
     side_return = 1,
