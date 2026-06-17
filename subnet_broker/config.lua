@@ -27,7 +27,7 @@ Config.broker_modem_port = 106
 Config.machines = {
   {
     id = "machine_01",
-    gt_address = "f2b57d70-8bb4-48b7-8895-e510b1e24bca",
+    gt_address = "ed859452-2cd0-48bf-85cc-7bc3bca4f29d",
     item_transposer_address = "c531d5a8-c65d-471d-9057-00bf235404cf",
     fluid_transposer_address = "a4e34900-8fb9-4bf5-bcd7-3b59956d8791", -- replace with fluid hatch transposer UUID
     side_buffer = 2,
@@ -41,7 +41,7 @@ Config.machines = {
   },
   {
     id = "machine_02",
-    gt_address = "a02bf5f8-d20d-49e4-a7fb-108bcb0d268f",
+    gt_address = "b1a8e372-7aaf-4d9b-b1f8-eed37a7e678d",
     item_transposer_address = "d9df7f7f-e157-44c8-8584-2e92f142ea81",
     fluid_transposer_address = "a7e5a12e-4954-4652-8aac-e2a2a530f10a",
     side_buffer = 2,
@@ -55,7 +55,7 @@ Config.machines = {
   },
   {
     id = "machine_03",
-    gt_address = "c2fa59cd-8e01-41f0-ae37-2a0bae0d6c9b",
+    gt_address = "d0713001-d339-4272-a7cf-cce61c2360d0",
     item_transposer_address = "18dd04a6-1f7f-4df5-a2b4-3191768d9c6d",
     fluid_transposer_address = "95a54203-571b-44e9-a6af-7bf3baf68c59",
     side_buffer = 2,
@@ -69,7 +69,7 @@ Config.machines = {
   },
   {
     id = "machine_04",
-    gt_address = "2a7ae941-bfec-4b8d-a4a9-58aa2bab898c",
+    gt_address = "a4bd12cb-8d12-4d86-86db-131dbd5cd076",
     item_transposer_address = "de4705f9-faae-4ce0-bbaf-74d9cd5f382d",
     fluid_transposer_address = "757c0960-4e29-47f0-95a0-cdc31ea2751b",
     side_buffer = 2,
