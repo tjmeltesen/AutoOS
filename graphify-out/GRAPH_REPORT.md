@@ -1,16 +1,16 @@
 # Graph Report - AutoOS  (2026-06-16)
 
 ## Corpus Check
-- 124 files · ~76,948 words
+- 124 files · ~77,042 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 689 nodes · 808 edges · 21 communities detected
-- Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 73 edges (avg confidence: 0.8)
+- 692 nodes · 836 edges · 20 communities detected
+- Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 89 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Community 1|Community 1]]
+- [[_COMMUNITY_Community 0|Community 0]]
 - [[_COMMUNITY_Community 2|Community 2]]
 - [[_COMMUNITY_Community 3|Community 3]]
 - [[_COMMUNITY_Community 4|Community 4]]
@@ -18,7 +18,7 @@
 - [[_COMMUNITY_Community 7|Community 7]]
 - [[_COMMUNITY_Community 8|Community 8]]
 - [[_COMMUNITY_Community 9|Community 9]]
-- [[_COMMUNITY_Community 11|Community 11]]
+- [[_COMMUNITY_Community 10|Community 10]]
 - [[_COMMUNITY_Community 12|Community 12]]
 - [[_COMMUNITY_Community 13|Community 13]]
 - [[_COMMUNITY_Community 15|Community 15]]
@@ -30,19 +30,18 @@
 - [[_COMMUNITY_Community 25|Community 25]]
 - [[_COMMUNITY_Community 28|Community 28]]
 - [[_COMMUNITY_Community 29|Community 29]]
-- [[_COMMUNITY_Community 30|Community 30]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `clean()` - 13 edges
-2. `BrokerMain.run()` - 12 edges
-3. `pcallR()` - 11 edges
-4. `OrchestratorMain.build()` - 8 edges
-5. `HW.require_proxy()` - 7 edges
-6. `cmd_listen()` - 7 edges
-7. `cmd_ping()` - 7 edges
-8. `num()` - 7 edges
-9. `run_probe_embedded()` - 7 edges
-10. `print_lane()` - 7 edges
+1. `print()` - 20 edges
+2. `clean()` - 13 edges
+3. `BrokerMain.run()` - 13 edges
+4. `pcallR()` - 11 edges
+5. `run_probe_embedded()` - 9 edges
+6. `cmd_listen()` - 8 edges
+7. `cmd_ping()` - 8 edges
+8. `OrchestratorMain.build()` - 8 edges
+9. `main()` - 8 edges
+10. `print_lane()` - 8 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `build_oc_deps()` --calls--> `component.isAvailable()`  [INFERRED]
@@ -58,13 +57,13 @@
 
 ## Communities
 
-### Community 1 - "Community 1"
-Cohesion: 0.05
-Nodes (17): ConnectedPeripherals:_checkPeripherals(), ConnectedPeripherals:hasFluidsInInput(), ConnectedPeripherals:hasItemsInInput(), ConnectedPeripherals:pushFluids(), ConnectedPeripherals:pushItems(), findFileRecursive(), FormatTable(), isTableEmpty() (+9 more)
+### Community 0 - "Community 0"
+Cohesion: 0.06
+Nodes (32): CircuitManager:scan_transposer(), find_machine(), try(), event.pull(), clear_all(), join(), list_lua(), main() (+24 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.08
-Nodes (26): run_probe_embedded(), lane_default(), LaneDispatch:_buffer_has_fluid(), LaneDispatch:_buffer_has_items(), LaneDispatch:_fluid_drained(), LaneDispatch:_item_drained(), LaneDispatch:_lane(), LaneDispatch:reset_lane() (+18 more)
+Cohesion: 0.06
+Nodes (17): ConnectedPeripherals:_checkPeripherals(), ConnectedPeripherals:hasFluidsInInput(), ConnectedPeripherals:hasItemsInInput(), ConnectedPeripherals:pushFluids(), ConnectedPeripherals:pushItems(), findFileRecursive(), FormatTable(), isTableEmpty() (+9 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.06
@@ -75,8 +74,8 @@ Cohesion: 0.07
 Nodes (14): ArrayWatch.new(), BrokerMain.run(), component.isAvailable(), Config.validate(), normalize_machine(), LaneDispatch.new(), me_proxy(), modem.broadcast() (+6 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.08
-Nodes (11): CircuitManager:scan_transposer(), CircuitManager:_transfer_with_retries(), find_machine(), component.list(), HW.on_network(), HW.proxy(), HW.require_proxy(), HW.sleep() (+3 more)
+Cohesion: 0.09
+Nodes (16): lane_default(), LaneDispatch:_buffer_has_fluid(), LaneDispatch:_buffer_has_items(), LaneDispatch:_fluid_drained(), LaneDispatch:_item_drained(), LaneDispatch:_lane(), LaneDispatch:reset_lane(), LaneDispatch:tick_lane() (+8 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.08
@@ -87,12 +86,12 @@ Cohesion: 0.24
 Nodes (16): ArrayWatch:_send_event(), ArrayWatch:_send_health(), clean(), num(), Protocols.broker_event(), Protocols.broker_health(), Protocols.broker_status(), Protocols.craft_ack() (+8 more)
 
 ### Community 9 - "Community 9"
+Cohesion: 0.12
+Nodes (9): CircuitManager:_transfer_with_retries(), component.list(), HW.on_network(), HW.proxy(), HW.require_proxy(), HW.sleep(), LaneDispatch:_buffer_gate(), LaneDispatch:_fluid_tp() (+1 more)
+
+### Community 10 - "Community 10"
 Cohesion: 0.14
 Nodes (10): CircuitManager.new(), bold(), check(), color(), green(), make_fixture(), new_fluid_tp(), new_item_tp() (+2 more)
-
-### Community 11 - "Community 11"
-Cohesion: 0.25
-Nodes (9): event.pull(), cmd_info(), cmd_listen(), cmd_ping(), get_modem(), modem_list(), open_ports(), print_rx() (+1 more)
 
 ### Community 12 - "Community 12"
 Cohesion: 0.28
@@ -131,37 +130,31 @@ Cohesion: 0.4
 Nodes (2): nullifyUndefined(), opt()
 
 ### Community 28 - "Community 28"
-Cohesion: 0.4
-Nodes (2): join(), list_lua()
-
-### Community 29 - "Community 29"
 Cohesion: 0.67
 Nodes (5): bold(), check(), color(), green(), red()
 
-### Community 30 - "Community 30"
+### Community 29 - "Community 29"
 Cohesion: 0.7
 Nodes (4): Maintenance.evaluate(), Maintenance.has_fault(), problems_count(), strip_format()
 
 ## Knowledge Gaps
 - **Thin community `Community 25`** (6 nodes): `getRotorHolder()`, `metaMachineWrapper()`, `nullifyUndefined()`, `opt()`, `toInt()`, `greg_ex.js`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 28`** (6 nodes): `clear_all()`, `join()`, `list_lua()`, `read_head()`, `run_fresh()`, `find.lua`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `BrokerMain.run()` connect `Community 4` to `Community 8`, `Community 17`, `Community 11`, `Community 9`?**
-  _High betweenness centrality (0.074) - this node is a cross-community bridge._
-- **Why does `component.isAvailable()` connect `Community 4` to `Community 11`, `Community 5`, `Community 15`?**
-  _High betweenness centrality (0.054) - this node is a cross-community bridge._
+- **Why does `print()` connect `Community 0` to `Community 2`, `Community 4`, `Community 15`?**
+  _High betweenness centrality (0.110) - this node is a cross-community bridge._
+- **Why does `BrokerMain.run()` connect `Community 4` to `Community 0`, `Community 17`, `Community 10`, `Community 8`?**
+  _High betweenness centrality (0.099) - this node is a cross-community bridge._
 - **Why does `Kernel.new()` connect `Community 7` to `Community 13`, `Community 15`?**
-  _High betweenness centrality (0.044) - this node is a cross-community bridge._
-- **Are the 11 inferred relationships involving `BrokerMain.run()` (e.g. with `Config.validate()` and `component.isAvailable()`) actually correct?**
-  _`BrokerMain.run()` has 11 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 6 inferred relationships involving `OrchestratorMain.build()` (e.g. with `Config.validate()` and `component.isAvailable()`) actually correct?**
-  _`OrchestratorMain.build()` has 6 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 3 inferred relationships involving `HW.require_proxy()` (e.g. with `CircuitManager:scan_transposer()` and `LaneDispatch:_item_tp()`) actually correct?**
-  _`HW.require_proxy()` has 3 INFERRED edges - model-reasoned connections that need verification._
+  _High betweenness centrality (0.057) - this node is a cross-community bridge._
+- **Are the 16 inferred relationships involving `print()` (e.g. with `try()` and `log_sensor_lines()`) actually correct?**
+  _`print()` has 16 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 12 inferred relationships involving `BrokerMain.run()` (e.g. with `Config.validate()` and `print()`) actually correct?**
+  _`BrokerMain.run()` has 12 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 6 inferred relationships involving `run_probe_embedded()` (e.g. with `add_hint()` and `LaneSides.fluid_buffer_side()`) actually correct?**
+  _`run_probe_embedded()` has 6 INFERRED edges - model-reasoned connections that need verification._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.04 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06 - nodes in this community are weakly interconnected._
