@@ -40,7 +40,7 @@ end
 print("[AutoOS] Broker loaded. Usage:")
 print("  Modem test:  lua modem_info.lua")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
-print("  Face probe:  loadfile('" .. here .. "/find.lua')('probe')")
+print("  Find/reload:   loadfile('" .. here .. "/find.lua')('probe')  → also writes find.txt")
 print("  Watch loop:  lua broker_main.lua")
 print("  Orchestrator: lua orchestrator_main.lua")
 

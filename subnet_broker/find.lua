@@ -6,6 +6,8 @@
   loadfile("/home/subnet_broker/find.lua")("probe", "machine_01")
   loadfile("/home/subnet_broker/find.lua")("ver")
   loadfile("/home/subnet_broker/find.lua")("run", "diag.lua")
+
+  Output is mirrored to find.txt in the same folder (cat find.txt).
 ]]
 
 local FIND_BUILD = "2026-06-16b"
@@ -30,6 +32,27 @@ local SIDE_NAMES = {
 local function join(a, b)
   if a:sub(-1) == "/" then return a .. b end
   return a .. "/" .. b
+end
+
+local log_path = join(here, "find.txt")
+local log_file = io.open(log_path, "w")
+local _print = print
+function print(...)
+  local n = select("#", ...)
+  local parts = {}
+  for i = 1, n do parts[i] = tostring(select(i, ...)) end
+  local line = table.concat(parts, "\t")
+  _print(line)
+  if log_file then log_file:write(line .. "\n") end
+end
+
+local function export_done()
+  if log_file then
+    log_file:flush()
+    log_file:close()
+    log_file = nil
+    _print("[find] exported to " .. log_path)
+  end
 end
 
 local function clear_all()
@@ -160,6 +183,7 @@ local cmd = ...
 local arg2 = select(2, ...)
 local arg3 = select(3, ...)
 
+local function main()
 if not cmd or cmd == "" or cmd == "help" then
   print("[find] " .. FIND_BUILD)
   print("  probe [lane_id]  — transposer face map (embedded, ignores stale file)")
@@ -240,3 +264,7 @@ end
 local hits = {}
 list_lua(here, cmd, hits)
 for _, p in ipairs(hits) do print(p) end
+end
+
+main()
+export_done()

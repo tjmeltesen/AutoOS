@@ -386,4 +386,4 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Deleted legacy: `legacy/universal/`, `subnet_broker/demoted/`, `orchestrator/demoted/`, `circuit_loop.lua`, `descriptor_cache.lua`, `orchestrator/link_test.lua`, `tests/circuit_loop_test.lua`
 - Changed `subnet_broker/probe_transposer.lua`: fix table.concat crash when side hint was flattened to string
 - Added `subnet_broker/find.lua`: list broker .lua files, clear package.loaded cache, run scripts via loadfile fresh
-- Changed `subnet_broker/probe_transposer.lua`, `find.lua`: rewrite probe (string hints, build 2026-06-16b); find embeds probe when disk file stale
+- Changed `subnet_broker/find.lua`, `probe_transposer.lua`: rewrite probe (string hints, build 2026-06-16b); find embeds probe when disk file stale; find mirrors output to find.txt
