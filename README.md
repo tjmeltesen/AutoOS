@@ -145,18 +145,24 @@ Provides localized environmental context to the broker. This file is the only fi
 local Config = {
     subnet_id = "universal_chemical_mv_01",
     main_net_channel = 105,
-    interface_mode = "transposer",  -- default: no OC me_interface for recover
-    shared_interface_address = nil, -- only when interface_mode == "shared" (optional OC clear)
-    database_address = "database-00a12",  -- optional for watch mode; used by legacy dispatch
+    input_mode = "central",
+    database_address = "database-uuid",
+    database_slot_count = 25,       -- T1=9 / T2=25 / T3=81
+    interface_item_slots = 9,       -- max IF item stocking slots per lane
 
     machines = {
         {
             id = "machine_01",
             gt_address = "gt-uuid-01",
-            transposer_address = "transposer-uuid-01",
-            item_bus_side = 2,         -- transposer face touching GT input bus
-            recover_side = 1,          -- transposer face touching ME interface (physical import)
-            -- interface_address optional: only if OC adapter on ME interface (legacy dispatch / clear)
+            interface_address = "me-interface-adapter-uuid",
+            item_transposer_address = "item-tp-uuid",
+            fluid_transposer_address = "fluid-tp-uuid",
+            side_buffer = 2,
+            side_bus_b = 0,
+            side_return = 4,
+            side_fluid_buffer = 4,
+            side_fluid_hatch = 0,
+            interface_fluid_side = 0,  -- side on ME IF for setFluidInterfaceConfiguration
         },
         -- machine_02 .. machine_04: same fields, unique UUIDs per lane
     },
@@ -497,7 +503,7 @@ flowchart TB
 
 **Per-lane input** (`per_lane`): idle → settle → transfer from lane buffer → wait complete …
 
-**Central input** (`central`): item adapter detects chest → stabilize (`Config.central.stabilize_s`, default 3s) → RR assign → `handoff_from_central` → lane settle → transfer (items first, fluid if staged) …
+**Central input** (`central`): item adapter detects chest → stabilize (`Config.central.stabilize_s`, default 3s) → RR assign → manifest handoff → lane SETTLE stocks lane ME interface from `database_address` (`setInterfaceConfiguration` / `setFluidInterfaceConfiguration`) → transposer transfer → clear interface config + clear broker-owned DB slots.
 
 **Wire protocol** (`network_protocols.lua` in both OC homes):
 

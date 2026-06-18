@@ -15,6 +15,11 @@ Config.input_mode = "central"
 Config.completion_mode = "both"
 Config.do_round_robin = true
 Config.circuit_item_name = "gregtech:gt.integrated_circuit"
+Config.database_address = ""
+Config.database_slot_count = 25
+Config.interface_item_slots = 9
+Config.interface_item_slot_start = 1
+Config.interface_fluid_side = 0
 Config.chest_slot_start = 1
 Config.circuit_bus_slot = 1
 Config.settle_s = 0.1
@@ -50,6 +55,7 @@ Config.machines = {
   {
     id = "machine_01",
     gt_address = "ed859452-2cd0-48bf-85cc-7bc3bca4f29d",
+    interface_address = "",
     item_transposer_address = "c531d5a8-c65d-471d-9057-00bf235404cf",
     fluid_transposer_address = "ba0b4eb2-4e17-4c2f-a0b7-4a57abd0b03d",
     side_buffer = 2,
@@ -62,6 +68,7 @@ Config.machines = {
   {
     id = "machine_02",
     gt_address = "b1a8e372-7aaf-4d9b-b1f8-eed37a7e678d",
+    interface_address = "",
     item_transposer_address = "d9df7f7f-e157-44c8-8584-2e92f142ea81",
     fluid_transposer_address = "a8b18bd6-1b0d-4d61-b4fc-fd1be2077945",
     side_buffer = 2,
@@ -74,6 +81,7 @@ Config.machines = {
   {
     id = "machine_03",
     gt_address = "d0713001-d339-4272-a7cf-cce61c2360d0",
+    interface_address = "",
     item_transposer_address = "18dd04a6-1f7f-4df5-a2b4-3191768d9c6d",
     fluid_transposer_address = "f78a9bb6-0a1f-46e2-bef2-89402e5cea18",
     side_buffer = 2,
@@ -86,6 +94,7 @@ Config.machines = {
   {
     id = "machine_04",
     gt_address = "a4bd12cb-8d12-4d86-86db-131dbd5cd076",
+    interface_address = "",
     item_transposer_address = "de4705f9-faae-4ce0-bbaf-74d9cd5f382d",
     fluid_transposer_address = "d05c4e17-c2db-4e48-b112-50f1db80b22e",
     side_buffer = 2,
@@ -112,6 +121,7 @@ local SIDE_FIELDS = {
   "side_fluid_buffer", "side_fluid_hatch",
   "side_central", "side_central_fluid",
   "buffer_adapter_side", "fluid_adapter_side",
+  "interface_fluid_side",
 }
 
 local function normalize_machine(m)
@@ -190,6 +200,24 @@ function Config.validate(cfg)
   end
 
   local required = input_mode == "central" and CENTRAL_MACHINE_REQUIRED or PER_LANE_REQUIRED
+  local db_addr = cfg.database_address
+  local stock_enabled = type(db_addr) == "string"
+    and db_addr ~= ""
+    and not db_addr:find("SET_", 1, true)
+
+  if cfg.database_slot_count ~= nil
+    and (type(cfg.database_slot_count) ~= "number" or cfg.database_slot_count < 1) then
+    return nil, "database_slot_count must be a positive integer"
+  end
+  if cfg.interface_item_slots ~= nil
+    and (type(cfg.interface_item_slots) ~= "number" or cfg.interface_item_slots < 1) then
+    return nil, "interface_item_slots must be a positive integer"
+  end
+  if cfg.interface_item_slot_start ~= nil
+    and (type(cfg.interface_item_slot_start) ~= "number" or cfg.interface_item_slot_start < 1) then
+    return nil, "interface_item_slot_start must be a positive integer"
+  end
+
   local seen = {}
   for i, m in ipairs(cfg.machines) do
     if type(m) ~= "table" then
@@ -209,6 +237,17 @@ function Config.validate(cfg)
         and m.buffer_adapter_side == nil then
         return nil, "machines[" .. i .. "] buffer_adapter_side required when buffer_adapter_address is set"
       end
+    end
+    if stock_enabled and (not m.interface_address or m.interface_address == "") then
+      return nil, "machines[" .. i .. "] interface_address required when database_address is configured"
+    end
+    if m.interface_item_slot_start ~= nil
+      and (type(m.interface_item_slot_start) ~= "number" or m.interface_item_slot_start < 1) then
+      return nil, "machines[" .. i .. "] interface_item_slot_start must be a positive integer"
+    end
+    if m.interface_item_slots ~= nil
+      and (type(m.interface_item_slots) ~= "number" or m.interface_item_slots < 1) then
+      return nil, "machines[" .. i .. "] interface_item_slots must be a positive integer"
     end
     local ok_side, side_err = validate_side_fields(cfg, i, m)
     if not ok_side then return nil, side_err end

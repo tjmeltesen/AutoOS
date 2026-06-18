@@ -37,6 +37,8 @@ Default template: `central`. Set `Config.central.buffer_adapter_address` + per-l
 | `hasItemsInInput` | `CentralDispatch:_item_fingerprint()` on item chest adapter |
 | AE trickle-in guard | `Config.central.stabilize_s` (default 3s) — fingerprint unchanged |
 | Fluid required | **No** — fluid-less recipes supported |
+| Descriptor DB | Shared `Config.database_address` + `database_slot_count` (broker-owned slots) |
+| Lane IF control | Per-lane `machine.interface_address` (`setInterfaceConfiguration` / `setFluidInterfaceConfiguration`) |
 | `findAvailableOutputRR()` | `CentralDispatch:find_available_machine_rr()` |
 | `pushAll` / central transposers | **Not used** — subnet AE routes to lane dual interface; lane TPs transfer |
 | `doRoundRobin` | `Config.do_round_robin` |
@@ -45,6 +47,7 @@ Default template: `central`. Set `Config.central.buffer_adapter_address` + per-l
 | Optional diag | `fluid_adapter_address` (never gates dispatch) |
 | Lane extract | `side_buffer` / `side_fluid_buffer` on lane transposers (dual interface face) |
 | Dual IF pull | Transposer reads subnet storage through adjacent dual interface — not a separate chest face |
+| Post-transfer cleanup | Clear IF configs, then `database.clear` broker-owned slots (`release_slots`) |
 
 ## GTCEU → AutoOS (scheduling only)
 

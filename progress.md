@@ -460,3 +460,19 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 ## 2026-06-17 — Debug: per-side transposer snapshot at dual-IF timeout
 
 - Changed `subnet_broker/lane_dispatch.lua`: added `H6` instrumentation to dump all item transposer face inventories when central settle times out
+
+## 2026-06-17 — Debug fix: precheck dual IF visibility before assign
+
+- Changed `subnet_broker/central_dispatch.lua`: added `find_handoff_target_rr()` that requires `verify_staged_on_interface()` before lane assignment; emits `CENTRAL_WAIT_STAGING` when all candidate lane dual interfaces are empty
+
+## 2026-06-17 — Restore dual-IF database stocking + ephemeral descriptor slots
+
+- Added `subnet_broker/descriptor_cache.lua`: restored dynamic descriptor cache; added generic `ensure_item()` and `release_slots()` so broker-owned DB slots are cleared after lane export.
+- Added `subnet_broker/interface_stock.lua`: lane ME-interface stocking helper (`stock_batch`, `release_batch`) for item/fluid interface config plus post-transfer DB cleanup.
+- Changed `subnet_broker/config.lua`: added stocking fields (`database_address`, `database_slot_count`, `interface_item_slots`, `interface_item_slot_start`, `interface_fluid_side`) and validation requiring per-lane `interface_address` when DB stocking is enabled.
+- Changed `subnet_broker/central_dispatch.lua`: central assign now builds a full chest manifest and passes it into `handoff_from_central`; removed pre-assign dual-IF visibility gate.
+- Changed `subnet_broker/lane_dispatch.lua`: added manifest-aware stocking in SETTLE (central + per-lane), and immediate `release_batch` cleanup after transfer attempts/timeouts.
+- Changed `subnet_broker/broker_main.lua`, `subnet_broker/start.lua`, `subnet_broker/diag.lua`, `subnet_broker/circuit_manager.lua`: wired shared `DescriptorCache` + `InterfaceStock`; expanded diagnostics and required-file checks.
+- Changed `tests/mock_broker_hardware.lua`: multi-slot interface stocking configs + dual transposer address compatibility.
+- Added `tests/descriptor_cache_test.lua`; changed `tests/lane_dispatch_test.lua`, `tests/central_dispatch_test.lua`: coverage for manifest handoff, settle-time stocking hook, and descriptor-slot release behavior.
+- Changed docs `references/gtceu-lcr-gtnh-port-map.md` and `README.md`: documented per-lane interface adapters, shared DB descriptors, and post-transfer slot deletion flow.

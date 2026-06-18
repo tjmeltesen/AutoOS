@@ -142,6 +142,7 @@ local function make_fixture(f)
     now = function() return now end,
     sleep = function() end,
     log = function() end,
+    interface_stock = f.interface_stock,
   })
 
   return {
@@ -152,6 +153,32 @@ local function make_fixture(f)
     fluid_tanks = fluid_tanks,
     advance = function(s) now = now + s end,
   }
+end
+
+-- per-lane SETTLE uses interface_stock and releases after transfer ----------------
+do
+  local stock_calls, release_calls = 0, 0
+  local fake_stock = {
+    stock_batch = function(_, _, manifest)
+      stock_calls = stock_calls + 1
+      return true, nil, { db_slots = { 1, 2 }, items = manifest.items or {}, fluids = manifest.fluids or {} }
+    end,
+    release_batch = function()
+      release_calls = release_calls + 1
+      return 2
+    end,
+  }
+  local fx = make_fixture({
+    interface_stock = fake_stock,
+    item_inv = { [1] = { [1] = stack(18) }, [4] = {} },
+    fluid_tanks = { [1] = { { amount = 500, name = "f" } }, [4] = {} },
+  })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.advance(0.2)
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  check("interface_stock called in settle", stock_calls >= 1)
+  check("interface_stock release after transfer", release_calls >= 1)
 end
 
 io.write("\n" .. bold("AutoOS Lane Dispatch Tests") .. "\n")

@@ -24,6 +24,7 @@ function CircuitManager.new(deps)
   local self = setmetatable({}, CircuitManager)
   self.config = deps.config or error("CircuitManager.new: config required")
   self.component = deps.component or error("CircuitManager.new: component required")
+  self.descriptor_cache = deps.descriptor_cache
   self.circuit_item = self.config.circuit_item_name or "gregtech:gt.integrated_circuit"
   return self
 end

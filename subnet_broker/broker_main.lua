@@ -39,7 +39,9 @@ function BrokerMain.build()
   local computer = require("computer")
   local Config = require("config")
   local MachinePoll = require("machine_poll")
+  local DescriptorCache = require("descriptor_cache")
   local CircuitManager = require("circuit_manager")
+  local InterfaceStock = require("interface_stock")
   local LaneDispatch = require("lane_dispatch")
   local ArrayWatch = require("array_watch")
 
@@ -62,11 +64,22 @@ function BrokerMain.build()
   }
 
   local poll = MachinePoll.new({ config = Config, component = component })
-  local circuit_manager = CircuitManager.new({ config = Config, component = component })
+  local descriptor_cache = DescriptorCache.new({ config = Config, component = component })
+  local circuit_manager = CircuitManager.new({
+    config = Config,
+    component = component,
+    descriptor_cache = descriptor_cache,
+  })
+  local interface_stock = InterfaceStock.new({
+    config = Config,
+    component = component,
+    descriptor_cache = descriptor_cache,
+  })
   local lane_dispatch = LaneDispatch.new({
     config = Config,
     component = component,
     circuit_manager = circuit_manager,
+    interface_stock = interface_stock,
     log = print,
     now = computer.uptime,
   })

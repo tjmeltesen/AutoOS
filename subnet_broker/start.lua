@@ -17,7 +17,8 @@ package.path = here .. sep .. "?.lua;" .. package.path
 
 local REQUIRED = {
   "array_watch.lua", "lane_dispatch.lua", "central_dispatch.lua", "machine_poll.lua",
-  "circuit_manager.lua", "network_protocols.lua", "broker_main.lua",
+  "circuit_manager.lua", "descriptor_cache.lua", "interface_stock.lua",
+  "network_protocols.lua", "broker_main.lua",
 }
 local missing = {}
 for _, name in ipairs(REQUIRED) do

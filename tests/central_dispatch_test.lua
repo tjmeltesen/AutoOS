@@ -255,6 +255,22 @@ do
   check("central bound", fx.central:get_debug().state == "central_bound")
 end
 
+-- assign passes full manifest into handoff ---------------------------------------
+do
+  local fx = make_fixture({ stabilize_s = 0.5 })
+  local got_manifest = nil
+  local orig = fx.lane_dispatch.handoff_from_central
+  fx.lane_dispatch.handoff_from_central = function(_, machine, manifest)
+    got_manifest = manifest
+    return orig(fx.lane_dispatch, machine, manifest)
+  end
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(0.6)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("manifest passed to handoff",
+    got_manifest and type(got_manifest.items) == "table" and #got_manifest.items >= 1)
+end
+
 -- assign without pre-staged pull face still hands off (default) ---------------
 do
   local fx = make_fixture({ stabilize_s = 0.5 })

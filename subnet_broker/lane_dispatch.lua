@@ -22,45 +22,6 @@ local FLUID_CHUNK = 1000000
 local TRANSFER_RETRIES = 3
 -- ponytail: ME dual interface may report getInventorySize=0; scan up to this many slots
 local PULL_SCAN_MAX = 54
-local DEBUG_LOG_PATH = "debug-9602cf.log"
-
--- #region agent log
-local function _debug_escape(s)
-  s = tostring(s or "")
-  s = s:gsub("\\", "\\\\"):gsub("\"", "\\\""):gsub("\n", "\\n")
-  return "\"" .. s .. "\""
-end
-
-local function _debug_json(v)
-  local t = type(v)
-  if t == "nil" then return "null" end
-  if t == "number" or t == "boolean" then return tostring(v) end
-  if t == "string" then return _debug_escape(v) end
-  if t ~= "table" then return _debug_escape(tostring(v)) end
-  local is_arr = true
-  local n = 0
-  for k, _ in pairs(v) do
-    if type(k) ~= "number" then is_arr = false break end
-    if k > n then n = k end
-  end
-  local out = {}
-  if is_arr then
-    for i = 1, n do out[#out + 1] = _debug_json(v[i]) end
-    return "[" .. table.concat(out, ",") .. "]"
-  end
-  for k, val in pairs(v) do
-    out[#out + 1] = _debug_escape(k) .. ":" .. _debug_json(val)
-  end
-  return "{" .. table.concat(out, ",") .. "}"
-end
-
-local function _debug_write(payload)
-  local ok, f = pcall(io.open, DEBUG_LOG_PATH, "a")
-  if not ok or not f then return end
-  f:write(_debug_json(payload) .. "\n")
-  f:close()
-end
--- #endregion
 
 function LaneDispatch.new(deps)
   deps = deps or {}
@@ -68,6 +29,7 @@ function LaneDispatch.new(deps)
   self.config = deps.config or error("LaneDispatch.new: config required")
   self.component = deps.component or error("LaneDispatch.new: component required")
   self.circuit_manager = deps.circuit_manager or error("LaneDispatch.new: circuit_manager required")
+  self.interface_stock = deps.interface_stock
   self.log = deps.log or function() end
   self.now = deps.now or function() return 0 end
   self.sleep = deps.sleep or HW.sleep
@@ -78,23 +40,8 @@ function LaneDispatch.new(deps)
   self.circuit_bus_slot = self.config.circuit_bus_slot or 1
   self._lanes = {}
   self._rr_index = 1
-  self._debug_run_id = "pre-fix"
   return self
 end
-
--- #region agent log
-function LaneDispatch:_debug_log(hypothesis_id, location, message, data)
-  _debug_write({
-    sessionId = "9602cf",
-    runId = self._debug_run_id,
-    hypothesisId = hypothesis_id,
-    location = location,
-    message = message,
-    data = data or {},
-    timestamp = os.time() * 1000,
-  })
-end
--- #endregion
 
 local function lane_default(now, deadline_s)
   return {
@@ -107,6 +54,9 @@ local function lane_default(now, deadline_s)
     last_error = nil,
     batch_outcome = nil, -- central: nil | "ok" | "failed"
     interface_wait_logged = false,
+    staging_manifest = nil,
+    active_interface_configs = nil,
+    stocked = false,
   }
 end
 
@@ -186,7 +136,7 @@ end
 --- Central mode: central_dispatch assigns lane; run settle → transfer from pull face.
 ---@return boolean ok
 ---@return string|nil err
-function LaneDispatch:handoff_from_central(machine)
+function LaneDispatch:handoff_from_central(machine, manifest)
   local machine_id = machine.id
   if self:_require_interface_staging() then
     local ok, detail = self:verify_staged_on_interface(machine)
@@ -200,16 +150,10 @@ function LaneDispatch:handoff_from_central(machine)
   lane.last_error = nil
   lane.batch_outcome = nil
   lane.interface_wait_logged = false
+  lane.staging_manifest = manifest or { items = {}, fluids = {} }
+  lane.stocked = false
+  lane.active_interface_configs = nil
   lane.deadline = now + self:_central_interface_wait_s()
-  -- #region agent log
-  self:_debug_log("H1", "lane_dispatch.lua:handoff_from_central", "central handoff started", {
-    machine_id = machine_id,
-    pull_side = self:_item_pull_side(machine),
-    fluid_pull_side = self:_fluid_pull_side(machine),
-    require_interface_staging = self:_require_interface_staging(),
-    interface_wait_s = self:_central_interface_wait_s(),
-  })
-  -- #endregion
   self:_transition(machine_id, lane, STATE_SETTLE, "central handoff")
   if self:_require_interface_staging() then
     local _, detail = self:verify_staged_on_interface(machine)
@@ -289,14 +233,6 @@ function LaneDispatch:_pull_face_ready(item_tp, fluid_tp, machine)
   return false
 end
 
-function LaneDispatch:_face_map(item_tp)
-  local out = {}
-  for side = 0, 5 do
-    out[#out + 1] = self.circuit_manager:describe_face(item_tp, side)
-  end
-  return table.concat(out, " | ")
-end
-
 function LaneDispatch:_fluid_level(tp, side)
   if not tp or not tp.getTankLevel then return 0 end
   local ok, lvl = pcall(tp.getTankLevel, side, 1)
@@ -350,6 +286,40 @@ function LaneDispatch:_buffer_ready(item_tp, fluid_tp, machine)
   local items = item_tp and self:_buffer_has_items(item_tp, machine)
   local fluids = fluid_tp and self:_buffer_has_fluid(fluid_tp, machine)
   return items or fluids
+end
+
+function LaneDispatch:_manifest_from_pull(item_tp, fluid_tp, machine)
+  local manifest = { items = {}, fluids = {} }
+  local from_side = self:_item_pull_side(machine)
+  local start = self:_chest_start(machine)
+  local size = self:_pull_scan_max(item_tp, from_side)
+  for slot = start, size do
+    local st = item_tp.getStackInSlot and item_tp.getStackInSlot(from_side, slot)
+    if type(st) == "table" and (st.size or 0) > 0 then
+      manifest.items[#manifest.items + 1] = {
+        slot = slot,
+        name = st.name,
+        damage = st.damage or 0,
+        label = st.label,
+        count = st.size or 1,
+      }
+    end
+  end
+  if fluid_tp and self:_buffer_has_fluid(fluid_tp, machine) then
+    manifest.fluids[#manifest.fluids + 1] = {
+      fluid_label = machine.fluid_label or machine.fluid_registry or "unknown",
+      fluid_registry = machine.fluid_registry,
+      fluid_filter = machine.fluid_filter,
+    }
+  end
+  return manifest
+end
+
+function LaneDispatch:_release_active_stock(machine, lane)
+  if not self.interface_stock or not lane.active_interface_configs then return end
+  self.interface_stock:release_batch(lane.active_interface_configs)
+  lane.active_interface_configs = nil
+  lane.stocked = false
 end
 
 function LaneDispatch:_transfer_fluids(fluid_tp, machine)
@@ -462,6 +432,9 @@ function LaneDispatch:tick_lane(machine, poll_status)
   if lane.state == STATE_IDLE then
     lane.fast_tick = false
     lane.saw_active = false
+    lane.stocked = false
+    lane.staging_manifest = nil
+    lane.active_interface_configs = nil
 
     if self:_is_central_mode() then
       return false, events
@@ -488,6 +461,9 @@ function LaneDispatch:tick_lane(machine, poll_status)
 
     lane.settle_at = now + self.settle_s
     lane.deadline = now + self.staging_timeout_s
+    lane.staging_manifest = self:_manifest_from_pull(itp, ftp, machine)
+    lane.stocked = false
+    lane.active_interface_configs = nil
     self:_transition(machine_id, lane, STATE_SETTLE, "buffer ready")
     events[#events + 1] = { type = "buffer_ready", detail = "inputs detected" }
     return true, events
@@ -496,6 +472,20 @@ function LaneDispatch:tick_lane(machine, poll_status)
   if lane.state == STATE_SETTLE then
     lane.fast_tick = true
     if now < lane.settle_at then return true, events end
+
+    if self.interface_stock and lane.staging_manifest and not lane.stocked then
+      local ok_stock, stock_err, active_cfg = self.interface_stock:stock_batch(machine, lane.staging_manifest)
+      if not ok_stock then
+        if active_cfg then self.interface_stock:release_batch(active_cfg) end
+        lane.last_error = "interface stock failed: " .. tostring(stock_err)
+        lane.batch_outcome = "failed"
+        self:_transition(machine_id, lane, STATE_IDLE, "interface stock failed")
+        events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+        return false, events
+      end
+      lane.stocked = true
+      lane.active_interface_configs = active_cfg
+    end
 
     if self:_is_central_mode() then
       local itp = ensure_item_tp()
@@ -507,36 +497,16 @@ function LaneDispatch:tick_lane(machine, poll_status)
         if now >= lane.deadline then
           local pull = self:_item_pull_side(machine)
           local detail = self.circuit_manager:describe_face(itp, pull)
-          -- #region agent log
-          self:_debug_log("H2", "lane_dispatch.lua:tick_lane:settle-timeout", "dual interface never became readable", {
-            machine_id = machine_id,
-            pull_side = pull,
-            face = detail,
-            deadline = lane.deadline,
-            now = now,
-          })
-          self:_debug_log("H6", "lane_dispatch.lua:tick_lane:settle-timeout-faces", "all item transposer faces snapshot", {
-            machine_id = machine_id,
-            configured_pull_side = pull,
-            faces = self:_face_map(itp),
-          })
-          -- #endregion
           lane.last_error = string.format(
             "dual IF side %d empty after wait (%s)", pull, detail)
           lane.batch_outcome = "failed"
+          self:_release_active_stock(machine, lane)
           self:_transition(machine_id, lane, STATE_IDLE, "dual IF wait timeout")
           events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
           return false, events
         end
         if not lane.interface_wait_logged then
           lane.interface_wait_logged = true
-          -- #region agent log
-          self:_debug_log("H2", "lane_dispatch.lua:tick_lane:settle-wait", "waiting for dual interface visibility", {
-            machine_id = machine_id,
-            pull_side = self:_item_pull_side(machine),
-            scan_max = self:_pull_scan_max(itp, self:_item_pull_side(machine)),
-          })
-          -- #endregion
           self.log(string.format("[LaneDispatch] %s waiting for dual IF side %d",
             machine_id, self:_item_pull_side(machine)))
         end
@@ -559,26 +529,17 @@ function LaneDispatch:tick_lane(machine, poll_status)
 
     local moved_items = self:_transfer_items(itp, machine)
     local moved_fluids = self:_transfer_fluids(ftp, machine)
-    -- #region agent log
-    self:_debug_log("H3", "lane_dispatch.lua:tick_lane:transfer", "transfer attempt finished", {
-      machine_id = machine_id,
-      pull_side = self:_item_pull_side(machine),
-      bus_side = LaneSides.bus_side(machine),
-      moved_items = moved_items,
-      moved_fluids = moved_fluids,
-      pull_face = self.circuit_manager:describe_face(itp, self:_item_pull_side(machine)),
-      bus_face = self.circuit_manager:describe_face(itp, LaneSides.bus_side(machine)),
-    })
-    -- #endregion
     if self:_is_central_mode() and not moved_items and not moved_fluids then
       local pull = self:_item_pull_side(machine)
       local detail = self.circuit_manager:describe_face(itp, pull)
       lane.last_error = string.format("no items moved from dual IF side %d (%s)", pull, detail)
       lane.batch_outcome = "failed"
+      self:_release_active_stock(machine, lane)
       self:_transition(machine_id, lane, STATE_IDLE, "transfer empty")
       events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
       return false, events
     end
+    self:_release_active_stock(machine, lane)
     lane.saw_active = false
     lane.deadline = now + self.staging_timeout_s
     self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "transfer done")

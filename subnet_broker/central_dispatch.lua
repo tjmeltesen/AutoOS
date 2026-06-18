@@ -16,45 +16,7 @@ local STATE_IDLE = "central_idle"
 local STATE_STABILIZING = "central_stabilizing"
 local STATE_ASSIGN = "central_assign"
 local STATE_BOUND = "central_bound"
-local DEBUG_LOG_PATH = "debug-9602cf.log"
-
--- #region agent log
-local function _debug_escape(s)
-  s = tostring(s or "")
-  s = s:gsub("\\", "\\\\"):gsub("\"", "\\\""):gsub("\n", "\\n")
-  return "\"" .. s .. "\""
-end
-
-local function _debug_json(v)
-  local t = type(v)
-  if t == "nil" then return "null" end
-  if t == "number" or t == "boolean" then return tostring(v) end
-  if t == "string" then return _debug_escape(v) end
-  if t ~= "table" then return _debug_escape(tostring(v)) end
-  local is_arr = true
-  local n = 0
-  for k, _ in pairs(v) do
-    if type(k) ~= "number" then is_arr = false break end
-    if k > n then n = k end
-  end
-  local out = {}
-  if is_arr then
-    for i = 1, n do out[#out + 1] = _debug_json(v[i]) end
-    return "[" .. table.concat(out, ",") .. "]"
-  end
-  for k, val in pairs(v) do
-    out[#out + 1] = _debug_escape(k) .. ":" .. _debug_json(val)
-  end
-  return "{" .. table.concat(out, ",") .. "}"
-end
-
-local function _debug_write(payload)
-  local ok, f = pcall(io.open, DEBUG_LOG_PATH, "a")
-  if not ok or not f then return end
-  f:write(_debug_json(payload) .. "\n")
-  f:close()
-end
--- #endregion
+local FLUID_DROP_ITEM = "ae2fc:fluid_drop"
 
 function CentralDispatch.new(deps)
   deps = deps or {}
@@ -75,23 +37,8 @@ function CentralDispatch.new(deps)
   self._stabilize_logged = false
   self._last_handoff_log = 0
   self._last_fail_log = 0
-  self._debug_run_id = "pre-fix"
   return self
 end
-
--- #region agent log
-function CentralDispatch:_debug_log(hypothesis_id, location, message, data)
-  _debug_write({
-    sessionId = "9602cf",
-    runId = self._debug_run_id,
-    hypothesisId = hypothesis_id,
-    location = location,
-    message = message,
-    data = data or {},
-    timestamp = os.time() * 1000,
-  })
-end
--- #endregion
 
 function CentralDispatch:get_debug()
   return {
@@ -163,6 +110,14 @@ function CentralDispatch:_slot_size_on_adapter(adapter, side, slot)
   return 0
 end
 
+function CentralDispatch:_stack_on_adapter(adapter, side, slot)
+  if not adapter or not adapter.getStackInSlot then return nil end
+  local ok, st = pcall(adapter.getStackInSlot, side, slot)
+  if not ok or type(st) ~= "table" then return nil end
+  if (st.size or 0) < 1 then return nil end
+  return st
+end
+
 --- Build { slot = size, ... } for non-empty chest slots.
 function CentralDispatch:_item_fingerprint(adapter, side)
   local fp = {}
@@ -173,6 +128,32 @@ function CentralDispatch:_item_fingerprint(adapter, side)
     if n > 0 then fp[slot] = n end
   end
   return fp
+end
+
+function CentralDispatch:_batch_manifest(adapter, side)
+  local out = { items = {}, fluids = {} }
+  local start = self:_chest_start()
+  local size = self:_slot_count_on_adapter(adapter, side)
+  for slot = start, size do
+    local st = self:_stack_on_adapter(adapter, side, slot)
+    if st then
+      if st.name == FLUID_DROP_ITEM then
+        out.fluids[#out.fluids + 1] = {
+          fluid_label = st.label and st.label:gsub("^drop of ", "") or nil,
+          fluid_filter = { name = st.name, damage = st.damage or 0, label = st.label },
+        }
+      else
+        out.items[#out.items + 1] = {
+          slot = slot,
+          name = st.name,
+          damage = st.damage or 0,
+          label = st.label,
+          count = st.size or 1,
+        }
+      end
+    end
+  end
+  return out
 end
 
 local function fingerprint_equal(a, b)
@@ -312,6 +293,25 @@ function CentralDispatch:_advance_rr_after_assign(idx, n)
   end
 end
 
+function CentralDispatch:find_handoff_target_rr(machines, poll_results, lane_dispatch)
+  machines = machines or self.config.machines
+  local n = #machines
+  if n == 0 then return nil, nil, "no machines configured" end
+
+  local start = self.config.do_round_robin ~= false and self._rr_index or 1
+
+  for i = 0, n - 1 do
+    local idx = ((start - 1 + i) % n) + 1
+    local m = machines[idx]
+    local st = poll_results[m.id]
+    if self:_machine_available(m, st, lane_dispatch) then
+      return m, idx, nil
+    end
+  end
+
+  return nil, nil, nil
+end
+
 function CentralDispatch:tick(poll_results, lane_dispatch)
   lane_dispatch = lane_dispatch or self.lane_dispatch
   self._fast_tick = self._state ~= STATE_IDLE
@@ -324,13 +324,6 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     end
     local dbg = lane_dispatch and lane_dispatch:get_lane_debug(self._bound_machine_id)
     if dbg and dbg.state == "idle" then
-      -- #region agent log
-      self:_debug_log("H4", "central_dispatch.lua:tick:bound-idle", "bound lane returned idle", {
-        machine_id = self._bound_machine_id,
-        batch_outcome = dbg.batch_outcome,
-        last_error = dbg.last_error,
-      })
-      -- #endregion
       if dbg.batch_outcome == "ok" then
         self.log(string.format("[CentralDispatch] batch complete on %s", self._bound_machine_id))
         self._bound_machine_id = nil
@@ -413,33 +406,29 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
       return {}
     end
 
-    local machine, idx = self:find_available_machine_rr(
+    local machine, idx, stage_detail = self:find_handoff_target_rr(
       self.config.machines, poll_results, lane_dispatch)
     if not machine then
       local now = self.now()
       if now - self._last_wait_log >= 5 then
         self._last_wait_log = now
-        self.log("[CentralDispatch] CENTRAL_WAIT_OUTPUT — no available machine")
+        if stage_detail then
+          self.log(string.format("[CentralDispatch] CENTRAL_WAIT_STAGING — %s", tostring(stage_detail)))
+        else
+          self.log("[CentralDispatch] CENTRAL_WAIT_OUTPUT — no available machine")
+        end
       end
       return { { type = "central_wait_output", detail = "all lanes busy or not empty" } }
     end
 
+    local manifest = self:_batch_manifest(adapter, side)
+    if #manifest.items == 0 and #manifest.fluids == 0 then
+      return { { type = "central_wait_output", detail = "central chest empty after stabilize" } }
+    end
+
     if lane_dispatch and lane_dispatch.handoff_from_central then
-      -- #region agent log
-      self:_debug_log("H5", "central_dispatch.lua:tick:assign", "attempting central handoff", {
-        machine_id = machine.id,
-        rr_idx = idx,
-        state = self._state,
-      })
-      -- #endregion
-      local ok, handoff_err = lane_dispatch:handoff_from_central(machine)
+      local ok, handoff_err = lane_dispatch:handoff_from_central(machine, manifest)
       if not ok then
-        -- #region agent log
-        self:_debug_log("H5", "central_dispatch.lua:tick:handoff-deferred", "handoff deferred", {
-          machine_id = machine.id,
-          err = tostring(handoff_err),
-        })
-        -- #endregion
         local now = self.now()
         if now - self._last_handoff_log >= 5 then
           self._last_handoff_log = now

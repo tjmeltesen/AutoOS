@@ -126,7 +126,7 @@ function Mock.new(opts)
       has_work = false,
       fault_message = "Problems: 1",
       iface_inv = {},        -- interface exposed item slots (stocked items)
-      item_cfg = nil,        -- active item stocking config
+      item_cfgs = {},        -- [iface_slot] = active item stocking config
       fluid_cfg = {},        -- [me_side] = fluid label
       fluid_tank = {},       -- [me_side] = mB currently buffered
       bus_inv = {},          -- GT input bus slots
@@ -135,19 +135,26 @@ function Mock.new(opts)
     lanes[m.id] = lane
 
     component_types[m.gt_address] = "gt_machine"
-    component_types[m.interface_address] = "me_interface"
-    component_types[m.transposer_address] = "transposer"
+    local iface_addr = m.interface_address or ("mock-iface-" .. m.id)
+    local item_tp_addr = m.item_transposer_address or m.transposer_address
+    local fluid_tp_addr = m.fluid_transposer_address or m.transposer_address
+
+    component_types[iface_addr] = "me_interface"
+    component_types[item_tp_addr] = "transposer"
+    component_types[fluid_tp_addr] = "transposer"
 
     -- AE2 keeps configured slots stocked: refill from network when empty.
     local function restock_items()
-      local cfg = lane.item_cfg
-      if not cfg then return end
-      local slot = cfg.slot
-      if lane.iface_inv[slot] then return end
-      local entry = db_slots[cfg.db_index]
-      if not entry then return end
-      if take_network_item(entry.name, entry.damage, 1) then
-        lane.iface_inv[slot] = { name = entry.name, damage = entry.damage, size = 1 }
+      for slot, cfg in pairs(lane.item_cfgs) do
+        if not lane.iface_inv[slot] then
+          local entry = db_slots[cfg.db_index]
+          if entry then
+            local count = cfg.count or 1
+            if take_network_item(entry.name, entry.damage, count) then
+              lane.iface_inv[slot] = { name = entry.name, damage = entry.damage, size = count }
+            end
+          end
+        end
       end
     end
 
@@ -164,7 +171,7 @@ function Mock.new(opts)
     end
 
     -- ME interface --------------------------------------------------------------
-    proxies[m.interface_address] = {
+    proxies[iface_addr] = {
       setInterfaceConfiguration = function(slot, db_addr, db_index, count)
         stats.setInterfaceConfiguration = stats.setInterfaceConfiguration + 1
         if db_addr == nil then
@@ -174,12 +181,12 @@ function Mock.new(opts)
             network.items[#network.items + 1] = stack
             lane.iface_inv[slot] = nil
           end
-          lane.item_cfg = nil
+          lane.item_cfgs[slot] = nil
           return true
         end
         local entry = db_slots[db_index]
         if not entry then return false end
-        lane.item_cfg = { slot = slot, db_index = db_index, count = count or 1 }
+        lane.item_cfgs[slot] = { slot = slot, db_index = db_index, count = count or 1 }
         restock_items()
         return true
       end,
@@ -258,7 +265,7 @@ function Mock.new(opts)
       return lane.fluid_tank[me_side] or 0, me_side
     end
 
-    proxies[m.transposer_address] = {
+    local tp_proxy = {
       getInventorySize = function(side)
         local role = face_role(side)
         if role == "interface" then return 9 end
@@ -363,6 +370,9 @@ function Mock.new(opts)
       isMachineActive = function() return lane.active end,
       hasWork = function() return lane.has_work end,
     }
+
+    proxies[item_tp_addr] = tp_proxy
+    proxies[fluid_tp_addr] = tp_proxy
   end
 
   if opts.database_address then
@@ -429,12 +439,14 @@ function Mock.machines_from_config(config)
       id = m.id,
       gt_address = m.gt_address,
       interface_address = m.interface_address or ("mock-iface-" .. m.id),
-      transposer_address = m.transposer_address,
-      interface_item_side = m.interface_item_side or m.recover_side,
-      recover_side = m.recover_side or m.interface_item_side,
-      item_bus_side = m.item_bus_side,
-      fluid_pull_side = m.fluid_pull_side,
-      fluid_push_side = m.fluid_push_side,
+      transposer_address = m.item_transposer_address or m.transposer_address,
+      item_transposer_address = m.item_transposer_address or m.transposer_address,
+      fluid_transposer_address = m.fluid_transposer_address or m.transposer_address,
+      interface_item_side = m.interface_item_side or m.recover_side or m.side_buffer,
+      recover_side = m.recover_side or m.interface_item_side or m.side_return,
+      item_bus_side = m.item_bus_side or m.side_bus_b,
+      fluid_pull_side = m.fluid_pull_side or m.side_fluid_buffer,
+      fluid_push_side = m.fluid_push_side or m.side_fluid_hatch,
       interface_fluid_side = m.interface_fluid_side,
       interface_item_slot = m.interface_item_slot or m.recover_slot,
       input_slot = m.input_slot,
