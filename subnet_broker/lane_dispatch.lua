@@ -289,6 +289,14 @@ function LaneDispatch:_pull_face_ready(item_tp, fluid_tp, machine)
   return false
 end
 
+function LaneDispatch:_face_map(item_tp)
+  local out = {}
+  for side = 0, 5 do
+    out[#out + 1] = self.circuit_manager:describe_face(item_tp, side)
+  end
+  return table.concat(out, " | ")
+end
+
 function LaneDispatch:_fluid_level(tp, side)
   if not tp or not tp.getTankLevel then return 0 end
   local ok, lvl = pcall(tp.getTankLevel, side, 1)
@@ -506,6 +514,11 @@ function LaneDispatch:tick_lane(machine, poll_status)
             face = detail,
             deadline = lane.deadline,
             now = now,
+          })
+          self:_debug_log("H6", "lane_dispatch.lua:tick_lane:settle-timeout-faces", "all item transposer faces snapshot", {
+            machine_id = machine_id,
+            configured_pull_side = pull,
+            faces = self:_face_map(itp),
           })
           -- #endregion
           lane.last_error = string.format(

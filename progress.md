@@ -456,3 +456,7 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 
 - Changed `subnet_broker/lane_dispatch.lua`: added NDJSON debug logging for handoff, settle wait/timeout, and transfer outcomes (`debug-9602cf.log`)
 - Changed `subnet_broker/central_dispatch.lua`: added NDJSON debug logging for assign/handoff and bound-idle outcome transitions (`debug-9602cf.log`)
+
+## 2026-06-17 — Debug: per-side transposer snapshot at dual-IF timeout
+
+- Changed `subnet_broker/lane_dispatch.lua`: added `H6` instrumentation to dump all item transposer face inventories when central settle times out
