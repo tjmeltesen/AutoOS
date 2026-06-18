@@ -34,6 +34,7 @@ function CentralDispatch.new(deps)
   self._fingerprint = nil
   self._stable_since = 0
   self._stabilize_logged = false
+  self._last_handoff_log = 0
   return self
 end
 
@@ -68,6 +69,12 @@ end
 
 function CentralDispatch:_item_adapter()
   local c = self:_central_cfg()
+  if (c.monitor or "adapter") == "inventory_controller" then
+    if not self.component.isAvailable or not self.component.isAvailable("inventory_controller") then
+      return nil, "inventory_controller upgrade not installed"
+    end
+    return self.component.inventory_controller
+  end
   if not c.buffer_adapter_address or c.buffer_adapter_address == "" then
     return nil, "central buffer_adapter_address not set"
   end
@@ -78,6 +85,9 @@ end
 
 function CentralDispatch:_adapter_side()
   local c = self:_central_cfg()
+  if (c.monitor or "adapter") == "inventory_controller" then
+    return c.inventory_controller_side
+  end
   return c.buffer_adapter_side
 end
 
@@ -344,8 +354,12 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     if lane_dispatch and lane_dispatch.handoff_from_central then
       local ok, handoff_err = lane_dispatch:handoff_from_central(machine)
       if not ok then
-        self.log(string.format("[CentralDispatch] handoff deferred %s: %s",
-          machine.id, tostring(handoff_err)))
+        local now = self.now()
+        if now - self._last_handoff_log >= 5 then
+          self._last_handoff_log = now
+          self.log(string.format("[CentralDispatch] handoff deferred %s: %s",
+            machine.id, tostring(handoff_err)))
+        end
         return { { type = "central_wait_staging", detail = tostring(handoff_err) } }
       end
     end

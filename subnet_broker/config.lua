@@ -29,7 +29,12 @@ Config.broker_modem_port = 106
 -- Shared AE deposit (input_mode = "central" only)
 -- buffer_adapter = OC adapter on item chest (storage bus side)
 -- fluid_adapter optional (diag only; never gates dispatch)
+-- monitor: "adapter" (default) or "inventory_controller" on broker OC
+-- require_interface_staging: true = wait for items on lane pull face before handoff
+-- side_central / side_central_fluid: lane transposer face on shared central chest/tank
 Config.central = {
+  monitor = "inventory_controller",
+  inventory_controller_side = 0,
   buffer_adapter_address = "1689b5c4-845d-42d4-8f02-d3b396086618",
   buffer_adapter_side = 0,
   fluid_adapter_address = "28d9de66-3f71-48fe-9f8b-fdc4d7332794",
@@ -37,6 +42,7 @@ Config.central = {
   chest_slot_start = 1,
   max_circuits_in_buffer = 1,
   stabilize_s = 3.0,
+  require_interface_staging = false,
 }
 
 Config.machines = {
@@ -103,6 +109,7 @@ local CENTRAL_MACHINE_REQUIRED = {
 local SIDE_FIELDS = {
   "side_buffer", "side_bus_b", "side_return",
   "side_fluid_buffer", "side_fluid_hatch",
+  "side_central", "side_central_fluid",
   "buffer_adapter_side", "fluid_adapter_side",
 }
 
@@ -145,17 +152,28 @@ function Config.validate(cfg)
     return nil, "machines must be a non-empty array"
   end
 
-  if input_mode == "central" then
+    if input_mode == "central" then
     local c = cfg.central
     if type(c) ~= "table" then
       return nil, "input_mode=central requires Config.central table"
     end
-    if not c.buffer_adapter_address or c.buffer_adapter_address == ""
-      or c.buffer_adapter_address:find("SET_", 1, true) then
-      return nil, "central.buffer_adapter_address must be set (item chest adapter)"
+    local monitor = c.monitor or "adapter"
+    if monitor ~= "adapter" and monitor ~= "inventory_controller" then
+      return nil, "central.monitor must be 'adapter' or 'inventory_controller'"
     end
-    if type(c.buffer_adapter_side) ~= "number" or c.buffer_adapter_side < 0 or c.buffer_adapter_side > 5 then
-      return nil, "central.buffer_adapter_side must be a side integer 0-5"
+    if monitor == "adapter" then
+      if not c.buffer_adapter_address or c.buffer_adapter_address == ""
+        or c.buffer_adapter_address:find("SET_", 1, true) then
+        return nil, "central.buffer_adapter_address must be set (item chest adapter)"
+      end
+      if type(c.buffer_adapter_side) ~= "number" or c.buffer_adapter_side < 0 or c.buffer_adapter_side > 5 then
+        return nil, "central.buffer_adapter_side must be a side integer 0-5"
+      end
+    else
+      if type(c.inventory_controller_side) ~= "number"
+        or c.inventory_controller_side < 0 or c.inventory_controller_side > 5 then
+        return nil, "central.inventory_controller_side must be 0-5 when monitor=inventory_controller"
+      end
     end
     if c.fluid_adapter_address ~= nil and c.fluid_adapter_address ~= ""
       and c.fluid_adapter_side == nil then

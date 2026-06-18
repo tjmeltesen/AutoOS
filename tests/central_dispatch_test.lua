@@ -255,15 +255,15 @@ do
   check("central bound", fx.central:get_debug().state == "central_bound")
 end
 
--- handoff deferred when interface empty -----------------------------------------
+-- assign without pre-staged pull face still hands off (default) ---------------
 do
   local fx = make_fixture({ stabilize_s = 0.5 })
   fx.central:tick(fx.results, fx.lane_dispatch)
   fx.advance(0.6)
   local ev = fx.central:tick(fx.results, fx.lane_dispatch)
-  local wait_staging = false
-  for _, e in ipairs(ev) do if e.type == "central_wait_staging" then wait_staging = true end end
-  check("no interface staging -> wait", wait_staging or fx.central:get_debug().state == "central_assign")
+  local staged = false
+  for _, e in ipairs(ev) do if e.type == "central_staged" then staged = true end end
+  check("assign without pre-staged pull face", staged or fx.central:get_debug().state == "central_bound")
 end
 
 -- central mode idle lane no buffer pickup ---------------------------------------
@@ -281,11 +281,19 @@ do
   check("handoff -> settle", ok and fx.lane_dispatch:get_lane_debug("machine_01").state == "settle")
 end
 
--- handoff rejected when side_buffer empty ---------------------------------------
+-- handoff rejected when staging required and pull face empty --------------------
+do
+  local fx = make_fixture({})
+  fx.cfg.central.require_interface_staging = true
+  local ok = fx.lane_dispatch:handoff_from_central(fx.cfg.machines[1])
+  check("staging required rejects empty pull face", not ok)
+end
+
+-- handoff without staging gate (default) ----------------------------------------
 do
   local fx = make_fixture({})
   local ok = fx.lane_dispatch:handoff_from_central(fx.cfg.machines[1])
-  check("handoff rejected when side_buffer empty", not ok)
+  check("no staging gate handoff ok", ok and fx.lane_dispatch:get_lane_debug("machine_01").state == "settle")
 end
 
 -- busy bus skips machine --------------------------------------------------------

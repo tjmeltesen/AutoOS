@@ -1,12 +1,12 @@
 # Graph Report - AutoOS  (2026-06-17)
 
 ## Corpus Check
-- 126 files · ~82,228 words
+- 126 files · ~82,747 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 743 nodes · 930 edges · 21 communities detected
-- Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 116 edges (avg confidence: 0.8)
+- 748 nodes · 941 edges · 21 communities detected
+- Extraction: 87% EXTRACTED · 13% INFERRED · 0% AMBIGUOUS · INFERRED: 120 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -22,7 +22,7 @@
 - [[_COMMUNITY_Community 11|Community 11]]
 - [[_COMMUNITY_Community 13|Community 13]]
 - [[_COMMUNITY_Community 14|Community 14]]
-- [[_COMMUNITY_Community 17|Community 17]]
+- [[_COMMUNITY_Community 16|Community 16]]
 - [[_COMMUNITY_Community 18|Community 18]]
 - [[_COMMUNITY_Community 19|Community 19]]
 - [[_COMMUNITY_Community 21|Community 21]]
@@ -59,16 +59,16 @@
 ## Communities
 
 ### Community 1 - "Community 1"
-Cohesion: 0.05
-Nodes (18): ConnectedPeripherals:_checkPeripherals(), ConnectedPeripherals:hasFluidsInInput(), ConnectedPeripherals:hasItemsInInput(), ConnectedPeripherals:pushFluids(), ConnectedPeripherals:pushItems(), findFileRecursive(), FormatTable(), isTableEmpty() (+10 more)
+Cohesion: 0.08
+Nodes (33): CentralDispatch:_lane_item_tp(), try(), event.pull(), clear_all(), join(), list_lua(), main(), print() (+25 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.05
-Nodes (13): CentralDispatch:_item_adapter(), CentralDispatch:_lane_fluid_tp(), CentralDispatch:tick(), fingerprint_equal(), CircuitManager:_transfer_with_retries(), component.list(), HW.on_network(), HW.proxy() (+5 more)
+Nodes (18): ConnectedPeripherals:_checkPeripherals(), ConnectedPeripherals:hasFluidsInInput(), ConnectedPeripherals:hasItemsInInput(), ConnectedPeripherals:pushFluids(), ConnectedPeripherals:pushItems(), findFileRecursive(), FormatTable(), isTableEmpty() (+10 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.08
-Nodes (22): try(), event.pull(), print(), build_oc_deps(), Kernel:_display_key(), Kernel:log_tick(), Kernel:state_changed(), Kernel:tick() (+14 more)
+Cohesion: 0.07
+Nodes (23): CentralDispatch:_bus_empty(), CentralDispatch:_return_empty(), lane_default(), LaneDispatch:_buffer_has_fluid(), LaneDispatch:_buffer_has_items(), LaneDispatch:_fluid_drained(), LaneDispatch:_fluid_pull_side(), LaneDispatch:_item_drained() (+15 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.06
@@ -76,15 +76,15 @@ Nodes (8): Display.new(), Display:render(), on_off(), yes_no(), gpu.bind(), gpu.
 
 ### Community 5 - "Community 5"
 Cohesion: 0.08
-Nodes (19): CentralDispatch:_bus_empty(), CentralDispatch:_return_empty(), lane_default(), LaneDispatch:_buffer_has_fluid(), LaneDispatch:_buffer_has_items(), LaneDispatch:_fluid_drained(), LaneDispatch:_item_drained(), LaneDispatch:_lane() (+11 more)
-
-### Community 6 - "Community 6"
-Cohesion: 0.09
 Nodes (19): ArrayWatch.new(), BrokerMain.build(), BrokerMain.run(), BrokerMain.run_once(), print_lane_status(), CircuitManager.new(), component.isAvailable(), Config.validate() (+11 more)
 
+### Community 6 - "Community 6"
+Cohesion: 0.07
+Nodes (14): CentralDispatch:_item_adapter(), CentralDispatch:_lane_fluid_tp(), CircuitManager:scan_transposer(), CircuitManager:_transfer_with_retries(), find_machine(), component.list(), HW.on_network(), HW.proxy() (+6 more)
+
 ### Community 7 - "Community 7"
-Cohesion: 0.1
-Nodes (22): CentralDispatch:_lane_item_tp(), CircuitManager:scan_transposer(), find_machine(), clear_all(), join(), list_lua(), main(), read_head() (+14 more)
+Cohesion: 0.07
+Nodes (9): CentralDispatch:_machine_available(), CentralDispatch:tick(), fingerprint_equal(), MachinePoll:build_idle_pool(), MachinePoll.is_idle(), MachinePoll:poll_machine(), MaintenanceParse.has_fault(), problems_count() (+1 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.08
@@ -106,9 +106,9 @@ Nodes (10): Adapter:poll(), Adapter:poll_inventory(), detect_power_loss(), find_
 Cohesion: 0.27
 Nodes (10): filter_match(), Mock.new(), bold(), check(), color(), dim(), green(), pc_rm_kernel() (+2 more)
 
-### Community 17 - "Community 17"
-Cohesion: 0.21
-Nodes (7): CentralDispatch:_machine_available(), MachinePoll:build_idle_pool(), MachinePoll.is_idle(), MachinePoll:poll_machine(), MaintenanceParse.has_fault(), problems_count(), strip_format()
+### Community 16 - "Community 16"
+Cohesion: 0.24
+Nodes (8): build_oc_deps(), Kernel:_display_key(), Kernel:log_tick(), Kernel:state_changed(), Kernel:tick(), log_sensor_lines(), sensor_line_noisy(), stable_craft_reason()
 
 ### Community 18 - "Community 18"
 Cohesion: 0.3
@@ -149,11 +149,11 @@ Nodes (4): Maintenance.evaluate(), Maintenance.has_fault(), problems_count(), st
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `print()` connect `Community 3` to `Community 1`, `Community 6`, `Community 7`?**
-  _High betweenness centrality (0.118) - this node is a cross-community bridge._
-- **Why does `BrokerMain.run()` connect `Community 6` to `Community 10`, `Community 3`?**
+- **Why does `print()` connect `Community 1` to `Community 16`, `Community 2`, `Community 5`?**
+  _High betweenness centrality (0.119) - this node is a cross-community bridge._
+- **Why does `BrokerMain.run()` connect `Community 5` to `Community 1`, `Community 10`?**
   _High betweenness centrality (0.097) - this node is a cross-community bridge._
-- **Why does `Kernel.new()` connect `Community 9` to `Community 3`, `Community 14`?**
+- **Why does `Kernel.new()` connect `Community 9` to `Community 16`, `Community 14`?**
   _High betweenness centrality (0.058) - this node is a cross-community bridge._
 - **Are the 19 inferred relationships involving `print()` (e.g. with `try()` and `log_sensor_lines()`) actually correct?**
   _`print()` has 19 INFERRED edges - model-reasoned connections that need verification._

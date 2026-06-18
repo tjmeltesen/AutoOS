@@ -430,3 +430,11 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `tests/central_dispatch_test.lua`, `tests/lane_dispatch_test.lua`: stability timer, item-only dispatch, transfer order
 - Changed `README.md` Phase 3, `references/gtceu-lcr-gtnh-port-map.md`: storage-bus central topology
 - Desktop: `central_dispatch_test.lua` 13/13; `lane_dispatch_test.lua` 12/12; `array_watch_test.lua` 12/12
+
+## 2026-06-17 — Central handoff: side_central pull, skip interface gate
+
+- Changed `lane_dispatch.lua`: `side_central`/`side_central_fluid` pull faces; `require_interface_staging` opt-in; transfer fails clear if pull face empty
+- Changed `central_dispatch.lua`: `inventory_controller` monitor mode; rate-limit handoff deferred logs
+- Changed `config.lua`: `monitor`, `inventory_controller_side`, `require_interface_staging=false`
+- Changed `lane_sides.lua`: `central_item_pull_side`, `central_fluid_pull_side`
+- Changed `tests/central_dispatch_test.lua` for new handoff semantics
