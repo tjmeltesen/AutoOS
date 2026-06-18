@@ -1,8 +1,8 @@
 --[[
-  AutoOS — Central buffer dispatch (multipurpose RR port)
+  AutoOS — Central buffer dispatch (storage bus + adapter monitor)
 
-  AE2 → shared chest/tank → central transposers → next available machine (RR).
-  Lane tail (wait_complete → extract → return) stays in lane_dispatch.lua.
+  AE2 → shared chest via storage bus → item adapter fingerprint + stabilize_s.
+  RR picks idle lane → lane_dispatch handoff (no central transposers).
 ]]
 
 local HW = require("hw")
@@ -13,11 +13,9 @@ local CentralDispatch = {}
 CentralDispatch.__index = CentralDispatch
 
 local STATE_IDLE = "central_idle"
-local STATE_SETTLE = "central_settle"
+local STATE_STABILIZING = "central_stabilizing"
+local STATE_ASSIGN = "central_assign"
 local STATE_BOUND = "central_bound"
-
-local FLUID_CHUNK = 1000000
-local TRANSFER_RETRIES = 3
 
 function CentralDispatch.new(deps)
   deps = deps or {}
@@ -28,14 +26,14 @@ function CentralDispatch.new(deps)
   self.lane_dispatch = deps.lane_dispatch
   self.log = deps.log or function() end
   self.now = deps.now or function() return 0 end
-  self.sleep = deps.sleep or HW.sleep
-  self.settle_s = deps.settle_s or self.config.settle_s or 0.1
   self._rr_index = 1
   self._state = STATE_IDLE
-  self._settle_at = 0
   self._bound_machine_id = nil
   self._last_wait_log = 0
   self._fast_tick = false
+  self._fingerprint = nil
+  self._stable_since = 0
+  self._stabilize_logged = false
   return self
 end
 
@@ -45,17 +43,22 @@ function CentralDispatch:get_debug()
     bound_machine = self._bound_machine_id,
     rr_index = self._rr_index,
     fast_tick = self._fast_tick,
+    stable_for = self._fingerprint and (self.now() - self._stable_since) or 0,
   }
 end
 
 function CentralDispatch:any_fast_tick()
-  return self._fast_tick
-    or (self._state ~= STATE_IDLE)
-    or false
+  return self._fast_tick or self._state ~= STATE_IDLE
 end
 
 function CentralDispatch:_central_cfg()
   return self.config.central or {}
+end
+
+function CentralDispatch:_stabilize_s()
+  local c = self:_central_cfg()
+  if type(c.stabilize_s) == "number" then return c.stabilize_s end
+  return 3.0
 end
 
 function CentralDispatch:_chest_start()
@@ -63,14 +66,88 @@ function CentralDispatch:_chest_start()
   return c.chest_slot_start or self.config.chest_slot_start or 1
 end
 
-function CentralDispatch:_item_tp()
+function CentralDispatch:_item_adapter()
   local c = self:_central_cfg()
-  return HW.require_proxy(self.component, "transposer", c.item_transposer_address, "central item TP")
+  if not c.buffer_adapter_address or c.buffer_adapter_address == "" then
+    return nil, "central buffer_adapter_address not set"
+  end
+  local adapter, err = HW.proxy(self.component, c.buffer_adapter_address, "adapter")
+  if not adapter then return nil, err or "item buffer adapter proxy failed" end
+  return adapter
 end
 
-function CentralDispatch:_fluid_tp()
+function CentralDispatch:_adapter_side()
   local c = self:_central_cfg()
-  return HW.require_proxy(self.component, "transposer", c.fluid_transposer_address, "central fluid TP")
+  return c.buffer_adapter_side
+end
+
+function CentralDispatch:_slot_count_on_adapter(adapter, side)
+  if not adapter or not adapter.getInventorySize then return 0 end
+  local ok, n = pcall(adapter.getInventorySize, side)
+  return ok and type(n) == "number" and n or 0
+end
+
+function CentralDispatch:_slot_size_on_adapter(adapter, side, slot)
+  if not adapter or not adapter.getStackInSlot then return 0 end
+  local ok, st = pcall(adapter.getStackInSlot, side, slot)
+  if ok and type(st) == "table" then return st.size or 0 end
+  if adapter.getSlotStackSize then
+    local ok2, n = pcall(adapter.getSlotStackSize, side, slot)
+    return ok2 and type(n) == "number" and n or 0
+  end
+  return 0
+end
+
+--- Build { slot = size, ... } for non-empty chest slots.
+function CentralDispatch:_item_fingerprint(adapter, side)
+  local fp = {}
+  local start = self:_chest_start()
+  local size = self:_slot_count_on_adapter(adapter, side)
+  for slot = start, size do
+    local n = self:_slot_size_on_adapter(adapter, side, slot)
+    if n > 0 then fp[slot] = n end
+  end
+  return fp
+end
+
+local function fingerprint_equal(a, b)
+  if a == nil and b == nil then return true end
+  if a == nil or b == nil then return false end
+  for slot, n in pairs(a) do
+    if b[slot] ~= n then return false end
+  end
+  for slot, n in pairs(b) do
+    if a[slot] ~= n then return false end
+  end
+  return true
+end
+
+function CentralDispatch:_fingerprint_nonempty(fp)
+  return fp and next(fp) ~= nil
+end
+
+function CentralDispatch:_count_circuits(adapter, side)
+  if not adapter or not adapter.getStackInSlot then return 0 end
+  local n = 0
+  local start = self:_chest_start()
+  local size = self:_slot_count_on_adapter(adapter, side)
+  for slot = start, size do
+    local ok, st = pcall(adapter.getStackInSlot, side, slot)
+    if ok and self.circuit_manager:stack_is_circuit(st) then n = n + 1 end
+  end
+  return n
+end
+
+function CentralDispatch:_central_admission_ok(adapter, side)
+  local c = self:_central_cfg()
+  local max_circ = c.max_circuits_in_buffer or self.config.max_circuits_in_buffer
+  if not max_circ or max_circ < 1 or not adapter then return true end
+  local n = self:_count_circuits(adapter, side)
+  if n > max_circ then
+    self.log(string.format("[CentralDispatch] buffer has %d circuits (max %d)", n, max_circ))
+    return false
+  end
+  return true
 end
 
 function CentralDispatch:_lane_item_tp(machine)
@@ -98,63 +175,6 @@ function CentralDispatch:_fluid_level(tp, side)
   if not tp or not tp.getTankLevel then return 0 end
   local ok, lvl = pcall(tp.getTankLevel, side, 1)
   return ok and type(lvl) == "number" and lvl or 0
-end
-
-function CentralDispatch:_buffer_side()
-  return LaneSides.central_buffer_side(self.config)
-end
-
-function CentralDispatch:_count_circuits(item_tp, side, start_slot)
-  local n = 0
-  local size = self:_slot_count(item_tp, side)
-  for slot = start_slot or 1, size do
-    local st = item_tp.getStackInSlot and item_tp.getStackInSlot(side, slot)
-    if self.circuit_manager:stack_is_circuit(st) then n = n + 1 end
-  end
-  return n
-end
-
-function CentralDispatch:_central_has_items(item_tp)
-  local side = self:_buffer_side()
-  local start = self:_chest_start()
-  local size = self:_slot_count(item_tp, side)
-  for slot = start, size do
-    if self:_slot_size(item_tp, side, slot) > 0 then return true end
-  end
-  return false
-end
-
-function CentralDispatch:_central_has_fluid(fluid_tp)
-  local side = self:_buffer_side()
-  if fluid_tp.getTankCount then
-    local ok, n = pcall(fluid_tp.getTankCount, side)
-    if ok and type(n) == "number" and n == 0 then return false end
-  end
-  return self:_fluid_level(fluid_tp, side) > 0
-end
-
-function CentralDispatch:_central_buffer_ready(item_tp, fluid_tp)
-  return (item_tp and self:_central_has_items(item_tp))
-    or (fluid_tp and self:_central_has_fluid(fluid_tp))
-end
-
-function CentralDispatch:_central_buffer_empty(item_tp, fluid_tp)
-  local items_empty = not item_tp or not self:_central_has_items(item_tp)
-  local fluid_empty = not fluid_tp or not self:_central_has_fluid(fluid_tp)
-  return items_empty and fluid_empty
-end
-
-function CentralDispatch:_central_admission_ok(item_tp)
-  local c = self:_central_cfg()
-  local max_circ = c.max_circuits_in_buffer or self.config.max_circuits_in_buffer
-  if not max_circ or max_circ < 1 or not item_tp then return true end
-  local side = self:_buffer_side()
-  local n = self:_count_circuits(item_tp, side, self:_chest_start())
-  if n > max_circ then
-    self.log(string.format("[CentralDispatch] buffer has %d circuits (max %d)", n, max_circ))
-    return false
-  end
-  return true
 end
 
 function CentralDispatch:_bus_empty(item_tp, machine)
@@ -194,101 +214,34 @@ function CentralDispatch:_machine_available(machine, poll_status, lane_dispatch)
   return true
 end
 
---- Port of multipurpose findAvailableOutputRR().
 function CentralDispatch:find_available_machine_rr(machines, poll_results, lane_dispatch)
   machines = machines or self.config.machines
   local n = #machines
   if n == 0 then return nil end
 
-  local start
-  if self.config.do_round_robin ~= false then
-    start = self._rr_index
-  else
-    start = 1
-  end
+  local start = self.config.do_round_robin ~= false and self._rr_index or 1
 
-  local function try_from(from_idx)
-    for i = 0, n - 1 do
-      local idx = ((from_idx - 1 + i) % n) + 1
-      local m = machines[idx]
-      local st = poll_results[m.id]
-      if self:_machine_available(m, st, lane_dispatch) then
-        if self.config.do_round_robin ~= false then
-          self._rr_index = idx
-        end
-        return m, idx
+  for i = 0, n - 1 do
+    local idx = ((start - 1 + i) % n) + 1
+    local m = machines[idx]
+    local st = poll_results[m.id]
+    if self:_machine_available(m, st, lane_dispatch) then
+      if self.config.do_round_robin ~= false then
+        self._rr_index = idx
       end
+      return m, idx
     end
-    return nil
   end
-
-  return try_from(start)
+  return nil
 end
 
-function CentralDispatch:_transfer_items_to_machine(central_item_tp, machine)
-  local from_side = self:_buffer_side()
-  local to_side = LaneSides.central_item_out_side(machine)
-  if type(to_side) ~= "number" then return false end
-  local start = self:_chest_start()
-  local size = self:_slot_count(central_item_tp, from_side)
-  local moved_any = false
-  for _pass = 1, 8 do
-    local moved_pass = false
-    for slot = start, size do
-      local count = self:_slot_size(central_item_tp, from_side, slot)
-      if count > 0 then
-        for _ = 1, TRANSFER_RETRIES do
-          local ok, moved = pcall(central_item_tp.transferItem, from_side, to_side, count, slot)
-          if ok and moved and moved >= 1 then
-            moved_any = true
-            moved_pass = true
-            break
-          end
-          self.sleep(0.05)
-        end
-      end
-    end
-    if not moved_pass then break end
-  end
-  return moved_any
+function CentralDispatch:_reset_stabilizing()
+  self._fingerprint = nil
+  self._stable_since = 0
+  self._stabilize_logged = false
 end
 
-function CentralDispatch:_transfer_fluids_to_machine(central_fluid_tp, machine)
-  local from_side = self:_buffer_side()
-  local to_side = LaneSides.central_fluid_out_side(machine)
-  if type(to_side) ~= "number" then return false end
-  local moved_any = false
-  for _ = 1, 32 do
-    local ok, result = pcall(central_fluid_tp.transferFluid, from_side, to_side, FLUID_CHUNK)
-    if not ok or result == false or result == 0 then break end
-    moved_any = true
-  end
-  return moved_any
-end
-
-function CentralDispatch:_transfer_central_to_machine(machine)
-  local item_tp = self:_item_tp()
-  local fluid_tp = self:_fluid_tp()
-  if not item_tp or not fluid_tp then
-    return false, "central transposer unavailable"
-  end
-  local buf_side = self:_buffer_side()
-  local out_item = LaneSides.central_item_out_side(machine)
-  local out_fluid = LaneSides.central_fluid_out_side(machine)
-  self.log(string.format(
-    "[CentralDispatch] transfer %s: buffer side %d → item out %s fluid out %s (lane bus side %s)",
-    machine.id, buf_side, tostring(out_item), tostring(out_fluid), tostring(machine.side_bus_b)))
-
-  self:_transfer_fluids_to_machine(fluid_tp, machine)
-  self:_transfer_items_to_machine(item_tp, machine)
-
-  if not self:_central_buffer_empty(item_tp, fluid_tp) then
-    self.log("[CentralDispatch] warning: central buffer not fully drained after transfer")
-  end
-  return true
-end
-
-function CentralDispatch:_advance_rr_after_push(idx, n)
+function CentralDispatch:_advance_rr_after_assign(idx, n)
   if self.config.do_round_robin ~= false and n > 0 then
     self._rr_index = (idx % n) + 1
   end
@@ -298,12 +251,10 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
   lane_dispatch = lane_dispatch or self.lane_dispatch
   self._fast_tick = self._state ~= STATE_IDLE
 
-  local item_tp = self:_item_tp()
-  local fluid_tp = self:_fluid_tp()
-
   if self._state == STATE_BOUND then
     if not self._bound_machine_id then
       self._state = STATE_IDLE
+      self:_reset_stabilizing()
       return {}
     end
     local dbg = lane_dispatch and lane_dispatch:get_lane_debug(self._bound_machine_id)
@@ -311,28 +262,71 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
       self.log(string.format("[CentralDispatch] batch complete on %s", self._bound_machine_id))
       self._bound_machine_id = nil
       self._state = STATE_IDLE
+      self:_reset_stabilizing()
     end
     return {}
   end
 
-  if self._state == STATE_IDLE then
-    if not self:_central_buffer_ready(item_tp, fluid_tp) then
-      return {}
+  local adapter, adapter_err = self:_item_adapter()
+  local side = self:_adapter_side()
+  if not adapter or type(side) ~= "number" then
+    if self._state ~= STATE_IDLE then
+      self._state = STATE_IDLE
+      self:_reset_stabilizing()
     end
-    if not self:_central_admission_ok(item_tp) then
-      return {}
-    end
-    self._settle_at = self.now() + self.settle_s
-    self._state = STATE_SETTLE
-    self.log("[CentralDispatch] central buffer ready → settle")
-    self._fast_tick = true
-    return { { type = "central_buffer_ready", detail = "inputs in central buffer" } }
+    return {}
   end
 
-  if self._state == STATE_SETTLE then
-    if self.now() < self._settle_at then return {} end
-    if not self:_central_buffer_ready(item_tp, fluid_tp) then
+  local fp = self:_item_fingerprint(adapter, side)
+  local has_items = self:_fingerprint_nonempty(fp)
+
+  if self._state == STATE_IDLE then
+    if not has_items then return {} end
+    if not self:_central_admission_ok(adapter, side) then return {} end
+    self._fingerprint = fp
+    self._stable_since = self.now()
+    self._state = STATE_STABILIZING
+    self._stabilize_logged = false
+    self._fast_tick = true
+    self.log("[CentralDispatch] items in central chest → stabilizing")
+    return { { type = "central_buffer_ready", detail = "items in central chest" } }
+  end
+
+  if self._state == STATE_STABILIZING then
+    self._fast_tick = true
+    if not has_items then
       self._state = STATE_IDLE
+      self:_reset_stabilizing()
+      return {}
+    end
+    if not self:_central_admission_ok(adapter, side) then return {} end
+
+    if not fingerprint_equal(fp, self._fingerprint) then
+      self._fingerprint = fp
+      self._stable_since = self.now()
+      self._stabilize_logged = false
+      return {}
+    end
+
+    local stable_for = self.now() - self._stable_since
+    if stable_for < self:_stabilize_s() then
+      if not self._stabilize_logged then
+        self._stabilize_logged = true
+        self.log(string.format("[CentralDispatch] stabilizing (%.1fs / %.1fs)",
+          stable_for, self:_stabilize_s()))
+      end
+      return {}
+    end
+
+    self._state = STATE_ASSIGN
+    self.log(string.format("[CentralDispatch] stable %.1fs → assign", stable_for))
+  end
+
+  if self._state == STATE_ASSIGN then
+    self._fast_tick = true
+    if not has_items then
+      self._state = STATE_IDLE
+      self:_reset_stabilizing()
       return {}
     end
 
@@ -347,26 +341,22 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
       return { { type = "central_wait_output", detail = "all lanes busy or not empty" } }
     end
 
-    local ok, err = self:_transfer_central_to_machine(machine)
-    if not ok then
-      self.log("[CentralDispatch] transfer failed: " .. tostring(err))
-      return { { type = "central_transfer_failed", detail = tostring(err) } }
-    end
-
-    if lane_dispatch and lane_dispatch.bind_from_central then
-      local bound, bind_err = lane_dispatch:bind_from_central(machine)
-      if not bound then
-        self.log(string.format("[CentralDispatch] push did not reach lane bus: %s", tostring(bind_err)))
-        return { { type = "central_transfer_failed", detail = tostring(bind_err) } }
+    if lane_dispatch and lane_dispatch.handoff_from_central then
+      local ok, handoff_err = lane_dispatch:handoff_from_central(machine)
+      if not ok then
+        self.log(string.format("[CentralDispatch] handoff deferred %s: %s",
+          machine.id, tostring(handoff_err)))
+        return { { type = "central_wait_staging", detail = tostring(handoff_err) } }
       end
     end
 
     self._bound_machine_id = machine.id
     self._state = STATE_BOUND
-    self:_advance_rr_after_push(idx, #self.config.machines)
-    self.log(string.format("[CentralDispatch] pushed batch → %s (RR idx %d)", machine.id, idx))
+    self:_advance_rr_after_assign(idx, #self.config.machines)
+    self:_reset_stabilizing()
+    self.log(string.format("[CentralDispatch] assigned → %s (RR idx %d)", machine.id, idx))
     return {
-      { type = "central_staged", machine_id = machine.id, detail = "central → " .. machine.id },
+      { type = "central_staged", machine_id = machine.id, detail = "handoff → " .. machine.id },
     }
   end
 

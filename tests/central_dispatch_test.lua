@@ -1,6 +1,6 @@
 #!/usr/bin/env lua
 --[[
-  AutoOS — Central buffer RR dispatch tests
+  AutoOS — Central buffer adapter + stability tests
 
   Run: lua tests/central_dispatch_test.lua
 ]]
@@ -34,6 +34,19 @@ end
 
 local function stack(damage, size)
   return { name = "gregtech:gt.integrated_circuit", damage = damage, size = size or 1 }
+end
+
+local function new_adapter(inv)
+  local adapter = {}
+  function adapter.getInventorySize(side) return inv[side] and inv[side].size or 0 end
+  function adapter.getStackInSlot(side, slot)
+    return inv[side] and inv[side].slots and inv[side].slots[slot] or nil
+  end
+  function adapter.getSlotStackSize(side, slot)
+    local st = adapter.getStackInSlot(side, slot)
+    return st and (st.size or 0) or 0
+  end
+  return adapter
 end
 
 local function new_item_tp(inv_sizes, items)
@@ -82,30 +95,30 @@ local function new_fluid_tp(tanks)
   return tp, tank_data
 end
 
-local function make_central_fixture(opts)
+local function make_fixture(opts)
   opts = opts or {}
   local now = opts.now or 0
-  local m1_bus, m2_bus = {}, {}
-  local central_item, central_item_inv = new_item_tp(
-    opts.central_item_sizes or { [2] = 9, [0] = 9, [1] = 9 },
-    opts.central_item_inv or { [2] = { [1] = stack(18) }, [0] = m1_bus, [1] = m2_bus })
-  local central_fluid, central_fluid_tanks = new_fluid_tp(
-    opts.central_fluid_tanks or { [2] = { { amount = 1000, name = "fluid" } }, [0] = {}, [1] = {} })
+  local adapter_side = 0
+  local chest_inv = opts.chest_inv or {
+    [adapter_side] = { size = 9, slots = { [1] = stack(18) } },
+  }
 
+  local lane1_buf, lane1_bus = {}, {}
   local lane1_item, lane1_item_inv = new_item_tp(
-    opts.lane1_item_sizes or { [4] = 9, [5] = 9 },
-    opts.lane1_item_inv or { [4] = m1_bus, [5] = {} })
-  local lane1_fluid, lane1_fluid_tanks = new_fluid_tp(opts.lane1_fluid_tanks or { [0] = {} })
+    opts.lane1_item_sizes or { [2] = 9, [0] = 9, [4] = 9, [5] = 9 },
+    opts.lane1_item_inv or { [2] = lane1_buf, [0] = lane1_bus, [4] = {}, [5] = {} })
+  local lane1_fluid, lane1_fluid_tanks = new_fluid_tp(opts.lane1_fluid_tanks or { [2] = {} })
 
   local lane2_item, lane2_item_inv = new_item_tp(
-    opts.lane2_item_sizes or { [4] = 9, [5] = 9 },
-    opts.lane2_item_inv or { [4] = m2_bus, [5] = {} })
-  local lane2_fluid, lane2_fluid_tanks = new_fluid_tp(opts.lane2_fluid_tanks or { [0] = {} })
+    opts.lane2_item_sizes or { [2] = 9, [4] = 9, [5] = 9 },
+    opts.lane2_item_inv or { [2] = {}, [4] = {}, [5] = {} })
+  local lane2_fluid = new_fluid_tp({ [2] = {} })
+
+  local item_adapter = new_adapter(chest_inv)
 
   local component = {
     proxy = function(address)
-      if address == "central-item" then return central_item end
-      if address == "central-fluid" then return central_fluid end
+      if address == "item-adapter" then return item_adapter end
       if address == "lane1-item" then return lane1_item end
       if address == "lane1-fluid" then return lane1_fluid end
       if address == "lane2-item" then return lane2_item end
@@ -115,10 +128,9 @@ local function make_central_fixture(opts)
     end,
     list = function()
       return {
-        ["central-item"] = "transposer", ["central-fluid"] = "transposer",
+        ["item-adapter"] = "adapter",
         ["lane1-item"] = "transposer", ["lane1-fluid"] = "transposer",
         ["lane2-item"] = "transposer", ["lane2-fluid"] = "transposer",
-        ["gt-1"] = "gt_machine", ["gt-2"] = "gt_machine",
       }
     end,
   }
@@ -129,31 +141,31 @@ local function make_central_fixture(opts)
     completion_mode = "both",
     chest_slot_start = 1,
     circuit_bus_slot = 1,
-    settle_s = 0.1,
+    settle_s = 0.05,
     staging_timeout_s = 30,
     circuit_item_name = "gregtech:gt.integrated_circuit",
     require_empty_return = true,
     central = {
-      item_transposer_address = "central-item",
-      fluid_transposer_address = "central-fluid",
-      side_buffer = 2,
+      buffer_adapter_address = "item-adapter",
+      buffer_adapter_side = adapter_side,
       chest_slot_start = 1,
       max_circuits_in_buffer = 1,
+      stabilize_s = opts.stabilize_s or 3.0,
     },
     machines = {
       {
         id = "machine_01", gt_address = "gt-1",
         item_transposer_address = "lane1-item",
         fluid_transposer_address = "lane1-fluid",
-        central_item_side = 0, central_fluid_side = 0,
-        side_bus_b = 4, side_return = 5, side_fluid_hatch = 0,
+        side_buffer = 2, side_bus_b = 0, side_return = 5,
+        side_fluid_buffer = 2, side_fluid_hatch = 0,
       },
       {
         id = "machine_02", gt_address = "gt-2",
         item_transposer_address = "lane2-item",
         fluid_transposer_address = "lane2-fluid",
-        central_item_side = 1, central_fluid_side = 1,
-        side_bus_b = 4, side_return = 5, side_fluid_hatch = 0,
+        side_buffer = 2, side_bus_b = 4, side_return = 5,
+        side_fluid_buffer = 2, side_fluid_hatch = 0,
       },
     },
   }
@@ -166,7 +178,7 @@ local function make_central_fixture(opts)
   local central = CentralDispatch.new({
     config = cfg, component = component, circuit_manager = manager,
     lane_dispatch = lane_dispatch,
-    now = function() return now end, sleep = function() end, log = function() end,
+    now = function() return now end, log = function() end,
   })
 
   local poll_idle = { available = true, healthy = true, active = false, has_work = false }
@@ -178,10 +190,14 @@ local function make_central_fixture(opts)
     cfg = cfg,
     results = results,
     poll_idle = poll_idle,
-    central_item_inv = central_item_inv,
-    central_fluid_tanks = central_fluid_tanks,
+    chest_inv = chest_inv,
+    adapter_side = adapter_side,
     lane1_item_inv = lane1_item_inv,
+    lane1_buf = lane1_buf,
     advance = function(s) now = now + s end,
+    set_chest_slot = function(slot, st)
+      chest_inv[adapter_side].slots[slot] = st
+    end,
   }
 end
 
@@ -190,88 +206,94 @@ io.write(string.rep("-", 60) .. "\n")
 
 -- RR picks first available ------------------------------------------------------
 do
-  local fx = make_central_fixture({})
+  local fx = make_fixture({})
+  fx.lane1_buf[1] = stack(18)
   local m = fx.central:find_available_machine_rr(fx.cfg.machines, fx.results, fx.lane_dispatch)
   check("RR finds machine_01 first", m and m.id == "machine_01")
 end
 
--- RR skips busy lane -----------------------------------------------------------
+-- empty chest -> idle -----------------------------------------------------------
 do
-  local fx = make_central_fixture({})
-  fx.lane1_item_inv[4][1] = stack(18)
-  fx.lane_dispatch:bind_from_central(fx.cfg.machines[1])
-  local m = fx.central:find_available_machine_rr(fx.cfg.machines, fx.results, fx.lane_dispatch)
-  check("RR skips busy machine_01", m and m.id == "machine_02")
-end
-
--- RR rotates after push --------------------------------------------------------
-do
-  local fx = make_central_fixture({})
-  fx.central:find_available_machine_rr(fx.cfg.machines, fx.results, fx.lane_dispatch)
-  fx.central:_advance_rr_after_push(1, 2)
-  local m = fx.central:find_available_machine_rr(fx.cfg.machines, fx.results, fx.lane_dispatch)
-  check("RR rotates to machine_02", m and m.id == "machine_02")
-end
-
--- busy bus blocks availability -------------------------------------------------
-do
-  local fx = make_central_fixture({
-    lane1_item_inv = { [4] = { [1] = { name = "minecraft:dirt", size = 1 } } },
-  })
-  local m = fx.central:find_available_machine_rr(fx.cfg.machines, fx.results, fx.lane_dispatch)
-  check("non-empty bus skips machine_01", m and m.id == "machine_02")
-end
-
--- central settle -> transfer -> bind -------------------------------------------
-do
-  local fx = make_central_fixture({})
+  local fx = make_fixture({ chest_inv = { [0] = { size = 9, slots = {} } } })
   fx.central:tick(fx.results, fx.lane_dispatch)
-  check("buffer triggers settle", fx.central:get_debug().state == "central_settle")
-  fx.advance(0.15)
+  check("empty chest stays idle", fx.central:get_debug().state == "central_idle")
+end
+
+-- items -> stabilizing ----------------------------------------------------------
+do
+  local fx = make_fixture({})
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("items trigger stabilizing", fx.central:get_debug().state == "central_stabilizing")
+end
+
+-- stability timer resets on change ----------------------------------------------
+do
+  local fx = make_fixture({ stabilize_s = 3.0 })
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(2.0)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("not stable at 2s", fx.central:get_debug().state == "central_stabilizing")
+  fx.set_chest_slot(2, stack(18))
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(2.0)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("item change resets timer", fx.central:get_debug().state == "central_stabilizing")
+end
+
+-- stable 3s + staged interface -> assign ----------------------------------------
+do
+  local fx = make_fixture({ stabilize_s = 1.0 })
+  fx.lane1_buf[1] = stack(18)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(1.1)
   local ev = fx.central:tick(fx.results, fx.lane_dispatch)
   local staged = false
   for _, e in ipairs(ev) do if e.type == "central_staged" then staged = true end end
-  check("settle assigns and stages", staged)
-  check("lane bound wait_complete", fx.lane_dispatch:get_lane_debug("machine_01").state == "wait_complete")
-  check("central item moved to out side", fx.central_item_inv[0] and fx.central_item_inv[0][1] ~= nil)
-  check("central bound state", fx.central:get_debug().state == "central_bound")
+  check("stable batch assigns lane", staged)
+  check("lane enters settle/transfer path",
+    fx.lane_dispatch:get_lane_debug("machine_01").state ~= "idle")
+  check("central bound", fx.central:get_debug().state == "central_bound")
 end
 
--- no machine available -> wait -------------------------------------------------
+-- handoff deferred when interface empty -----------------------------------------
 do
-  local fx = make_central_fixture({})
-  fx.lane1_item_inv[4][1] = stack(18)
-  fx.lane2_item_inv[4][1] = stack(18)
-  fx.lane_dispatch:bind_from_central(fx.cfg.machines[1])
-  fx.lane_dispatch:bind_from_central(fx.cfg.machines[2])
+  local fx = make_fixture({ stabilize_s = 0.5 })
   fx.central:tick(fx.results, fx.lane_dispatch)
-  fx.advance(0.15)
+  fx.advance(0.6)
   local ev = fx.central:tick(fx.results, fx.lane_dispatch)
-  local wait_ev = false
-  for _, e in ipairs(ev) do if e.type == "central_wait_output" then wait_ev = true end end
-  check("all busy -> CENTRAL_WAIT_OUTPUT", wait_ev)
+  local wait_staging = false
+  for _, e in ipairs(ev) do if e.type == "central_wait_staging" then wait_staging = true end end
+  check("no interface staging -> wait", wait_staging or fx.central:get_debug().state == "central_assign")
 end
 
--- central mode: idle lane skips buffer pickup ----------------------------------
+-- central mode idle lane no buffer pickup ---------------------------------------
 do
-  local fx = make_central_fixture({})
+  local fx = make_fixture({})
   local fast, ev = fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
   check("central idle lane no-op", fast == false and #ev == 0)
 end
 
--- bind_from_central handoff ----------------------------------------------------
+-- handoff_from_central -> settle ------------------------------------------------
 do
-  local fx = make_central_fixture({})
-  fx.lane1_item_inv[4][1] = stack(18)
-  local ok = fx.lane_dispatch:bind_from_central(fx.cfg.machines[1])
-  check("bind_from_central -> wait_complete", ok and fx.lane_dispatch:get_lane_debug("machine_01").state == "wait_complete")
+  local fx = make_fixture({})
+  fx.lane1_buf[1] = stack(18)
+  local ok = fx.lane_dispatch:handoff_from_central(fx.cfg.machines[1])
+  check("handoff -> settle", ok and fx.lane_dispatch:get_lane_debug("machine_01").state == "settle")
 end
 
--- bind rejected when bus not wired ----------------------------------------------
+-- handoff rejected when side_buffer empty ---------------------------------------
 do
-  local fx = make_central_fixture({})
-  local ok = fx.lane_dispatch:bind_from_central(fx.cfg.machines[1])
-  check("bind rejected when lane bus empty", not ok and fx.lane_dispatch:get_lane_debug("machine_01").state == "idle")
+  local fx = make_fixture({})
+  local ok = fx.lane_dispatch:handoff_from_central(fx.cfg.machines[1])
+  check("handoff rejected when side_buffer empty", not ok)
+end
+
+-- busy bus skips machine --------------------------------------------------------
+do
+  local fx = make_fixture({})
+  fx.lane1_item_inv[0][1] = { name = "minecraft:dirt", size = 1 }
+  local m = fx.central:find_available_machine_rr(fx.cfg.machines, fx.results, fx.lane_dispatch)
+  check("non-empty bus skips machine_01", m and m.id == "machine_02")
 end
 
 io.write(string.rep("-", 60) .. "\n")

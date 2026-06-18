@@ -87,48 +87,51 @@ function LaneDispatch:is_lane_busy(machine_id)
   return lane and lane.state ~= STATE_IDLE
 end
 
---- Central mode: confirm lane item TP sees inputs on side_bus_b after central push.
+--- Central mode: items staged on lane item TP side_buffer (dual interface face).
 ---@return boolean ok
 ---@return string|nil detail
-function LaneDispatch:verify_staged_on_bus(machine)
+function LaneDispatch:verify_staged_on_interface(machine)
   local itp, err = self:_item_tp(machine)
   if not itp then return false, tostring(err) end
-  local bus = LaneSides.bus_side(machine)
-  local size = self:_slot_count(itp, bus)
+  local buf = LaneSides.buffer_side(machine)
+  local start = self:_chest_start(machine)
+  local size = self:_slot_count(itp, buf)
   if size < 1 then
-    return false, string.format(
-      "lane bus side %d has no slots — check side_bus_b wiring", bus)
+    return false, string.format("side_buffer %d has no slots — check wiring", buf)
   end
-  for slot = 1, size do
-    if self:_slot_size(itp, bus, slot) > 0 then
-      return true, string.format("bus side %d slot %d has items", bus, slot)
+  for slot = start, size do
+    if self:_slot_size(itp, buf, slot) > 0 then
+      return true, string.format("side_buffer %d slot %d has items", buf, slot)
     end
   end
   return false, string.format(
-    "lane bus side %d empty after central push — central_item_side %s must land on the same GT input bus as side_bus_b",
-    bus, tostring(machine.central_item_side))
+    "side_buffer %d empty — wait for subnet to stage batch on dual interface", buf)
 end
 
---- Central mode: lane receives batch from central_dispatch; start at wait_complete.
+--- Central mode: central_dispatch assigns lane; run settle → transfer from interface.
 ---@return boolean ok
 ---@return string|nil err
-function LaneDispatch:bind_from_central(machine)
+function LaneDispatch:handoff_from_central(machine)
   local machine_id = machine.id
-  local ok, detail = self:verify_staged_on_bus(machine)
+  local ok, detail = self:verify_staged_on_interface(machine)
   if not ok then
-    self.log(string.format("[LaneDispatch] %s bind rejected: %s", machine_id, detail))
     return false, detail
   end
   local lane = self:_lane(machine_id)
   local now = self.now()
-  lane.settle_at = now
+  lane.settle_at = now + self.settle_s
   lane.deadline = now + self.staging_timeout_s
   lane.saw_active = false
-  lane.staged_ok = true
+  lane.staged_ok = false
   lane.last_error = nil
-  self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "central push verified")
-  self.log(string.format("[LaneDispatch] %s bind ok (%s)", machine_id, detail or ""))
+  self:_transition(machine_id, lane, STATE_SETTLE, "central handoff")
+  self.log(string.format("[LaneDispatch] %s handoff ok (%s)", machine_id, detail or ""))
   return true
+end
+
+---@deprecated use handoff_from_central
+function LaneDispatch:bind_from_central(machine)
+  return self:handoff_from_central(machine)
 end
 
 function LaneDispatch:_is_central_mode()
@@ -225,6 +228,7 @@ end
 
 function LaneDispatch:_transfer_fluids(fluid_tp, machine)
   local from_side = LaneSides.fluid_buffer_side(machine)
+  if self:_fluid_level(fluid_tp, from_side) <= 0 then return false end
   local to_side = LaneSides.fluid_hatch_side(machine)
   local moved_any = false
   for _ = 1, 32 do
@@ -373,8 +377,8 @@ function LaneDispatch:tick_lane(machine, poll_status)
       return true, { { type = "recover_failed", detail = "transposer unavailable" } }
     end
 
-    self:_transfer_fluids(ftp, machine)
     self:_transfer_items(itp, machine)
+    self:_transfer_fluids(ftp, machine)
     lane.saw_active = false
     lane.deadline = now + self.staging_timeout_s
     self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "transfer done")
@@ -398,11 +402,11 @@ function LaneDispatch:tick_lane(machine, poll_status)
 
     if now >= lane.deadline then
       if self:_is_central_mode() and not lane.saw_active then
-        self:_transition(machine_id, lane, STATE_IDLE, "never ran — check central→bus wiring")
+        self:_transition(machine_id, lane, STATE_IDLE, "never ran — check interface→bus wiring")
         lane.staged_ok = false
         events[#events + 1] = {
           type = "recover_failed",
-          detail = lane.last_error or "machine never active after central push",
+          detail = lane.last_error or "machine never active after lane transfer",
         }
         return false, events
       end

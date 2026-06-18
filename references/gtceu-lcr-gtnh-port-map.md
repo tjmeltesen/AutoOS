@@ -10,49 +10,50 @@ Reference sources:
 
 | Setting | `per_lane` | `central` |
 |---------|------------|-----------|
-| `input_mode` | AE deposit per lane buffer | AE deposit to shared central chest/tank |
-| Input FSM | `lane_dispatch.lua` idle→transfer | `central_dispatch.lua` RR push |
+| `input_mode` | AE deposit per lane buffer | AE deposit to shared central chest (storage bus) |
+| Input FSM | `lane_dispatch.lua` idle→transfer | `central_dispatch.lua` adapter + stabilize → RR handoff |
 | Lane tail | wait_complete→extract→return | same |
-| `do_round_robin` | lane tick order only | `findAvailableMachineRR()` in central_dispatch |
+| `do_round_robin` | lane tick order only | `find_available_machine_rr()` in central_dispatch |
 
-Default template: `per_lane`. Set `input_mode = "central"` + `Config.central` UUIDs when using shared buffer.
+Default template: `central`. Set `Config.central.buffer_adapter_address` + per-lane transposer UUIDs.
 
-## LCR → `lane_dispatch.lua` (per_lane tail + central handoff)
+## LCR → `lane_dispatch.lua` (per_lane + central handoff)
 
 | LCR phase | LCR API | AutoOS module / field |
 |-----------|---------|------------------------|
 | Wait buffer | `getTankLevel`, `getSlotStackSize` on `s_buffer` | `LaneDispatch:_buffer_ready()` — item TP + fluid TP |
 | Settle | `os.sleep(0.1)` | `settle_s` deadline after buffer detected |
-| Transfer fluids | `transferFluid(s_buffer, s_machine, 1e6)` loop | `fluid_transposer_address`, `side_fluid_buffer`, `side_fluid_hatch` |
-| Transfer items | `transferItem` slots `chest_slot_start..size` | `item_transposer_address`, `side_buffer`, `side_bus_b` |
+| Transfer items | `transferItem` slots `chest_slot_start..size` | **items first** — `item_transposer_address`, `side_buffer`, `side_bus_b` |
+| Transfer fluids | `transferFluid(s_buffer, s_machine, 1e6)` loop | **after items, if staged** — `fluid_transposer_address`, `side_fluid_buffer`, `side_fluid_hatch` |
 | Wait fluid drain | `hatch.getTankLevel(s_machine, 1) == 0` | `_fluid_drained()` on fluid TP |
 | Wait item drain | `bus.getSlotStackSize(s_machine, 2) == 0` | `_item_drained()` — slot after `circuit_bus_slot` |
 | Extract circuit | `transferItem(s_machine, s_circuit, size, 1)` | `side_bus_b` → `side_return`, slot `circuit_bus_slot` |
 | Wait AE import | `getSlotStackSize(s_circuit, 1) == 0` | `WAIT_IMPORT` state |
 
-## GTCEU multipurpose → `central_dispatch.lua` (central mode)
+## Central buffer → `central_dispatch.lua` (storage bus, no central TPs)
 
-| Multipurpose | AutoOS |
-|--------------|--------|
-| `hasItemsInInput` / `hasFluidsInInput` | `CentralDispatch:_central_buffer_ready()` |
+| Concern | AutoOS |
+|---------|--------|
+| `hasItemsInInput` | `CentralDispatch:_item_fingerprint()` on item chest adapter |
+| AE trickle-in guard | `Config.central.stabilize_s` (default 3s) — fingerprint unchanged |
+| Fluid required | **No** — fluid-less recipes supported |
 | `findAvailableOutputRR()` | `CentralDispatch:find_available_machine_rr()` |
-| `output:isEmpty()` | `_machine_available()` — idle poll + empty bus/hatch/return |
-| `pushAll` / `pushItems` / `pushFluids` | `_transfer_central_to_machine()` via central item/fluid TPs |
+| `pushAll` / central transposers | **Not used** — subnet AE routes to lane dual interface; lane TPs transfer |
 | `doRoundRobin` | `Config.do_round_robin` |
 
-| Central buffer | `Config.central.side_buffer` on central item + fluid TPs |
-| Per-machine route | `central_item_side`, `central_fluid_side` on central TPs |
-| Lane bus/hatch/return | unchanged `side_bus_b`, `side_fluid_hatch`, `side_return` on lane TPs |
+| Central monitor | `Config.central.buffer_adapter_address` + `buffer_adapter_side` on item chest |
+| Optional diag | `fluid_adapter_address` (never gates dispatch) |
+| Lane extract | `side_buffer` / `side_fluid_buffer` on lane transposers (dual interface face) |
 
 ## GTCEU → AutoOS (scheduling only)
 
 | GTCEU | AutoOS |
 |-------|--------|
 | `findAvailableOutputRR()` | `central_dispatch.lua` when `input_mode=central`; else per-lane FSM in `array_watch` |
-| `pushAll` / `pushItems` / `pushFluids` | LCR transfer on dual transposers |
+| Lane push | LCR transfer on dual lane transposers |
 | `setProgrammedCircuit` + paper `C:N` | **Not ported** — GTNH integrated circuit in bus slot 1 |
 | `getBlockId` auto-discovery | Explicit UUIDs in `config.lua` + `probe_transposer.lua` |
-| CC `parallel.waitForAll` | Sequential `tick_lane` per lane per broker tick |
+| CC `parallel.waitForAll` | Sequential items then fluids per lane tick |
 | KubeJS peripherals | `gt_machine` adapter (`isMachineActive`, `getSensorInformation`, `setWorkAllowed`) |
 
 ## AutoOS additions (LCR gaps)

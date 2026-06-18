@@ -419,3 +419,14 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/lane_dispatch.lua`: `verify_staged_on_bus()` + `bind_from_central(machine)` rejects bind when lane `side_bus_b` empty; central mode requires `saw_active` before completion; timeout/no-circuit → `recover_failed`
 - Changed `subnet_broker/central_dispatch.lua`: multi-pass item transfer; log buffer/out/bus sides; skip bound state when bind verify fails
 - Changed `tests/central_dispatch_test.lua`: linked central-out ↔ lane-bus mock inventories; bind rejection test
+
+## 2026-06-17 — Central buffer storage-bus topology (adapter + stabilize)
+
+- Changed `subnet_broker/central_dispatch.lua`: removed central transposers; item chest adapter fingerprint + `stabilize_s` (default 3s); RR handoff via `handoff_from_central` (no fluid AND gate)
+- Changed `subnet_broker/lane_dispatch.lua`: `verify_staged_on_interface()` on `side_buffer`; `handoff_from_central` → settle/transfer; items before fluids; fluid transfer only when staged
+- Changed `subnet_broker/config.lua`: `central.buffer_adapter_address` required; optional `fluid_adapter_address`; removed central TP and per-lane `central_item/fluid_side`
+- Changed `subnet_broker/lane_sides.lua`: removed central TP out-side helpers
+- Changed `subnet_broker/diag.lua`, `probe_transposer.lua`: central adapter probe; lane `side_buffer`/`side_fluid_buffer` hints
+- Changed `tests/central_dispatch_test.lua`, `tests/lane_dispatch_test.lua`: stability timer, item-only dispatch, transfer order
+- Changed `README.md` Phase 3, `references/gtceu-lcr-gtnh-port-map.md`: storage-bus central topology
+- Desktop: `central_dispatch_test.lua` 13/13; `lane_dispatch_test.lua` 12/12; `array_watch_test.lua` 12/12

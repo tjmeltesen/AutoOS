@@ -39,27 +39,12 @@ function LaneSides.fluid_hatch_side(m)
   return LaneSides.bus_side(m)
 end
 
---- Item transposer UUID (legacy transposer_address alias).
 function LaneSides.item_transposer_address(m)
   return m.item_transposer_address or m.transposer_address
 end
 
 function LaneSides.fluid_transposer_address(m)
   return m.fluid_transposer_address
-end
-
-function LaneSides.central_buffer_side(cfg)
-  local c = cfg.central or cfg
-  if type(c.side_buffer) == "number" then return c.side_buffer end
-  return 2
-end
-
-function LaneSides.central_item_out_side(m)
-  return m.central_item_side
-end
-
-function LaneSides.central_fluid_out_side(m)
-  return m.central_fluid_side
 end
 
 return LaneSides

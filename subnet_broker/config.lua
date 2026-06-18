@@ -3,7 +3,7 @@
 
   input_mode:
     per_lane — AE deposits to each lane buffer (LCR reference)
-    central  — AE deposits to shared buffer; RR dispatch to next available machine
+    central  — AE deposits to shared chest via storage bus; adapter monitor + stabilize_s
 ]]
 
 local Config = {}
@@ -27,14 +27,16 @@ Config.orchestrator_address = "3bd12f6b-b5d6-4d0d-ad56-e1d372fdb4ac"
 Config.broker_modem_port = 106
 
 -- Shared AE deposit (input_mode = "central" only)
+-- buffer_adapter = OC adapter on item chest (storage bus side)
+-- fluid_adapter optional (diag only; never gates dispatch)
 Config.central = {
-  item_transposer_address = "770f1b9a-323c-4a98-9110-2088a92c5b08",
-  fluid_transposer_address = "caf12964-5fe2-4f82-ba00-9618afd44f62",
-  side_buffer = 3,
+  buffer_adapter_address = "1689b5c4-845d-42d4-8f02-d3b396086618",
+  buffer_adapter_side = 0,
+  fluid_adapter_address = "28d9de66-3f71-48fe-9f8b-fdc4d7332794",
+  fluid_adapter_side = 0,
   chest_slot_start = 1,
   max_circuits_in_buffer = 1,
-  buffer_adapter_address = nil,
-  buffer_adapter_side = 0,
+  stabilize_s = 3.0,
 }
 
 Config.machines = {
@@ -42,64 +44,48 @@ Config.machines = {
     id = "machine_01",
     gt_address = "ed859452-2cd0-48bf-85cc-7bc3bca4f29d",
     item_transposer_address = "c531d5a8-c65d-471d-9057-00bf235404cf",
-    fluid_transposer_address = "a4e34900-8fb9-4bf5-bcd7-3b59956d8791",
-    central_item_side = 0,
-    central_fluid_side = 0,
+    fluid_transposer_address = "ba0b4eb2-4e17-4c2f-a0b7-4a57abd0b03d",
     side_buffer = 2,
     side_bus_b = 0,
     side_return = 4,
-    side_fluid_buffer = 2,
+    side_fluid_buffer = 5,
     side_fluid_hatch = 0,
-    buffer_adapter_address = "b5f4d947-98a5-44b4-97d5-6720cbd25815",
-    buffer_adapter_side = 0,
     input_slot = 1,
   },
   {
     id = "machine_02",
     gt_address = "b1a8e372-7aaf-4d9b-b1f8-eed37a7e678d",
     item_transposer_address = "d9df7f7f-e157-44c8-8584-2e92f142ea81",
-    fluid_transposer_address = "a7e5a12e-4954-4652-8aac-e2a2a530f10a",
-    central_item_side = 1,
-    central_fluid_side = 1,
+    fluid_transposer_address = "a8b18bd6-1b0d-4d61-b4fc-fd1be2077945",
     side_buffer = 2,
     side_bus_b = 0,
     side_return = 5,
-    side_fluid_buffer = 2,
+    side_fluid_buffer = 4,
     side_fluid_hatch = 0,
-    buffer_adapter_address = "941388e1-98ad-4b4a-a4f1-a49749e13a6f",
-    buffer_adapter_side = 0,
     input_slot = 1,
   },
   {
     id = "machine_03",
     gt_address = "d0713001-d339-4272-a7cf-cce61c2360d0",
     item_transposer_address = "18dd04a6-1f7f-4df5-a2b4-3191768d9c6d",
-    fluid_transposer_address = "95a54203-571b-44e9-a6af-7bf3baf68c59",
-    central_item_side = 3,
-    central_fluid_side = 3,
+    fluid_transposer_address = "f78a9bb6-0a1f-46e2-bef2-89402e5cea18",
     side_buffer = 2,
     side_bus_b = 0,
     side_return = 4,
-    side_fluid_buffer = 2,
+    side_fluid_buffer = 5,
     side_fluid_hatch = 0,
-    buffer_adapter_address = "5182a7e3-6458-41d2-8015-5bfadb91bf71",
-    buffer_adapter_side = 0,
     input_slot = 1,
   },
   {
     id = "machine_04",
     gt_address = "a4bd12cb-8d12-4d86-86db-131dbd5cd076",
     item_transposer_address = "de4705f9-faae-4ce0-bbaf-74d9cd5f382d",
-    fluid_transposer_address = "757c0960-4e29-47f0-95a0-cdc31ea2751b",
-    central_item_side = 4,
-    central_fluid_side = 4,
+    fluid_transposer_address = "d05c4e17-c2db-4e48-b112-50f1db80b22e",
     side_buffer = 2,
     side_bus_b = 0,
     side_return = 5,
     side_fluid_buffer = 2,
     side_fluid_hatch = 0,
-    buffer_adapter_address = "db25807f-851c-4b3c-a2e5-00a245f2e23b",
-    buffer_adapter_side = 0,
     input_slot = 1,
   },
 }
@@ -111,13 +97,13 @@ local PER_LANE_REQUIRED = {
 
 local CENTRAL_MACHINE_REQUIRED = {
   "id", "gt_address", "item_transposer_address", "fluid_transposer_address",
-  "side_bus_b", "side_fluid_hatch", "central_item_side", "central_fluid_side",
+  "side_buffer", "side_bus_b", "side_fluid_hatch", "side_return",
 }
 
 local SIDE_FIELDS = {
   "side_buffer", "side_bus_b", "side_return",
   "side_fluid_buffer", "side_fluid_hatch",
-  "buffer_adapter_side", "central_item_side", "central_fluid_side",
+  "buffer_adapter_side", "fluid_adapter_side",
 }
 
 local function normalize_machine(m)
@@ -164,24 +150,23 @@ function Config.validate(cfg)
     if type(c) ~= "table" then
       return nil, "input_mode=central requires Config.central table"
     end
-    if not c.item_transposer_address or c.item_transposer_address == ""
-      or c.item_transposer_address:find("SET_CENTRAL", 1, true) then
-      return nil, "central.item_transposer_address must be set"
+    if not c.buffer_adapter_address or c.buffer_adapter_address == ""
+      or c.buffer_adapter_address:find("SET_", 1, true) then
+      return nil, "central.buffer_adapter_address must be set (item chest adapter)"
     end
-    if not c.fluid_transposer_address or c.fluid_transposer_address == ""
-      or c.fluid_transposer_address:find("SET_CENTRAL", 1, true) then
-      return nil, "central.fluid_transposer_address must be set"
+    if type(c.buffer_adapter_side) ~= "number" or c.buffer_adapter_side < 0 or c.buffer_adapter_side > 5 then
+      return nil, "central.buffer_adapter_side must be a side integer 0-5"
     end
-    if type(c.side_buffer) ~= "number" or c.side_buffer < 0 or c.side_buffer > 5 then
-      return nil, "central.side_buffer must be a side integer 0-5"
+    if c.fluid_adapter_address ~= nil and c.fluid_adapter_address ~= ""
+      and c.fluid_adapter_side == nil then
+      return nil, "central.fluid_adapter_side required when fluid_adapter_address is set"
     end
     local max_circ = c.max_circuits_in_buffer
     if max_circ ~= nil and (type(max_circ) ~= "number" or max_circ < 1) then
       return nil, "central.max_circuits_in_buffer must be a positive integer"
     end
-    if c.buffer_adapter_address ~= nil and c.buffer_adapter_address ~= ""
-      and c.buffer_adapter_side == nil then
-      return nil, "central.buffer_adapter_side required when buffer_adapter_address is set"
+    if c.stabilize_s ~= nil and (type(c.stabilize_s) ~= "number" or c.stabilize_s < 0) then
+      return nil, "central.stabilize_s must be a non-negative number"
     end
   end
 

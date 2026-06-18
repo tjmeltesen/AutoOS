@@ -451,7 +451,7 @@ Two OpenComputers: broker runs lane automation (dual transposer per lane); orche
 | Mode | AE deposit | Broker routing |
 |------|------------|----------------|
 | `per_lane` | One buffer per machine | Each lane FSM watches its own buffer (LCR reference) |
-| `central` | One shared chest + tank | `central_dispatch.lua` RR-pushes batch to next available machine (multipurpose reference) |
+| `central` | One shared chest (+ optional tank) via storage buses | `central_dispatch.lua` adapter monitor + 3s stabilize → RR handoff |
 
 | Computer | Home | Role |
 | -------- | ---- | ---- |
@@ -464,19 +464,22 @@ flowchart TB
     AE[Patterns deposit]
   end
   subgraph central [input_mode central]
-    CBuf[Central chest and tank]
-    CItemTP[Central item TP]
-    CFluidTP[Central fluid TP]
-    CBuf --> CItemTP
-    CBuf --> CFluidTP
+    CBuf[Central chest via storage bus]
+    CTank[Fluid tank optional]
+    CAdp[Item chest adapter]
+    CBuf --- CTank
+    CAdp --> CBuf
   end
   subgraph lane [Per lane]
+    DI[Dual interface]
     ItemTP[Lane item TP]
     FluidTP[Lane fluid TP]
     Bus[GT input bus]
     Hatch[Fluid hatch]
     Ret[Return chest]
     GT[gt_machine adapter]
+    DI --> ItemTP
+    DI --> FluidTP
     ItemTP --> Bus
     ItemTP --> Ret
     FluidTP --> Hatch
@@ -484,9 +487,9 @@ flowchart TB
   Broker[Broker OC]
   Orch[Orchestrator OC]
   AE --> CBuf
-  CItemTP --> Bus
-  CFluidTP --> Hatch
+  Broker -->|fingerprint + stabilize_s| CAdp
   Broker -->|poll| GT
+  Broker -->|handoff| ItemTP
   Broker -->|"modem"| Orch
 ```
 
@@ -494,7 +497,7 @@ flowchart TB
 
 **Per-lane input** (`per_lane`): idle → settle → transfer from lane buffer → wait complete …
 
-**Central input** (`central`): central buffer → settle → RR assign → central TP push → bind lane at wait_complete …
+**Central input** (`central`): item adapter detects chest → stabilize (`Config.central.stabilize_s`, default 3s) → RR assign → `handoff_from_central` → lane settle → transfer (items first, fluid if staged) …
 
 **Wire protocol** (`network_protocols.lua` in both OC homes):
 

@@ -225,6 +225,67 @@ do
   check("full cycle recover_ok", ok_ev or fx.dispatch:get_lane_debug("machine_01").state == "idle")
 end
 
+-- transfer order: items before fluids (fluid skipped when empty) ----------------
+do
+  local order = {}
+  local now = 0
+  local item_inv = { [1] = { [1] = stack(18) }, [4] = {} }
+  local fluid_tanks = { [1] = { { amount = 1000, name = "fluid" } }, [4] = {} }
+  local item_tp, _ = new_item_tp({ [1] = 9, [4] = 9 }, item_inv)
+  local fluid_tp, _ = new_fluid_tp(fluid_tanks)
+  local orig_item_xfer = item_tp.transferItem
+  local orig_fluid_xfer = fluid_tp.transferFluid
+  item_tp.transferItem = function(...)
+    order[#order + 1] = "item"
+    return orig_item_xfer(...)
+  end
+  fluid_tp.transferFluid = function(...)
+    order[#order + 1] = "fluid"
+    return orig_fluid_xfer(...)
+  end
+  local component = {
+    proxy = function(a)
+      if a == "item-tp" then return item_tp end
+      if a == "fluid-tp" then return fluid_tp end
+      if a == "gt-1" then return {} end
+    end,
+    list = function() return { ["item-tp"] = "transposer", ["fluid-tp"] = "transposer" } end,
+  }
+  local cfg = {
+    input_mode = "per_lane", completion_mode = "both", chest_slot_start = 1, circuit_bus_slot = 1,
+    settle_s = 0.05, staging_timeout_s = 30, circuit_item_name = "gregtech:gt.integrated_circuit",
+    machines = { {
+      id = "machine_01", gt_address = "gt-1", item_transposer_address = "item-tp",
+      fluid_transposer_address = "fluid-tp", side_buffer = 1, side_bus_b = 4, side_return = 1,
+      side_fluid_buffer = 1, side_fluid_hatch = 4,
+    } },
+  }
+  local dispatch = LaneDispatch.new({
+    config = cfg, component = component,
+    circuit_manager = CircuitManager.new({ config = cfg, component = component }),
+    now = function() return now end, sleep = function() end, log = function() end,
+  })
+  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  now = now + 0.1
+  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  check("items before fluids", order[1] == "item" and order[2] == "fluid")
+end
+
+-- fluid transfer skipped when buffer empty ----------------------------------------
+do
+  local fx = make_fixture({
+    item_inv = { [1] = { [1] = stack(18) }, [4] = {} },
+    fluid_tanks = { [1] = {}, [4] = {} },
+  })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.advance(0.15)
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  check("item-only transfer ok", fx.item_tp.getStackInSlot(4, 1) ~= nil)
+  check("no fluid moved", (fx.fluid_tanks[4] and fx.fluid_tanks[4][1] and fx.fluid_tanks[4][1].amount or 0) == 0)
+end
+
 -- round-robin order -------------------------------------------------------------
 do
   local dispatch = LaneDispatch.new({
