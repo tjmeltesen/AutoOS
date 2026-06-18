@@ -20,6 +20,29 @@ local function stack_matches(st, spec)
   return true
 end
 
+local function fluid_level(tp, side)
+  if not tp then return 0 end
+  if tp.getTankLevel then
+    local ok, lvl = pcall(tp.getTankLevel, side, 1)
+    if ok and type(lvl) == "number" then return lvl end
+    ok, lvl = pcall(tp.getTankLevel, side)
+    if ok and type(lvl) == "number" then return lvl end
+  end
+  if tp.getFluidInTank then
+    local ok, tanks = pcall(tp.getFluidInTank, side)
+    if ok and type(tanks) == "table" then
+      local total = 0
+      for _, t in ipairs(tanks) do
+        if type(t) == "table" and type(t.amount) == "number" and t.amount > 0 then
+          total = total + t.amount
+        end
+      end
+      return total
+    end
+  end
+  return 0
+end
+
 function InterfaceStock.new(deps)
   deps = deps or {}
   local self = setmetatable({}, InterfaceStock)
@@ -194,9 +217,7 @@ function InterfaceStock:wait_pull_ready(item_tp, fluid_tp, machine, manifest, ti
   local function has_fluids()
     local fluids = manifest.fluids or {}
     if #fluids == 0 then return true end
-    if not fluid_tp or not fluid_tp.getTankLevel then return false end
-    local ok, lvl = pcall(fluid_tp.getTankLevel, fluid_side, 1)
-    return ok and type(lvl) == "number" and lvl > 0
+    return fluid_level(fluid_tp, fluid_side) > 0
   end
 
   repeat

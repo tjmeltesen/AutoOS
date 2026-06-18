@@ -485,3 +485,14 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 
 - Changed `subnet_broker/interface_stock.lua`: `_iface()` now falls back to `Config.shared_interface_address` when a lane `interface_address` is blank, and stock failures include machine id + both address values for easier in-game diagnosis.
 - Changed `subnet_broker/config.lua`: added optional `shared_interface_address`; validation accepts either per-lane `interface_address` or shared fallback when DB stocking is enabled.
+
+## 2026-06-17 — Central fluid handoff gating (prevent item-only early transfer)
+
+- Changed `subnet_broker/lane_dispatch.lua`: central settle now uses manifest-aware readiness so fluid-required batches do not advance until pull-face fluid is present; adds explicit `recover_failed` when fluid is required but none transfers.
+- Changed `tests/lane_dispatch_test.lua`: added central-mode regression case that verifies a fluid-required handoff fails clearly instead of silently completing item-only transfer.
+
+## 2026-06-17 — Tank-controller fluid API compatibility
+
+- Changed `subnet_broker/lane_dispatch.lua`: fluid level detection now supports both `getTankLevel(side, tank)` and `getTankLevel(side)`, with `getFluidInTank(side)` fallback aggregation for buffer/hatch checks and transfer gating.
+- Changed `subnet_broker/interface_stock.lua`: `wait_pull_ready()` fluid readiness now uses the same compatible fluid-level strategy so settle waits work with tank-controller style transposer methods.
+- Changed `tests/lane_dispatch_test.lua`: added central-mode regression for single-argument `getTankLevel(side)` + `getFluidInTank(side)` to ensure fluid actually transfers.

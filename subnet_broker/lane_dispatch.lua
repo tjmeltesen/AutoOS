@@ -60,6 +60,16 @@ local function lane_default(now, deadline_s)
   }
 end
 
+local function _stack_matches(st, want)
+  if type(st) ~= "table" then return false end
+  if want.name and st.name ~= want.name then return false end
+  if want.damage ~= nil and (st.damage or 0) ~= want.damage then return false end
+  if want.label and st.label then
+    return tostring(st.label):lower() == tostring(want.label):lower()
+  end
+  return (st.size or 0) > 0
+end
+
 function LaneDispatch:_lane(machine_id)
   local lane = self._lanes[machine_id]
   if lane then return lane end
@@ -234,9 +244,26 @@ function LaneDispatch:_pull_face_ready(item_tp, fluid_tp, machine)
 end
 
 function LaneDispatch:_fluid_level(tp, side)
-  if not tp or not tp.getTankLevel then return 0 end
-  local ok, lvl = pcall(tp.getTankLevel, side, 1)
-  return ok and type(lvl) == "number" and lvl or 0
+  if not tp then return 0 end
+  if tp.getTankLevel then
+    local ok, lvl = pcall(tp.getTankLevel, side, 1)
+    if ok and type(lvl) == "number" then return lvl end
+    ok, lvl = pcall(tp.getTankLevel, side)
+    if ok and type(lvl) == "number" then return lvl end
+  end
+  if tp.getFluidInTank then
+    local ok, tanks = pcall(tp.getFluidInTank, side)
+    if ok and type(tanks) == "table" then
+      local total = 0
+      for _, t in ipairs(tanks) do
+        if type(t) == "table" and type(t.amount) == "number" and t.amount > 0 then
+          total = total + t.amount
+        end
+      end
+      return total
+    end
+  end
+  return 0
 end
 
 function LaneDispatch:_buffer_has_items(item_tp, machine)
@@ -320,6 +347,32 @@ function LaneDispatch:_release_active_stock(machine, lane)
   self.interface_stock:release_batch(lane.active_interface_configs)
   lane.active_interface_configs = nil
   lane.stocked = false
+end
+
+function LaneDispatch:_manifest_pull_ready(item_tp, fluid_tp, machine, manifest)
+  manifest = manifest or {}
+  local items = manifest.items or {}
+  local fluids = manifest.fluids or {}
+  local from_side = self:_item_pull_side(machine)
+  local start = self:_chest_start(machine)
+  local size = self:_pull_scan_max(item_tp, from_side)
+
+  for _, want in ipairs(items) do
+    local found = false
+    for slot = start, size do
+      local st = item_tp.getStackInSlot and item_tp.getStackInSlot(from_side, slot)
+      if _stack_matches(st, want) then
+        found = true
+        break
+      end
+    end
+    if not found then return false end
+  end
+
+  if #fluids > 0 and not self:_buffer_has_fluid(fluid_tp, machine) then
+    return false
+  end
+  return true
 end
 
 function LaneDispatch:_transfer_fluids(fluid_tp, machine)
@@ -493,7 +546,13 @@ function LaneDispatch:tick_lane(machine, poll_status)
       if not itp or not ftp then
         return true, { { type = "recover_failed", detail = "transposer unavailable" } }
       end
-      if not self:_pull_face_ready(itp, ftp, machine) then
+      local ready
+      if self.interface_stock and lane.staging_manifest then
+        ready = self:_manifest_pull_ready(itp, ftp, machine, lane.staging_manifest)
+      else
+        ready = self:_pull_face_ready(itp, ftp, machine)
+      end
+      if not ready then
         if now >= lane.deadline then
           local pull = self:_item_pull_side(machine)
           local detail = self.circuit_manager:describe_face(itp, pull)
@@ -529,6 +588,10 @@ function LaneDispatch:tick_lane(machine, poll_status)
 
     local moved_items = self:_transfer_items(itp, machine)
     local moved_fluids = self:_transfer_fluids(ftp, machine)
+    local needs_fluids = lane.staging_manifest
+      and type(lane.staging_manifest.fluids) == "table"
+      and #lane.staging_manifest.fluids > 0
+
     if self:_is_central_mode() and not moved_items and not moved_fluids then
       local pull = self:_item_pull_side(machine)
       local detail = self.circuit_manager:describe_face(itp, pull)
@@ -536,6 +599,18 @@ function LaneDispatch:tick_lane(machine, poll_status)
       lane.batch_outcome = "failed"
       self:_release_active_stock(machine, lane)
       self:_transition(machine_id, lane, STATE_IDLE, "transfer empty")
+      events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+      return false, events
+    end
+    if self:_is_central_mode() and needs_fluids and not moved_fluids then
+      local from_side = self:_fluid_pull_side(machine)
+      lane.last_error = string.format(
+        "fluid expected but none moved from side %d (check interface_fluid_side / side_fluid_buffer)",
+        from_side
+      )
+      lane.batch_outcome = "failed"
+      self:_release_active_stock(machine, lane)
+      self:_transition(machine_id, lane, STATE_IDLE, "transfer missing fluid")
       events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
       return false, events
     end

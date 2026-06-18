@@ -1,11 +1,11 @@
 # Graph Report - AutoOS  (2026-06-17)
 
 ## Corpus Check
-- 129 files · ~87,613 words
+- 129 files · ~88,812 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 800 nodes · 1003 edges · 23 communities detected
+- 803 nodes · 1007 edges · 23 communities detected
 - Extraction: 88% EXTRACTED · 12% INFERRED · 0% AMBIGUOUS · INFERRED: 125 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
@@ -66,11 +66,11 @@ Nodes (35): CentralDispatch:_lane_item_tp(), CircuitManager:scan_transposer(), f
 
 ### Community 2 - "Community 2"
 Cohesion: 0.06
-Nodes (17): ConnectedPeripherals:_checkPeripherals(), ConnectedPeripherals:hasFluidsInInput(), ConnectedPeripherals:hasItemsInInput(), ConnectedPeripherals:pushFluids(), ConnectedPeripherals:pushItems(), findFileRecursive(), FormatTable(), isTableEmpty() (+9 more)
+Nodes (26): CentralDispatch:_bus_empty(), CentralDispatch:_machine_available(), CentralDispatch:_return_empty(), lane_default(), LaneDispatch:_buffer_has_fluid(), LaneDispatch:_buffer_has_items(), LaneDispatch:_fluid_drained(), LaneDispatch:_fluid_pull_side() (+18 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.06
-Nodes (24): CentralDispatch:_bus_empty(), CentralDispatch:_machine_available(), CentralDispatch:_return_empty(), lane_default(), LaneDispatch:_buffer_has_fluid(), LaneDispatch:_buffer_has_items(), LaneDispatch:_fluid_drained(), LaneDispatch:_fluid_pull_side() (+16 more)
+Nodes (17): ConnectedPeripherals:_checkPeripherals(), ConnectedPeripherals:hasFluidsInInput(), ConnectedPeripherals:hasItemsInInput(), ConnectedPeripherals:pushFluids(), ConnectedPeripherals:pushItems(), findFileRecursive(), FormatTable(), isTableEmpty() (+9 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.06
@@ -161,7 +161,7 @@ Nodes (4): Maintenance.evaluate(), Maintenance.has_fault(), problems_count(), st
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `print()` connect `Community 0` to `Community 2`, `Community 5`, `Community 14`?**
+- **Why does `print()` connect `Community 0` to `Community 3`, `Community 5`, `Community 14`?**
   _High betweenness centrality (0.118) - this node is a cross-community bridge._
 - **Why does `BrokerMain.run()` connect `Community 5` to `Community 0`, `Community 10`, `Community 14`?**
   _High betweenness centrality (0.099) - this node is a cross-community bridge._

@@ -313,6 +313,139 @@ do
   check("no fluid moved", (fx.fluid_tanks[4] and fx.fluid_tanks[4][1] and fx.fluid_tanks[4][1].amount or 0) == 0)
 end
 
+-- central mode: required fluid missing should fail handoff ------------------------
+do
+  local now = 0
+  local item_tp, item_inv = new_item_tp({ [1] = 9, [4] = 9 }, { [1] = { [1] = stack(18) }, [4] = {} })
+  local fluid_tp, fluid_tanks = new_fluid_tp({ [1] = {}, [4] = {} })
+  local component = {
+    proxy = function(a)
+      if a == "item-tp" then return item_tp end
+      if a == "fluid-tp" then return fluid_tp end
+      if a == "gt-1" then return {} end
+    end,
+    list = function() return { ["item-tp"] = "transposer", ["fluid-tp"] = "transposer", ["gt-1"] = "gt_machine" } end,
+  }
+  local cfg = {
+    input_mode = "central",
+    completion_mode = "both",
+    chest_slot_start = 1,
+    circuit_bus_slot = 1,
+    settle_s = 0.01,
+    staging_timeout_s = 0.05,
+    central_interface_wait_s = 0.05,
+    circuit_item_name = "gregtech:gt.integrated_circuit",
+    machines = { {
+      id = "machine_01",
+      gt_address = "gt-1",
+      item_transposer_address = "item-tp",
+      fluid_transposer_address = "fluid-tp",
+      side_buffer = 1,
+      side_bus_b = 4,
+      side_return = 1,
+      side_fluid_buffer = 1,
+      side_fluid_hatch = 4,
+    } },
+  }
+  local dispatch = LaneDispatch.new({
+    config = cfg,
+    component = component,
+    circuit_manager = CircuitManager.new({ config = cfg, component = component }),
+    now = function() return now end,
+    sleep = function() end,
+    log = function() end,
+  })
+  local ok_handoff = dispatch:handoff_from_central(cfg.machines[1], {
+    items = { { name = "gregtech:gt.integrated_circuit", damage = 18, size = 1 } },
+    fluids = { { fluid_label = "molten.solderingalloy" } },
+  })
+  check("central handoff accepted", ok_handoff == true)
+  now = now + 0.02
+  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  local _, ev = dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  local failed_ev = false
+  for _, e in ipairs(ev) do
+    if e.type == "recover_failed" and tostring(e.detail):find("fluid expected") then
+      failed_ev = true
+      break
+    end
+  end
+  check("central missing fluid triggers recover_failed", failed_ev)
+  check("central missing fluid leaves hatch empty", (fluid_tanks[4] and fluid_tanks[4][1] and fluid_tanks[4][1].amount or 0) == 0)
+  check("central missing fluid keeps item staged", item_inv[4] and item_inv[4][1] ~= nil)
+end
+
+-- central mode: supports getTankLevel(side) + getFluidInTank(side) ----------------
+do
+  local now = 0
+  local item_tp, _ = new_item_tp({ [1] = 9, [4] = 9 }, { [1] = { [1] = stack(18) }, [4] = {} })
+  local fluid_tanks = { [1] = { { amount = 1000, name = "fluid" } }, [4] = {} }
+  local fluid_tp = {
+    getTankLevel = function(side)
+      local t = fluid_tanks[side] and fluid_tanks[side][1]
+      return t and t.amount or 0
+    end,
+    getFluidInTank = function(side)
+      return fluid_tanks[side] or {}
+    end,
+    transferFluid = function(from_side, to_side, amount)
+      local from = fluid_tanks[from_side] and fluid_tanks[from_side][1]
+      if not from or from.amount <= 0 then return false end
+      fluid_tanks[to_side] = fluid_tanks[to_side] or {}
+      fluid_tanks[to_side][1] = fluid_tanks[to_side][1] or { amount = 0, name = from.name }
+      local move = math.min(amount, from.amount)
+      from.amount = from.amount - move
+      fluid_tanks[to_side][1].amount = fluid_tanks[to_side][1].amount + move
+      return move
+    end,
+  }
+  local component = {
+    proxy = function(a)
+      if a == "item-tp" then return item_tp end
+      if a == "fluid-tp" then return fluid_tp end
+      if a == "gt-1" then return {} end
+    end,
+    list = function() return { ["item-tp"] = "transposer", ["fluid-tp"] = "transposer", ["gt-1"] = "gt_machine" } end,
+  }
+  local cfg = {
+    input_mode = "central",
+    completion_mode = "both",
+    chest_slot_start = 1,
+    circuit_bus_slot = 1,
+    settle_s = 0.01,
+    staging_timeout_s = 0.05,
+    central_interface_wait_s = 0.05,
+    circuit_item_name = "gregtech:gt.integrated_circuit",
+    machines = { {
+      id = "machine_01",
+      gt_address = "gt-1",
+      item_transposer_address = "item-tp",
+      fluid_transposer_address = "fluid-tp",
+      side_buffer = 1,
+      side_bus_b = 4,
+      side_return = 1,
+      side_fluid_buffer = 1,
+      side_fluid_hatch = 4,
+    } },
+  }
+  local dispatch = LaneDispatch.new({
+    config = cfg,
+    component = component,
+    circuit_manager = CircuitManager.new({ config = cfg, component = component }),
+    now = function() return now end,
+    sleep = function() end,
+    log = function() end,
+  })
+  dispatch:handoff_from_central(cfg.machines[1], {
+    items = { { name = "gregtech:gt.integrated_circuit", damage = 18, size = 1 } },
+    fluids = { { fluid_label = "molten.solderingalloy" } },
+  })
+  now = now + 0.02
+  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  check("getTankLevel(side) transfer moves fluid", (fluid_tanks[4] and fluid_tanks[4][1] and fluid_tanks[4][1].amount or 0) > 0)
+end
+
 -- round-robin order -------------------------------------------------------------
 do
   local dispatch = LaneDispatch.new({
