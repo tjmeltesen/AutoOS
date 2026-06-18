@@ -451,3 +451,8 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `lane_dispatch.lua`: `getStackInSlot` + 54-slot scan when inv size 0; wait for dual IF after handoff; clearer errors via `describe_face`
 - Changed `config.lua`: `interface_wait_s` (15s); removed side_central guidance
 - Changed `references/gtceu-lcr-gtnh-port-map.md`: dual IF pull note
+
+## 2026-06-17 — Runtime debug instrumentation for central dual-IF failure
+
+- Changed `subnet_broker/lane_dispatch.lua`: added NDJSON debug logging for handoff, settle wait/timeout, and transfer outcomes (`debug-9602cf.log`)
+- Changed `subnet_broker/central_dispatch.lua`: added NDJSON debug logging for assign/handoff and bound-idle outcome transitions (`debug-9602cf.log`)

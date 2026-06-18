@@ -22,6 +22,45 @@ local FLUID_CHUNK = 1000000
 local TRANSFER_RETRIES = 3
 -- ponytail: ME dual interface may report getInventorySize=0; scan up to this many slots
 local PULL_SCAN_MAX = 54
+local DEBUG_LOG_PATH = "debug-9602cf.log"
+
+-- #region agent log
+local function _debug_escape(s)
+  s = tostring(s or "")
+  s = s:gsub("\\", "\\\\"):gsub("\"", "\\\""):gsub("\n", "\\n")
+  return "\"" .. s .. "\""
+end
+
+local function _debug_json(v)
+  local t = type(v)
+  if t == "nil" then return "null" end
+  if t == "number" or t == "boolean" then return tostring(v) end
+  if t == "string" then return _debug_escape(v) end
+  if t ~= "table" then return _debug_escape(tostring(v)) end
+  local is_arr = true
+  local n = 0
+  for k, _ in pairs(v) do
+    if type(k) ~= "number" then is_arr = false break end
+    if k > n then n = k end
+  end
+  local out = {}
+  if is_arr then
+    for i = 1, n do out[#out + 1] = _debug_json(v[i]) end
+    return "[" .. table.concat(out, ",") .. "]"
+  end
+  for k, val in pairs(v) do
+    out[#out + 1] = _debug_escape(k) .. ":" .. _debug_json(val)
+  end
+  return "{" .. table.concat(out, ",") .. "}"
+end
+
+local function _debug_write(payload)
+  local ok, f = pcall(io.open, DEBUG_LOG_PATH, "a")
+  if not ok or not f then return end
+  f:write(_debug_json(payload) .. "\n")
+  f:close()
+end
+-- #endregion
 
 function LaneDispatch.new(deps)
   deps = deps or {}
@@ -39,8 +78,23 @@ function LaneDispatch.new(deps)
   self.circuit_bus_slot = self.config.circuit_bus_slot or 1
   self._lanes = {}
   self._rr_index = 1
+  self._debug_run_id = "pre-fix"
   return self
 end
+
+-- #region agent log
+function LaneDispatch:_debug_log(hypothesis_id, location, message, data)
+  _debug_write({
+    sessionId = "9602cf",
+    runId = self._debug_run_id,
+    hypothesisId = hypothesis_id,
+    location = location,
+    message = message,
+    data = data or {},
+    timestamp = os.time() * 1000,
+  })
+end
+-- #endregion
 
 local function lane_default(now, deadline_s)
   return {
@@ -147,6 +201,15 @@ function LaneDispatch:handoff_from_central(machine)
   lane.batch_outcome = nil
   lane.interface_wait_logged = false
   lane.deadline = now + self:_central_interface_wait_s()
+  -- #region agent log
+  self:_debug_log("H1", "lane_dispatch.lua:handoff_from_central", "central handoff started", {
+    machine_id = machine_id,
+    pull_side = self:_item_pull_side(machine),
+    fluid_pull_side = self:_fluid_pull_side(machine),
+    require_interface_staging = self:_require_interface_staging(),
+    interface_wait_s = self:_central_interface_wait_s(),
+  })
+  -- #endregion
   self:_transition(machine_id, lane, STATE_SETTLE, "central handoff")
   if self:_require_interface_staging() then
     local _, detail = self:verify_staged_on_interface(machine)
@@ -436,6 +499,15 @@ function LaneDispatch:tick_lane(machine, poll_status)
         if now >= lane.deadline then
           local pull = self:_item_pull_side(machine)
           local detail = self.circuit_manager:describe_face(itp, pull)
+          -- #region agent log
+          self:_debug_log("H2", "lane_dispatch.lua:tick_lane:settle-timeout", "dual interface never became readable", {
+            machine_id = machine_id,
+            pull_side = pull,
+            face = detail,
+            deadline = lane.deadline,
+            now = now,
+          })
+          -- #endregion
           lane.last_error = string.format(
             "dual IF side %d empty after wait (%s)", pull, detail)
           lane.batch_outcome = "failed"
@@ -445,6 +517,13 @@ function LaneDispatch:tick_lane(machine, poll_status)
         end
         if not lane.interface_wait_logged then
           lane.interface_wait_logged = true
+          -- #region agent log
+          self:_debug_log("H2", "lane_dispatch.lua:tick_lane:settle-wait", "waiting for dual interface visibility", {
+            machine_id = machine_id,
+            pull_side = self:_item_pull_side(machine),
+            scan_max = self:_pull_scan_max(itp, self:_item_pull_side(machine)),
+          })
+          -- #endregion
           self.log(string.format("[LaneDispatch] %s waiting for dual IF side %d",
             machine_id, self:_item_pull_side(machine)))
         end
@@ -467,6 +546,17 @@ function LaneDispatch:tick_lane(machine, poll_status)
 
     local moved_items = self:_transfer_items(itp, machine)
     local moved_fluids = self:_transfer_fluids(ftp, machine)
+    -- #region agent log
+    self:_debug_log("H3", "lane_dispatch.lua:tick_lane:transfer", "transfer attempt finished", {
+      machine_id = machine_id,
+      pull_side = self:_item_pull_side(machine),
+      bus_side = LaneSides.bus_side(machine),
+      moved_items = moved_items,
+      moved_fluids = moved_fluids,
+      pull_face = self.circuit_manager:describe_face(itp, self:_item_pull_side(machine)),
+      bus_face = self.circuit_manager:describe_face(itp, LaneSides.bus_side(machine)),
+    })
+    -- #endregion
     if self:_is_central_mode() and not moved_items and not moved_fluids then
       local pull = self:_item_pull_side(machine)
       local detail = self.circuit_manager:describe_face(itp, pull)

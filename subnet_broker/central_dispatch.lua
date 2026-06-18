@@ -16,6 +16,45 @@ local STATE_IDLE = "central_idle"
 local STATE_STABILIZING = "central_stabilizing"
 local STATE_ASSIGN = "central_assign"
 local STATE_BOUND = "central_bound"
+local DEBUG_LOG_PATH = "debug-9602cf.log"
+
+-- #region agent log
+local function _debug_escape(s)
+  s = tostring(s or "")
+  s = s:gsub("\\", "\\\\"):gsub("\"", "\\\""):gsub("\n", "\\n")
+  return "\"" .. s .. "\""
+end
+
+local function _debug_json(v)
+  local t = type(v)
+  if t == "nil" then return "null" end
+  if t == "number" or t == "boolean" then return tostring(v) end
+  if t == "string" then return _debug_escape(v) end
+  if t ~= "table" then return _debug_escape(tostring(v)) end
+  local is_arr = true
+  local n = 0
+  for k, _ in pairs(v) do
+    if type(k) ~= "number" then is_arr = false break end
+    if k > n then n = k end
+  end
+  local out = {}
+  if is_arr then
+    for i = 1, n do out[#out + 1] = _debug_json(v[i]) end
+    return "[" .. table.concat(out, ",") .. "]"
+  end
+  for k, val in pairs(v) do
+    out[#out + 1] = _debug_escape(k) .. ":" .. _debug_json(val)
+  end
+  return "{" .. table.concat(out, ",") .. "}"
+end
+
+local function _debug_write(payload)
+  local ok, f = pcall(io.open, DEBUG_LOG_PATH, "a")
+  if not ok or not f then return end
+  f:write(_debug_json(payload) .. "\n")
+  f:close()
+end
+-- #endregion
 
 function CentralDispatch.new(deps)
   deps = deps or {}
@@ -36,8 +75,23 @@ function CentralDispatch.new(deps)
   self._stabilize_logged = false
   self._last_handoff_log = 0
   self._last_fail_log = 0
+  self._debug_run_id = "pre-fix"
   return self
 end
+
+-- #region agent log
+function CentralDispatch:_debug_log(hypothesis_id, location, message, data)
+  _debug_write({
+    sessionId = "9602cf",
+    runId = self._debug_run_id,
+    hypothesisId = hypothesis_id,
+    location = location,
+    message = message,
+    data = data or {},
+    timestamp = os.time() * 1000,
+  })
+end
+-- #endregion
 
 function CentralDispatch:get_debug()
   return {
@@ -270,6 +324,13 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     end
     local dbg = lane_dispatch and lane_dispatch:get_lane_debug(self._bound_machine_id)
     if dbg and dbg.state == "idle" then
+      -- #region agent log
+      self:_debug_log("H4", "central_dispatch.lua:tick:bound-idle", "bound lane returned idle", {
+        machine_id = self._bound_machine_id,
+        batch_outcome = dbg.batch_outcome,
+        last_error = dbg.last_error,
+      })
+      -- #endregion
       if dbg.batch_outcome == "ok" then
         self.log(string.format("[CentralDispatch] batch complete on %s", self._bound_machine_id))
         self._bound_machine_id = nil
@@ -364,8 +425,21 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     end
 
     if lane_dispatch and lane_dispatch.handoff_from_central then
+      -- #region agent log
+      self:_debug_log("H5", "central_dispatch.lua:tick:assign", "attempting central handoff", {
+        machine_id = machine.id,
+        rr_idx = idx,
+        state = self._state,
+      })
+      -- #endregion
       local ok, handoff_err = lane_dispatch:handoff_from_central(machine)
       if not ok then
+        -- #region agent log
+        self:_debug_log("H5", "central_dispatch.lua:tick:handoff-deferred", "handoff deferred", {
+          machine_id = machine.id,
+          err = tostring(handoff_err),
+        })
+        -- #endregion
         local now = self.now()
         if now - self._last_handoff_log >= 5 then
           self._last_handoff_log = now
