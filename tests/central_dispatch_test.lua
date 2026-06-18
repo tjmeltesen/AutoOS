@@ -304,6 +304,27 @@ do
   check("non-empty bus skips machine_01", m and m.id == "machine_02")
 end
 
+-- failed transfer does not count as batch complete ------------------------------
+do
+  local fx = make_fixture({ stabilize_s = 0.5 })
+  fx.cfg.staging_timeout_s = 0.3
+  fx.cfg.central.interface_wait_s = 0.3
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(0.6)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("bound after assign", fx.central:get_debug().state == "central_bound")
+  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
+  fx.advance(0.35)
+  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
+  local dbg = fx.lane_dispatch:get_lane_debug("machine_01")
+  check("dual IF empty -> failed outcome", dbg.batch_outcome == "failed")
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("failed handoff retries assign not idle",
+    fx.central:get_debug().state == "central_assign")
+  check("not batch complete on failed transfer",
+    fx.central:get_debug().bound_machine == nil)
+end
+
 io.write(string.rep("-", 60) .. "\n")
 io.write(string.format("%s   %s passed, %s failed\n",
   bold("Central dispatch result:"), green(tostring(passed)),

@@ -44,6 +44,7 @@ Default template: `central`. Set `Config.central.buffer_adapter_address` + per-l
 | Central monitor | `Config.central.buffer_adapter_address` + `buffer_adapter_side` on item chest |
 | Optional diag | `fluid_adapter_address` (never gates dispatch) |
 | Lane extract | `side_buffer` / `side_fluid_buffer` on lane transposers (dual interface face) |
+| Dual IF pull | Transposer reads subnet storage through adjacent dual interface — not a separate chest face |
 
 ## GTCEU → AutoOS (scheduling only)
 

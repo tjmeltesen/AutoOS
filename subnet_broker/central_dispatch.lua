@@ -35,6 +35,7 @@ function CentralDispatch.new(deps)
   self._stable_since = 0
   self._stabilize_logged = false
   self._last_handoff_log = 0
+  self._last_fail_log = 0
   return self
 end
 
@@ -269,10 +270,21 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     end
     local dbg = lane_dispatch and lane_dispatch:get_lane_debug(self._bound_machine_id)
     if dbg and dbg.state == "idle" then
-      self.log(string.format("[CentralDispatch] batch complete on %s", self._bound_machine_id))
-      self._bound_machine_id = nil
-      self._state = STATE_IDLE
-      self:_reset_stabilizing()
+      if dbg.batch_outcome == "ok" then
+        self.log(string.format("[CentralDispatch] batch complete on %s", self._bound_machine_id))
+        self._bound_machine_id = nil
+        self._state = STATE_IDLE
+        self:_reset_stabilizing()
+      elseif dbg.batch_outcome == "failed" then
+        local now = self.now()
+        if now - self._last_fail_log >= 5 then
+          self._last_fail_log = now
+          self.log(string.format("[CentralDispatch] handoff failed on %s: %s — retry assign",
+            self._bound_machine_id, tostring(dbg.last_error)))
+        end
+        self._bound_machine_id = nil
+        self._state = STATE_ASSIGN
+      end
     end
     return {}
   end

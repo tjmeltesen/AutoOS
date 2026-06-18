@@ -30,8 +30,8 @@ Config.broker_modem_port = 106
 -- buffer_adapter = OC adapter on item chest (storage bus side)
 -- fluid_adapter optional (diag only; never gates dispatch)
 -- monitor: "adapter" (default) or "inventory_controller" on broker OC
--- require_interface_staging: true = wait for items on lane pull face before handoff
--- side_central / side_central_fluid: lane transposer face on shared central chest/tank
+-- require_interface_staging: true = reject handoff until dual IF side_buffer shows items
+-- interface_wait_s: max wait after handoff for subnet items to appear on dual IF (default staging_timeout_s)
 Config.central = {
   monitor = "inventory_controller",
   inventory_controller_side = 0,
@@ -42,6 +42,7 @@ Config.central = {
   chest_slot_start = 1,
   max_circuits_in_buffer = 1,
   stabilize_s = 3.0,
+  interface_wait_s = 15.0,
   require_interface_staging = false,
 }
 

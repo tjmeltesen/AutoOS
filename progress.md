@@ -438,3 +438,16 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `config.lua`: `monitor`, `inventory_controller_side`, `require_interface_staging=false`
 - Changed `lane_sides.lua`: `central_item_pull_side`, `central_fluid_pull_side`
 - Changed `tests/central_dispatch_test.lua` for new handoff semantics
+
+## 2026-06-17 — Central: failed transfer no longer loops as batch complete
+
+- Changed `central_dispatch.lua`: bound lane idle with `batch_outcome=failed` → retry assign (not "batch complete"); rate-limited fail log
+- Changed `lane_dispatch.lua`: `batch_outcome` ok|failed; only `ok` after circuit import; clearer pull-face error hint
+- Changed `tests/central_dispatch_test.lua`: failed transfer retry assign test
+
+## 2026-06-17 — Central pull: dual interface only (side_buffer)
+
+- Changed `lane_sides.lua`: central pull always `side_buffer` / `side_fluid_buffer` (dual IF mirrors subnet storage)
+- Changed `lane_dispatch.lua`: `getStackInSlot` + 54-slot scan when inv size 0; wait for dual IF after handoff; clearer errors via `describe_face`
+- Changed `config.lua`: `interface_wait_s` (15s); removed side_central guidance
+- Changed `references/gtceu-lcr-gtnh-port-map.md`: dual IF pull note

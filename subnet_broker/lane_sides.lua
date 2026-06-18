@@ -47,15 +47,13 @@ function LaneSides.fluid_transposer_address(m)
   return m.fluid_transposer_address
 end
 
---- Item pull face in central mode: shared chest (side_central) or dual interface (side_buffer).
+--- Item pull face in central mode: dual interface (side_buffer); mirrors subnet storage.
 function LaneSides.central_item_pull_side(m)
-  if type(m.side_central) == "number" then return m.side_central end
   return LaneSides.buffer_side(m)
 end
 
---- Fluid pull face in central mode: shared tank (side_central_fluid) or lane buffer.
+--- Fluid pull face in central mode: dual interface (side_fluid_buffer).
 function LaneSides.central_fluid_pull_side(m)
-  if type(m.side_central_fluid) == "number" then return m.side_central_fluid end
   return LaneSides.fluid_buffer_side(m)
 end
 

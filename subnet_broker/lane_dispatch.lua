@@ -20,6 +20,8 @@ local STATE_WAIT_IMPORT = "wait_import"
 
 local FLUID_CHUNK = 1000000
 local TRANSFER_RETRIES = 3
+-- ponytail: ME dual interface may report getInventorySize=0; scan up to this many slots
+local PULL_SCAN_MAX = 54
 
 function LaneDispatch.new(deps)
   deps = deps or {}
@@ -49,6 +51,8 @@ local function lane_default(now, deadline_s)
     staged_ok = false,
     fast_tick = false,
     last_error = nil,
+    batch_outcome = nil, -- central: nil | "ok" | "failed"
+    interface_wait_logged = false,
   }
 end
 
@@ -68,6 +72,7 @@ function LaneDispatch:get_lane_debug(machine_id)
     saw_active = lane.saw_active,
     deadline = lane.deadline,
     last_error = lane.last_error,
+    batch_outcome = lane.batch_outcome,
   }
 end
 
@@ -108,23 +113,20 @@ function LaneDispatch:_require_interface_staging()
   return false
 end
 
---- Central mode: items on lane item TP pull face (side_central or side_buffer).
+--- Central mode: items visible on dual interface face (side_buffer).
 function LaneDispatch:verify_staged_on_interface(machine)
   local itp, err = self:_item_tp(machine)
   if not itp then return false, tostring(err) end
   local buf = self:_item_pull_side(machine)
   local start = self:_chest_start(machine)
-  local size = self:_slot_count(itp, buf)
-  if size < 1 then
-    return false, string.format("pull side %d has no slots — check side_central/side_buffer", buf)
-  end
+  local size = self:_pull_scan_max(itp, buf)
   for slot = start, size do
     if self:_slot_size(itp, buf, slot) > 0 then
-      return true, string.format("pull side %d slot %d has items", buf, slot)
+      return true, string.format("dual IF side %d slot %d has items", buf, slot)
     end
   end
   return false, string.format(
-    "pull side %d empty — set side_central to transposer face on central chest", buf)
+    "dual IF side %d empty — check side_buffer faces dual interface", buf)
 end
 
 --- Central mode: central_dispatch assigns lane; run settle → transfer from pull face.
@@ -139,16 +141,18 @@ function LaneDispatch:handoff_from_central(machine)
   local lane = self:_lane(machine_id)
   local now = self.now()
   lane.settle_at = now + self.settle_s
-  lane.deadline = now + self.staging_timeout_s
   lane.saw_active = false
   lane.staged_ok = false
   lane.last_error = nil
+  lane.batch_outcome = nil
+  lane.interface_wait_logged = false
+  lane.deadline = now + self:_central_interface_wait_s()
   self:_transition(machine_id, lane, STATE_SETTLE, "central handoff")
   if self:_require_interface_staging() then
     local _, detail = self:verify_staged_on_interface(machine)
     self.log(string.format("[LaneDispatch] %s handoff ok (%s)", machine_id, detail or ""))
   else
-    self.log(string.format("[LaneDispatch] %s handoff → transfer (pull side %d)",
+    self.log(string.format("[LaneDispatch] %s handoff → dual IF side %d",
       machine_id, self:_item_pull_side(machine)))
   end
   return true
@@ -190,10 +194,36 @@ function LaneDispatch:_slot_count(tp, side)
   return ok and type(n) == "number" and n or 0
 end
 
+--- Max slot index to scan on a pull face (dual IF may lie about inventory size).
+function LaneDispatch:_pull_scan_max(tp, side)
+  local n = self:_slot_count(tp, side)
+  if n > 0 then return n end
+  return PULL_SCAN_MAX
+end
+
 function LaneDispatch:_slot_size(tp, side, slot)
-  if not tp or not tp.getSlotStackSize then return 0 end
-  local ok, n = pcall(tp.getSlotStackSize, side, slot)
-  return ok and type(n) == "number" and n or 0
+  if not tp then return 0 end
+  if tp.getStackInSlot then
+    local ok, st = pcall(tp.getStackInSlot, side, slot)
+    if ok and type(st) == "table" then return st.size or 0 end
+  end
+  if tp.getSlotStackSize then
+    local ok, n = pcall(tp.getSlotStackSize, side, slot)
+    return ok and type(n) == "number" and n or 0
+  end
+  return 0
+end
+
+function LaneDispatch:_central_interface_wait_s()
+  local c = self.config.central
+  if c and type(c.interface_wait_s) == "number" then return c.interface_wait_s end
+  return self.staging_timeout_s
+end
+
+function LaneDispatch:_pull_face_ready(item_tp, fluid_tp, machine)
+  if item_tp and self:_buffer_has_items(item_tp, machine) then return true end
+  if fluid_tp and self:_buffer_has_fluid(fluid_tp, machine) then return true end
+  return false
 end
 
 function LaneDispatch:_fluid_level(tp, side)
@@ -205,7 +235,7 @@ end
 function LaneDispatch:_buffer_has_items(item_tp, machine)
   local side = LaneSides.buffer_side(machine)
   local start = self:_chest_start(machine)
-  local size = self:_slot_count(item_tp, side)
+  local size = self:_pull_scan_max(item_tp, side)
   for slot = start, size do
     if self:_slot_size(item_tp, side, slot) > 0 then return true end
   end
@@ -268,13 +298,18 @@ function LaneDispatch:_transfer_items(item_tp, machine)
   local from_side = self:_item_pull_side(machine)
   local to_side = LaneSides.bus_side(machine)
   local start = self:_chest_start(machine)
-  local size = self:_slot_count(item_tp, from_side)
+  local size = self:_pull_scan_max(item_tp, from_side)
   local moved_any = false
   for slot = start, size do
     local count = self:_slot_size(item_tp, from_side, slot)
     if count > 0 then
       for _ = 1, TRANSFER_RETRIES do
         local ok, moved = pcall(item_tp.transferItem, from_side, to_side, count, slot)
+        if ok and moved and moved >= 1 then
+          moved_any = true
+          break
+        end
+        ok, moved = pcall(item_tp.transferItem, from_side, to_side, 1, slot)
         if ok and moved and moved >= 1 then
           moved_any = true
           break
@@ -390,6 +425,34 @@ function LaneDispatch:tick_lane(machine, poll_status)
   if lane.state == STATE_SETTLE then
     lane.fast_tick = true
     if now < lane.settle_at then return true, events end
+
+    if self:_is_central_mode() then
+      local itp = ensure_item_tp()
+      local ftp = ensure_fluid_tp()
+      if not itp or not ftp then
+        return true, { { type = "recover_failed", detail = "transposer unavailable" } }
+      end
+      if not self:_pull_face_ready(itp, ftp, machine) then
+        if now >= lane.deadline then
+          local pull = self:_item_pull_side(machine)
+          local detail = self.circuit_manager:describe_face(itp, pull)
+          lane.last_error = string.format(
+            "dual IF side %d empty after wait (%s)", pull, detail)
+          lane.batch_outcome = "failed"
+          self:_transition(machine_id, lane, STATE_IDLE, "dual IF wait timeout")
+          events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+          return false, events
+        end
+        if not lane.interface_wait_logged then
+          lane.interface_wait_logged = true
+          self.log(string.format("[LaneDispatch] %s waiting for dual IF side %d",
+            machine_id, self:_item_pull_side(machine)))
+        end
+        return true, events
+      end
+      lane.interface_wait_logged = nil
+    end
+
     self:_transition(machine_id, lane, STATE_TRANSFER, "settle done")
     return true, events
   end
@@ -405,8 +468,10 @@ function LaneDispatch:tick_lane(machine, poll_status)
     local moved_items = self:_transfer_items(itp, machine)
     local moved_fluids = self:_transfer_fluids(ftp, machine)
     if self:_is_central_mode() and not moved_items and not moved_fluids then
-      lane.last_error = string.format("no items moved from pull side %d — set side_central",
-        self:_item_pull_side(machine))
+      local pull = self:_item_pull_side(machine)
+      local detail = self.circuit_manager:describe_face(itp, pull)
+      lane.last_error = string.format("no items moved from dual IF side %d (%s)", pull, detail)
+      lane.batch_outcome = "failed"
       self:_transition(machine_id, lane, STATE_IDLE, "transfer empty")
       events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
       return false, events
@@ -434,11 +499,13 @@ function LaneDispatch:tick_lane(machine, poll_status)
 
     if now >= lane.deadline then
       if self:_is_central_mode() and not lane.saw_active then
+        lane.last_error = lane.last_error or "machine never active after lane transfer"
+        lane.batch_outcome = "failed"
         self:_transition(machine_id, lane, STATE_IDLE, "never ran — check interface→bus wiring")
         lane.staged_ok = false
         events[#events + 1] = {
           type = "recover_failed",
-          detail = lane.last_error or "machine never active after lane transfer",
+          detail = lane.last_error,
         }
         return false, events
       end
@@ -462,6 +529,10 @@ function LaneDispatch:tick_lane(machine, poll_status)
 
     local size = self:_slot_size(itp, bus_side, circuit_slot)
     if size <= 0 then
+      if self:_is_central_mode() then
+        lane.last_error = "no circuit on bus after transfer"
+        lane.batch_outcome = "failed"
+      end
       self:_transition(machine_id, lane, STATE_IDLE, "no circuit on bus")
       lane.staged_ok = false
       events[#events + 1] = {
@@ -495,13 +566,18 @@ function LaneDispatch:tick_lane(machine, poll_status)
   if self:_slot_size(itp, return_side, return_slot) == 0 then
     lane.saw_active = false
     lane.last_error = nil
+    if self:_is_central_mode() then lane.batch_outcome = "ok" end
     self:_transition(machine_id, lane, STATE_IDLE, "circuit imported")
     events[#events + 1] = { type = "recover_ok", detail = "circuit returned" }
     return false, events
   end
 
   if now >= lane.deadline then
-    events[#events + 1] = { type = "recover_failed", detail = "import timeout on return face" }
+    if self:_is_central_mode() then
+      lane.batch_outcome = "failed"
+      lane.last_error = "import timeout on return face"
+    end
+    events[#events + 1] = { type = "recover_failed", detail = lane.last_error or "import timeout on return face" }
     self:_transition(machine_id, lane, STATE_IDLE, "import timeout")
     return false, events
   end
