@@ -20,6 +20,7 @@ Config.database_slot_count = 9
 Config.interface_item_slots = 9
 Config.interface_item_slot_start = 1
 Config.interface_fluid_side = 0 -- What is this for? 
+Config.shared_interface_address = "" -- optional fallback if all lanes share one ME interface adapter
 Config.chest_slot_start = 1
 Config.circuit_bus_slot = 1
 Config.settle_s = 0.1
@@ -204,6 +205,9 @@ function Config.validate(cfg)
   local stock_enabled = type(db_addr) == "string"
     and db_addr ~= ""
     and not db_addr:find("SET_", 1, true)
+  local shared_iface = type(cfg.shared_interface_address) == "string"
+    and cfg.shared_interface_address ~= ""
+    and not cfg.shared_interface_address:find("SET_", 1, true)
 
   if cfg.database_slot_count ~= nil
     and (type(cfg.database_slot_count) ~= "number" or cfg.database_slot_count < 1) then
@@ -238,8 +242,10 @@ function Config.validate(cfg)
         return nil, "machines[" .. i .. "] buffer_adapter_side required when buffer_adapter_address is set"
       end
     end
-    if stock_enabled and (not m.interface_address or m.interface_address == "") then
-      return nil, "machines[" .. i .. "] interface_address required when database_address is configured"
+    if stock_enabled
+      and (not m.interface_address or m.interface_address == "")
+      and not shared_iface then
+      return nil, "machines[" .. i .. "] interface_address required when database_address is configured (or set shared_interface_address)"
     end
     if m.interface_item_slot_start ~= nil
       and (type(m.interface_item_slot_start) ~= "number" or m.interface_item_slot_start < 1) then

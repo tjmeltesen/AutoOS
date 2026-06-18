@@ -480,3 +480,8 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 ## 2026-06-17 — Fix diag.lua syntax regression
 
 - Changed `subnet_broker/diag.lua`: repaired malformed `fluid_tp` print call that caused `unexpected symbol near 'if'` at runtime; restored machine loop print order (`item_tp`, `fluid_tp`, then `interface_address`).
+
+## 2026-06-17 — Interface stocking address fallback + clearer runtime errors
+
+- Changed `subnet_broker/interface_stock.lua`: `_iface()` now falls back to `Config.shared_interface_address` when a lane `interface_address` is blank, and stock failures include machine id + both address values for easier in-game diagnosis.
+- Changed `subnet_broker/config.lua`: added optional `shared_interface_address`; validation accepts either per-lane `interface_address` or shared fallback when DB stocking is enabled.

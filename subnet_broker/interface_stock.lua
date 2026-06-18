@@ -49,7 +49,21 @@ function InterfaceStock:_fluid_side(machine)
 end
 
 function InterfaceStock:_iface(machine)
-  return HW.require_proxy(self.component, "me_interface", machine.interface_address, "me_interface")
+  local addr = machine.interface_address
+  if (not addr or addr == "")
+    and self.config.shared_interface_address
+    and self.config.shared_interface_address ~= "" then
+    addr = self.config.shared_interface_address
+  end
+  local iface, err = HW.require_proxy(self.component, "me_interface", addr, "me_interface")
+  if iface then return iface end
+  return nil, string.format(
+    "%s (machine=%s, machine.interface_address=%s, shared_interface_address=%s)",
+    tostring(err),
+    tostring(machine and machine.id or "?"),
+    tostring(machine and machine.interface_address or ""),
+    tostring(self.config.shared_interface_address or "")
+  )
 end
 
 function InterfaceStock:_push_slot(active, slot)
