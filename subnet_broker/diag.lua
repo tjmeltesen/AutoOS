@@ -142,15 +142,14 @@ for _, m in ipairs(Config.machines) do
     LaneSides.item_transposer_address(m), status_for(LaneSides.item_transposer_address(m))))
 
   print(string.format("[AutoOS] %s fluid_tp=%s %s", m.id,
+    LaneSides.fluid_transposer_address(m), status_for(LaneSides.fluid_transposer_address(m))))
+
   if m.interface_address and m.interface_address ~= "" then
     print(string.format("[AutoOS] %s iface=%s %s",
       m.id, tostring(m.interface_address), status_for(m.interface_address)))
   else
     print(string.format("[AutoOS] %s iface=(not configured)", m.id))
   end
-
-
-    LaneSides.fluid_transposer_address(m), status_for(LaneSides.fluid_transposer_address(m))))
 
   if Config.input_mode == "central" then
 

@@ -476,3 +476,7 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `tests/mock_broker_hardware.lua`: multi-slot interface stocking configs + dual transposer address compatibility.
 - Added `tests/descriptor_cache_test.lua`; changed `tests/lane_dispatch_test.lua`, `tests/central_dispatch_test.lua`: coverage for manifest handoff, settle-time stocking hook, and descriptor-slot release behavior.
 - Changed docs `references/gtceu-lcr-gtnh-port-map.md` and `README.md`: documented per-lane interface adapters, shared DB descriptors, and post-transfer slot deletion flow.
+
+## 2026-06-17 — Fix diag.lua syntax regression
+
+- Changed `subnet_broker/diag.lua`: repaired malformed `fluid_tp` print call that caused `unexpected symbol near 'if'` at runtime; restored machine loop print order (`item_tp`, `fluid_tp`, then `interface_address`).
