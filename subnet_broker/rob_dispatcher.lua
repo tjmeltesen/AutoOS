@@ -396,7 +396,7 @@ function ROBDispatcher:_resolve_db_pointers(manifest)
   end
   for _, spec in ipairs(manifest.fluids or {}) do
     if type(spec.db_slot) ~= "number" and lookup_fluid then
-      local entry = lookup_fluid(spec.fluid_label)
+      local entry = lookup_fluid(spec.fluid_label, spec.fluid_registry)
       if entry then
         spec.db_slot = entry.slot
         spec.db_address = entry.address
@@ -408,7 +408,7 @@ function ROBDispatcher:_resolve_db_pointers(manifest)
   for _, step in ipairs(manifest.queue or {}) do
     if type(step.db_slot) ~= "number" then
       if step.kind == "fluid" and step.fluid_label and lookup_fluid then
-        local entry = lookup_fluid(step.fluid_label)
+        local entry = lookup_fluid(step.fluid_label, step.fluid_registry)
         if entry then
           step.db_slot = entry.slot
           step.db_address = entry.address

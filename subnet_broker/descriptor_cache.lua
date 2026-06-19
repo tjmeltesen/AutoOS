@@ -261,29 +261,37 @@ end
 
 function DescriptorCache:_find_fluid_drop(iface, rules)
   if not iface or not iface.getItemsInNetwork then return nil end
-  local want = lower(rules.fluid_label)
-  local want_drop = want and ("drop of " .. want) or nil
   local stacks = iface.getItemsInNetwork({ name = FLUID_DROP_ITEM })
-  if type(stacks) ~= "table" then return nil end
+  if type(stacks) ~= "table" or #stacks == 0 then
+    -- GTNH 2.6+ may use a different item name for fluid drops
+    stacks = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop1" })
+    if type(stacks) ~= "table" or #stacks == 0 then
+      stacks = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop2" })
+    end
+    if type(stacks) ~= "table" then return nil end
+  end
 
-  if want_drop then
-    for _, it in ipairs(stacks) do
-      if lower(it.label) == want_drop then return it end
+  -- Normalize: strip "drop of " / "molten " prefixes for comparison
+  local function strip_prefix(s)
+    s = lower(s)
+    if not s then return nil end
+    s = s:gsub("^drop of ", ""):gsub("^molten ", "")
+    return s
+  end
+
+  local want = strip_prefix(rules.fluid_label)
+  local want_reg = strip_prefix(rules.fluid_registry)
+
+  for _, it in ipairs(stacks) do
+    local l = strip_prefix(it.label or it.name or "")
+    if l and want and (l == want or l:find(want, 1, true) or want:find(l, 1, true)) then
+      return it
+    end
+    if l and want_reg and (l == want_reg or l:find(want_reg, 1, true) or want_reg:find(l, 1, true)) then
+      return it
     end
   end
-  if want then
-    for _, it in ipairs(stacks) do
-      local l = lower(it.label)
-      if l and l:find(want, 1, true) then return it end
-    end
-  end
-  if rules.fluid_registry then
-    local reg = lower(rules.fluid_registry)
-    for _, it in ipairs(stacks) do
-      local tag = lower(it.tag)
-      if tag and tag:find(reg, 1, true) then return it end
-    end
-  end
+
   return nil
 end
 

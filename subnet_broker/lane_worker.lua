@@ -21,7 +21,6 @@ local FluidTanks = require("fluid_tanks")
 
 local LaneWorker = {}
 
-local FLUID_CHUNK = 1000000
 local PULL_SCAN_MAX = 54
 
 ---------------------------------------------------------------------------
@@ -191,17 +190,6 @@ local function transfer_item_step(item_tp, machine, step)
     end
   end
   return 0
-end
-
---- Transfer a batch of fluids from pull face to hatch.  Returns (moved, pending).
-local function transfer_fluid_chunk(fluid_tp, machine)
-  local from_side = LaneSides.central_fluid_pull_side(machine)
-  local to_side = LaneSides.fluid_hatch_side(machine)
-  if FluidTanks.tank_level(fluid_tp, from_side) <= 0 then return false, false end
-  local ok, result = pcall(fluid_tp.transferFluid, from_side, to_side, FLUID_CHUNK)
-  if not ok or result == false or result == 0 then return false, false end
-  local pending = FluidTanks.tank_level(fluid_tp, from_side) > 0
-  return true, pending
 end
 
 --- Drain check: bus empty except circuit slot.  fluid hatch empty.

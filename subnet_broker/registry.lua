@@ -66,12 +66,13 @@ local function bind_methods(inst)
     }, "item")
     return entry
   end
-  inst.lookup_fluid_db = function(fluid_label)
+  inst.lookup_fluid_db = function(fluid_label, fluid_registry)
     local key = fluid_cache_key(fluid_label)
     local entry = inst._fluid_db[key]
     if entry then return entry end
     entry = ensure_db_entry(inst, {
       fluid_label = fluid_label,
+      fluid_registry = fluid_registry,
     }, "fluid")
     return entry
   end
