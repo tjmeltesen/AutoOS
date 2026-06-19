@@ -68,7 +68,7 @@ function BrokerMain._build_impl()
   local scheduler = Scheduler.new({ event = event, computer = computer, log = print })
 
   -- Seed runtime deps
-  pcall(registry.seed, registry, computer.uptime, print, registry.get_circuit_manager())
+  pcall(registry.seed, registry, computer.uptime, print, registry:get_circuit_manager())
 
   local poll = MachinePoll.new({ config = Config, component = component })
 
@@ -77,7 +77,7 @@ function BrokerMain._build_impl()
   local rob = ROBDispatcher.new(registry, Config, {
     now = computer.uptime,
     log = print,
-    circuit_manager = registry.get_circuit_manager(),
+    circuit_manager = registry:get_circuit_manager(),
   })
 
   return {
