@@ -432,6 +432,7 @@ function ROBDispatcher:_resolve_db_pointers(manifest)
       next(self._registry._item_db) ~= nil and 1 or 0,
       next(self._registry._fluid_db) ~= nil and 1 or 0))
   end
+  return #missing == 0
 end
 
 --- Build a job object from a manifest and enqueue it.
@@ -442,7 +443,11 @@ function ROBDispatcher:_enqueue_job(manifest, source)
     return nil, "empty manifest"
   end
 
-  self:_resolve_db_pointers(manifest)
+  local all_resolved = self:_resolve_db_pointers(manifest)
+  if not all_resolved then
+    self._log("[ROBDispatcher] job rejected — DB entries missing, deferring")
+    return nil, "unresolved DB entries"
+  end
 
   self._job_seq = self._job_seq + 1
   local job = {

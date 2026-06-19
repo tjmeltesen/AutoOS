@@ -83,7 +83,12 @@ function FluidTanks.label_matches(actual, expected)
   local a = normalize_label(actual)
   local e = normalize_label(expected)
   if not a or not e then return false end
-  return a == e or a:find(e, 1, true) ~= nil or e:find(a, 1, true) ~= nil
+  if a == e then return true end
+  -- ponytail: substring match only at start of string, not mid-word.
+  -- "titanium" should NOT match "titan", but "liquid_oxygen" should match "oxygen".
+  if a:find(e, 1, true) == 1 then return true end
+  if e:find(a, 1, true) == 1 then return true end
+  return false
 end
 
 return FluidTanks
