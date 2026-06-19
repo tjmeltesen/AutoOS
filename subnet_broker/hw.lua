@@ -6,6 +6,11 @@
 ]]
 
 local HW = {}
+local proxy_cache = {}
+
+local function proxy_cache_key(component, address)
+  return tostring(component) .. ":" .. tostring(address)
+end
 
 --- Sleep that works on OpenOS and desktop Lua (no-op without os.sleep).
 ---@param seconds number
@@ -23,12 +28,33 @@ function HW.proxy(component, address, hint)
   if not component or not component.proxy then
     return nil, "component API unavailable"
   end
+  if not address or address == "" then
+    return nil, "component address not configured"
+  end
+  local cache_key = proxy_cache_key(component, address)
+  if proxy_cache[cache_key] then
+    return proxy_cache[cache_key]
+  end
   local ok, p = pcall(component.proxy, address, hint)
-  if ok and p then return p end
+  if ok and p then
+    proxy_cache[cache_key] = p
+    return p
+  end
   local err = not ok and p or nil
   ok, p = pcall(component.proxy, address)
-  if ok and p then return p end
+  if ok and p then
+    proxy_cache[cache_key] = p
+    return p
+  end
   return nil, tostring(err or p or "proxy returned nil")
+end
+
+function HW.clear_proxy_cache(address)
+  if address then
+    proxy_cache[address] = nil
+  else
+    proxy_cache = {}
+  end
 end
 
 --- True when the address is visible on the OC network.

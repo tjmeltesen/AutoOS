@@ -224,13 +224,10 @@ function DescriptorCache:ensure_item(iface, spec)
       local ok_store = iface.store(filter, db_addr, slot, count)
       if ok_store then return true end
     end
-    local db = self:_db()
-    if db and db.set and not spec.label then
-      local ok_set, set_err = pcall(db.set, slot, spec.name, damage)
-      if ok_set and set_err ~= false then return true end
-      return false, "database.set item failed: " .. tostring(set_err)
-    end
-    return false, string.format("me.store failed for item %q", tostring(spec.name))
+    return false, string.format(
+      "me_interface.store failed for real item %q damage=%s label=%s; preconfigure database_preconfigured_slots or ensure the item exists in subnet ME",
+      tostring(spec.name), tostring(damage), tostring(spec.label or "")
+    )
   end
 
   return self:_resolve_slot(cache_key, write, verify)

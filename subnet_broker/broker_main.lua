@@ -46,6 +46,7 @@ function BrokerMain.build()
   local InterfaceStock = require("interface_stock")
   local LaneDispatch = require("lane_dispatch")
   local ArrayWatch = require("array_watch")
+  local HW = require("hw")
 
   local ok, err = Config.validate(Config)
   if not ok then return nil, "config invalid: " .. tostring(err) end
@@ -167,6 +168,7 @@ function BrokerMain.attach_tasks(ctx)
         return ev == "component_available" or ev == "component_unavailable"
       end)
       if ctx.poll.mark_proxy_cache_stale then ctx.poll:mark_proxy_cache_stale() end
+      if HW.clear_proxy_cache then HW.clear_proxy_cache() end
       state.dirty.components = true
       state.events[#state.events + 1] = { type = id }
       scheduler:wake("machine_poll")

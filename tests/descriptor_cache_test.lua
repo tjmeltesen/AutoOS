@@ -135,6 +135,53 @@ do
     ok1 and ok2 and slot1 == slot2 and released1 == 1 and still_present and released2 == 1 and fx.db[slot1] == nil)
 end
 
+do
+  local fx = new_fixture()
+  fx.db[1] = { name = "minecraft:cobblestone", damage = 0, label = "Foreign" }
+  local stored_filter = nil
+  fx.iface.store = function(filter, db_addr, slot, count)
+    stored_filter = filter
+    fx.db[slot] = {
+      name = filter.name,
+      damage = filter.damage or 0,
+      label = filter.label,
+    }
+    return true
+  end
+  local ok, slot = fx.cache:ensure_item(fx.iface, {
+    name = "gregtech:gt.integrated_circuit",
+    damage = 9,
+    label = "Programmed Circuit",
+    count = 1,
+  })
+  check("programmed circuit dynamically stored into empty DB slot",
+    ok and slot == 2 and stored_filter and stored_filter.label == "Programmed Circuit")
+end
+
+do
+  local db_set_called = false
+  local component = {
+    list = function() return { ["db-1"] = "database" } end,
+    proxy = function()
+      return {
+        get = function() return nil end,
+        set = function()
+          db_set_called = true
+          return true
+        end,
+        clear = function() return true end,
+      }
+    end,
+  }
+  local cache = DescriptorCache.new({
+    config = { database_address = "db-1", database_slot_count = 1 },
+    component = component,
+  })
+  local iface = { store = function() return false end }
+  local ok, err = cache:ensure_item(iface, { name = "minecraft:stone", damage = 0, count = 1 })
+  check("synthetic database.set fallback disabled", not ok and not db_set_called and tostring(err):find("store failed", 1, true) ~= nil)
+end
+
 io.write(string.rep("-", 60) .. "\n")
 io.write(string.format("%s   %s passed, %s failed\n",
   bold("Descriptor cache result:"), green(tostring(passed)),
