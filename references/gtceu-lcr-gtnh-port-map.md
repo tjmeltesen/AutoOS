@@ -36,17 +36,18 @@ Default template: `central`. Set `Config.central.buffer_adapter_address` + per-l
 |---------|--------|
 | `hasItemsInInput` | `CentralDispatch:_item_fingerprint()` on item chest adapter |
 | AE trickle-in guard | `Config.central.stabilize_s` (default 3s) — fingerprint unchanged |
-| Fluid required | **No** — fluid-less recipes supported |
+| Fluid required | **No** for dispatch admission; fluid queue steps are optional and run when present |
 | Descriptor DB | Shared `Config.database_address` + `database_slot_count` (broker-owned slots) |
-| Lane IF control | Per-lane `machine.interface_address` (`setInterfaceConfiguration` / `setFluidInterfaceConfiguration`) |
+| Lane IF control | Per-lane `machine.interface_address`; items and fluids are queued, with fluids stocked one-at-a-time on `interface_fluid_side` |
 | `findAvailableOutputRR()` | `CentralDispatch:find_available_machine_rr()` |
 | `pushAll` / central transposers | **Not used** — subnet AE routes to lane dual interface; lane TPs transfer |
 | `doRoundRobin` | `Config.do_round_robin` |
 
 | Central monitor | `Config.central.buffer_adapter_address` + `buffer_adapter_side` on item chest |
-| Optional diag | `fluid_adapter_address` (never gates dispatch) |
+| Central fluid source | `fluid_adapter_address` + `fluid_adapter_side` feed central fluid queue entries from tank controller APIs |
 | Lane extract | `side_buffer` / `side_fluid_buffer` on lane transposers (dual interface face) |
 | Dual IF pull | Transposer reads subnet storage through adjacent dual interface — not a separate chest face |
+| Queue model | Dual-track queue: item and fluid tracks can progress in parallel; consecutive same-kind steps wait for that track's buffer face to empty |
 | Post-transfer cleanup | Clear IF configs, then `database.clear` broker-owned slots (`release_slots`) |
 
 ## GTCEU → AutoOS (scheduling only)

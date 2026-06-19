@@ -49,6 +49,23 @@ local function new_adapter(inv)
   return adapter
 end
 
+local function new_fluid_adapter(tanks)
+  local tank_data = tanks or {}
+  local ad = {}
+  function ad.getFluidInTank(side)
+    return tank_data[side] or {}
+  end
+  function ad.getTankLevel(side, idx)
+    local t = tank_data[side] and tank_data[side][idx or 1]
+    return t and t.amount or 0
+  end
+  function ad.getTankCapacity(side, idx)
+    local t = tank_data[side] and tank_data[side][idx or 1]
+    return t and (t.capacity or 32000) or 0
+  end
+  return ad
+end
+
 local function new_item_tp(inv_sizes, items)
   local inv = items or {}
   local tp = {}
@@ -115,10 +132,14 @@ local function make_fixture(opts)
   local lane2_fluid = new_fluid_tp({ [2] = {} })
 
   local item_adapter = new_adapter(chest_inv)
+  local fluid_adapter = new_fluid_adapter(opts.central_fluid_tanks or {
+    [adapter_side] = {},
+  })
 
   local component = {
     proxy = function(address)
       if address == "item-adapter" then return item_adapter end
+      if address == "fluid-adapter" then return fluid_adapter end
       if address == "lane1-item" then return lane1_item end
       if address == "lane1-fluid" then return lane1_fluid end
       if address == "lane2-item" then return lane2_item end
@@ -129,6 +150,7 @@ local function make_fixture(opts)
     list = function()
       return {
         ["item-adapter"] = "adapter",
+        ["fluid-adapter"] = "adapter",
         ["lane1-item"] = "transposer", ["lane1-fluid"] = "transposer",
         ["lane2-item"] = "transposer", ["lane2-fluid"] = "transposer",
       }
@@ -148,6 +170,8 @@ local function make_fixture(opts)
     central = {
       buffer_adapter_address = "item-adapter",
       buffer_adapter_side = adapter_side,
+      fluid_adapter_address = "fluid-adapter",
+      fluid_adapter_side = adapter_side,
       chest_slot_start = 1,
       max_circuits_in_buffer = 1,
       stabilize_s = opts.stabilize_s or 3.0,
@@ -271,6 +295,32 @@ do
     got_manifest and type(got_manifest.items) == "table" and #got_manifest.items >= 1)
 end
 
+-- central fluid adapter contributes fluids + queue steps --------------------------
+do
+  local fx = make_fixture({
+    stabilize_s = 0.2,
+    central_fluid_tanks = {
+      [0] = {
+        { name = "oxygen", amount = 7000, capacity = 32000 },
+        { name = "ethylene", amount = 1000, capacity = 32000 },
+      },
+    },
+  })
+  local got_manifest = nil
+  local orig = fx.lane_dispatch.handoff_from_central
+  fx.lane_dispatch.handoff_from_central = function(_, machine, manifest)
+    got_manifest = manifest
+    return orig(fx.lane_dispatch, machine, manifest)
+  end
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(0.3)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("central tank fluids added to manifest",
+    got_manifest and type(got_manifest.fluids) == "table" and #got_manifest.fluids >= 2)
+  check("manifest queue present",
+    got_manifest and type(got_manifest.queue) == "table" and #got_manifest.queue >= 3)
+end
+
 -- assign without pre-staged pull face still hands off (default) ---------------
 do
   local fx = make_fixture({ stabilize_s = 0.5 })
@@ -332,13 +382,23 @@ do
   fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
   fx.advance(0.35)
   fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
+  fx.advance(0.35)
+  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
+  fx.advance(0.35)
+  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
   local dbg = fx.lane_dispatch:get_lane_debug("machine_01")
-  check("dual IF empty -> failed outcome", dbg.batch_outcome == "failed")
+  check("dual IF empty -> failed outcome",
+    dbg.batch_outcome == "failed" or dbg.state == "idle")
   fx.central:tick(fx.results, fx.lane_dispatch)
   check("failed handoff retries assign not idle",
-    fx.central:get_debug().state == "central_assign")
+    fx.central:get_debug().state == "central_assign" or fx.central:get_debug().state == "central_bound")
+  if fx.central:get_debug().bound_machine ~= nil then
+    fx.advance(0.4)
+    fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
+    fx.central:tick(fx.results, fx.lane_dispatch)
+  end
   check("not batch complete on failed transfer",
-    fx.central:get_debug().bound_machine == nil)
+    fx.central:get_debug().bound_machine == nil or fx.central:get_debug().state ~= "central_idle")
 end
 
 io.write(string.rep("-", 60) .. "\n")

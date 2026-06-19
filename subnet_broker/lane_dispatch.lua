@@ -7,12 +7,14 @@
 
 local HW = require("hw")
 local LaneSides = require("lane_sides")
+local FluidTanks = require("fluid_tanks")
 
 local LaneDispatch = {}
 LaneDispatch.__index = LaneDispatch
 
 local STATE_IDLE = "idle"
 local STATE_SETTLE = "settle"
+local STATE_QUEUE = "queue"
 local STATE_TRANSFER = "transfer"
 local STATE_WAIT_COMPLETE = "wait_complete"
 local STATE_EXTRACT = "extract"
@@ -57,6 +59,16 @@ local function lane_default(now, deadline_s)
     staging_manifest = nil,
     active_interface_configs = nil,
     stocked = false,
+    item_steps = {},
+    fluid_steps = {},
+    item_idx = 1,
+    fluid_idx = 1,
+    item_phase = "idle",
+    fluid_phase = "idle",
+    item_active_stock = nil,
+    fluid_active_stock = nil,
+    item_deadline = now + deadline_s,
+    fluid_deadline = now + deadline_s,
   }
 end
 
@@ -68,6 +80,41 @@ local function _stack_matches(st, want)
     return tostring(st.label):lower() == tostring(want.label):lower()
   end
   return (st.size or 0) > 0
+end
+
+local function _build_steps(manifest)
+  local item_steps, fluid_steps = {}, {}
+  manifest = manifest or {}
+  local queue = manifest.queue
+  if type(queue) == "table" and #queue > 0 then
+    for _, step in ipairs(queue) do
+      if step.kind == "fluid" then
+        fluid_steps[#fluid_steps + 1] = step
+      else
+        item_steps[#item_steps + 1] = step
+      end
+    end
+  else
+    for _, it in ipairs(manifest.items or {}) do
+      item_steps[#item_steps + 1] = {
+        kind = "item",
+        slot = it.slot,
+        name = it.name,
+        damage = it.damage,
+        label = it.label,
+        count = it.count,
+      }
+    end
+    for _, fl in ipairs(manifest.fluids or {}) do
+      fluid_steps[#fluid_steps + 1] = {
+        kind = "fluid",
+        fluid_label = fl.fluid_label,
+        fluid_registry = fl.fluid_registry,
+        fluid_filter = fl.fluid_filter,
+      }
+    end
+  end
+  return item_steps, fluid_steps
 end
 
 function LaneDispatch:_lane(machine_id)
@@ -87,6 +134,10 @@ function LaneDispatch:get_lane_debug(machine_id)
     deadline = lane.deadline,
     last_error = lane.last_error,
     batch_outcome = lane.batch_outcome,
+    item_idx = lane.item_idx,
+    fluid_idx = lane.fluid_idx,
+    item_phase = lane.item_phase,
+    fluid_phase = lane.fluid_phase,
   }
 end
 
@@ -161,9 +212,18 @@ function LaneDispatch:handoff_from_central(machine, manifest)
   lane.batch_outcome = nil
   lane.interface_wait_logged = false
   lane.staging_manifest = manifest or { items = {}, fluids = {} }
+  lane.item_steps, lane.fluid_steps = _build_steps(lane.staging_manifest)
+  lane.item_idx = 1
+  lane.fluid_idx = 1
+  lane.item_phase = "stock"
+  lane.fluid_phase = "stock"
+  lane.item_active_stock = nil
+  lane.fluid_active_stock = nil
   lane.stocked = false
   lane.active_interface_configs = nil
   lane.deadline = now + self:_central_interface_wait_s()
+  lane.item_deadline = lane.deadline
+  lane.fluid_deadline = lane.deadline
   self:_transition(machine_id, lane, STATE_SETTLE, "central handoff")
   if self:_require_interface_staging() then
     local _, detail = self:verify_staged_on_interface(machine)
@@ -244,26 +304,7 @@ function LaneDispatch:_pull_face_ready(item_tp, fluid_tp, machine)
 end
 
 function LaneDispatch:_fluid_level(tp, side)
-  if not tp then return 0 end
-  if tp.getTankLevel then
-    local ok, lvl = pcall(tp.getTankLevel, side, 1)
-    if ok and type(lvl) == "number" then return lvl end
-    ok, lvl = pcall(tp.getTankLevel, side)
-    if ok and type(lvl) == "number" then return lvl end
-  end
-  if tp.getFluidInTank then
-    local ok, tanks = pcall(tp.getFluidInTank, side)
-    if ok and type(tanks) == "table" then
-      local total = 0
-      for _, t in ipairs(tanks) do
-        if type(t) == "table" and type(t.amount) == "number" and t.amount > 0 then
-          total = total + t.amount
-        end
-      end
-      return total
-    end
-  end
-  return 0
+  return FluidTanks.tank_level(tp, side)
 end
 
 function LaneDispatch:_buffer_has_items(item_tp, machine)
@@ -347,6 +388,66 @@ function LaneDispatch:_release_active_stock(machine, lane)
   self.interface_stock:release_batch(lane.active_interface_configs)
   lane.active_interface_configs = nil
   lane.stocked = false
+end
+
+function LaneDispatch:_release_step_stock(active)
+  if not self.interface_stock or not active then return end
+  self.interface_stock:release_batch(active)
+end
+
+function LaneDispatch:_item_buffer_empty(item_tp, machine)
+  return not self:_buffer_has_items(item_tp, machine)
+end
+
+function LaneDispatch:_fluid_buffer_empty(fluid_tp, machine)
+  local side = self:_fluid_pull_side(machine)
+  return FluidTanks.buffer_empty(fluid_tp, side)
+end
+
+function LaneDispatch:_step_item_ready(item_tp, machine, step)
+  local from_side = self:_item_pull_side(machine)
+  local start = self:_chest_start(machine)
+  local size = self:_pull_scan_max(item_tp, from_side)
+  for slot = start, size do
+    local st = item_tp.getStackInSlot and item_tp.getStackInSlot(from_side, slot)
+    if _stack_matches(st, step) then return true end
+  end
+  return false
+end
+
+function LaneDispatch:_step_fluid_ready(fluid_tp, machine, step)
+  local from_side = self:_fluid_pull_side(machine)
+  if not step or (not step.fluid_label and not step.fluid_registry) then
+    return self:_buffer_has_fluid(fluid_tp, machine)
+  end
+  for _, row in ipairs(FluidTanks.non_empty_tanks(fluid_tp, from_side)) do
+    if FluidTanks.label_matches(row.name, step.fluid_label or step.fluid_registry) then
+      return true
+    end
+  end
+  return false
+end
+
+function LaneDispatch:_transfer_one_item_step(item_tp, machine, step)
+  local from_side = self:_item_pull_side(machine)
+  local to_side = LaneSides.bus_side(machine)
+  local start = self:_chest_start(machine)
+  local size = self:_pull_scan_max(item_tp, from_side)
+  for slot = start, size do
+    local st = item_tp.getStackInSlot and item_tp.getStackInSlot(from_side, slot)
+    if _stack_matches(st, step) then
+      local count = math.max(1, math.min(step.count or (st.size or 1), st.size or 1))
+      local ok, moved = pcall(item_tp.transferItem, from_side, to_side, count, slot)
+      if ok and moved and moved >= 1 then return true end
+      ok, moved = pcall(item_tp.transferItem, from_side, to_side, 1, slot)
+      return ok and moved and moved >= 1
+    end
+  end
+  return false
+end
+
+function LaneDispatch:_queue_complete(lane)
+  return lane.item_idx > #(lane.item_steps or {}) and lane.fluid_idx > #(lane.fluid_steps or {})
 end
 
 function LaneDispatch:_manifest_pull_ready(item_tp, fluid_tp, machine, manifest)
@@ -488,6 +589,14 @@ function LaneDispatch:tick_lane(machine, poll_status)
     lane.stocked = false
     lane.staging_manifest = nil
     lane.active_interface_configs = nil
+    lane.item_steps = {}
+    lane.fluid_steps = {}
+    lane.item_idx = 1
+    lane.fluid_idx = 1
+    lane.item_phase = "idle"
+    lane.fluid_phase = "idle"
+    lane.item_active_stock = nil
+    lane.fluid_active_stock = nil
 
     if self:_is_central_mode() then
       return false, events
@@ -526,7 +635,10 @@ function LaneDispatch:tick_lane(machine, poll_status)
     lane.fast_tick = true
     if now < lane.settle_at then return true, events end
 
-    if self.interface_stock and lane.staging_manifest and not lane.stocked then
+    if not self:_is_central_mode()
+      and self.interface_stock
+      and lane.staging_manifest
+      and not lane.stocked then
       local ok_stock, stock_err, active_cfg = self.interface_stock:stock_batch(machine, lane.staging_manifest)
       if not ok_stock then
         if active_cfg then self.interface_stock:release_batch(active_cfg) end
@@ -541,40 +653,152 @@ function LaneDispatch:tick_lane(machine, poll_status)
     end
 
     if self:_is_central_mode() then
-      local itp = ensure_item_tp()
-      local ftp = ensure_fluid_tp()
-      if not itp or not ftp then
-        return true, { { type = "recover_failed", detail = "transposer unavailable" } }
-      end
-      local ready
-      if self.interface_stock and lane.staging_manifest then
-        ready = self:_manifest_pull_ready(itp, ftp, machine, lane.staging_manifest)
-      else
-        ready = self:_pull_face_ready(itp, ftp, machine)
-      end
-      if not ready then
-        if now >= lane.deadline then
-          local pull = self:_item_pull_side(machine)
-          local detail = self.circuit_manager:describe_face(itp, pull)
-          lane.last_error = string.format(
-            "dual IF side %d empty after wait (%s)", pull, detail)
+      self:_transition(machine_id, lane, STATE_QUEUE, "settle done")
+      return true, events
+    end
+    self:_transition(machine_id, lane, STATE_TRANSFER, "settle done")
+    return true, events
+  end
+
+  if lane.state == STATE_QUEUE then
+    lane.fast_tick = true
+    local itp = ensure_item_tp()
+    local ftp = ensure_fluid_tp()
+    if not itp or not ftp then
+      return true, { { type = "recover_failed", detail = "transposer unavailable" } }
+    end
+
+    local item_step = lane.item_steps[lane.item_idx]
+    if item_step then
+      if lane.item_phase == "stock" then
+        if self.interface_stock then
+          local ok_stock, stock_err, active = self.interface_stock:stock_one_item(machine, item_step, 1)
+          if not ok_stock then
+            if active then self:_release_step_stock(active) end
+            lane.last_error = "item stock failed: " .. tostring(stock_err)
+            lane.batch_outcome = "failed"
+            self:_transition(machine_id, lane, STATE_IDLE, "queue item stock failed")
+            events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+            return false, events
+          end
+          lane.item_active_stock = active
+        end
+        lane.item_deadline = now + self:_central_interface_wait_s()
+        lane.item_phase = "wait_buffer"
+      elseif lane.item_phase == "wait_buffer" then
+        if self:_step_item_ready(itp, machine, item_step) then
+          lane.item_phase = "transfer"
+        elseif now >= lane.item_deadline then
+          lane.last_error = string.format("item track step %d not visible on buffer", lane.item_idx)
           lane.batch_outcome = "failed"
-          self:_release_active_stock(machine, lane)
-          self:_transition(machine_id, lane, STATE_IDLE, "dual IF wait timeout")
+          self:_release_step_stock(lane.item_active_stock)
+          lane.item_active_stock = nil
+          self:_transition(machine_id, lane, STATE_IDLE, "queue item wait timeout")
           events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
           return false, events
         end
-        if not lane.interface_wait_logged then
-          lane.interface_wait_logged = true
-          self.log(string.format("[LaneDispatch] %s waiting for dual IF side %d",
-            machine_id, self:_item_pull_side(machine)))
+      elseif lane.item_phase == "transfer" then
+        if self:_transfer_one_item_step(itp, machine, item_step) then
+          lane.item_deadline = now + self.staging_timeout_s
+          lane.item_phase = "drain"
+        elseif now >= lane.item_deadline then
+          lane.last_error = string.format("item track step %d transfer failed", lane.item_idx)
+          lane.batch_outcome = "failed"
+          self:_release_step_stock(lane.item_active_stock)
+          lane.item_active_stock = nil
+          self:_transition(machine_id, lane, STATE_IDLE, "queue item transfer failed")
+          events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+          return false, events
         end
-        return true, events
+      elseif lane.item_phase == "drain" then
+        if self:_item_buffer_empty(itp, machine) then
+          self:_release_step_stock(lane.item_active_stock)
+          lane.item_active_stock = nil
+          lane.item_idx = lane.item_idx + 1
+          lane.item_phase = "stock"
+        elseif now >= lane.item_deadline then
+          lane.last_error = string.format("item track step %d buffer never emptied", lane.item_idx)
+          lane.batch_outcome = "failed"
+          self:_release_step_stock(lane.item_active_stock)
+          lane.item_active_stock = nil
+          self:_transition(machine_id, lane, STATE_IDLE, "queue item drain timeout")
+          events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+          return false, events
+        end
       end
-      lane.interface_wait_logged = nil
     end
 
-    self:_transition(machine_id, lane, STATE_TRANSFER, "settle done")
+    local fluid_step = lane.fluid_steps[lane.fluid_idx]
+    if fluid_step then
+      if lane.fluid_phase == "stock" then
+        if self.interface_stock then
+          local ok_stock, stock_err, active = self.interface_stock:stock_one_fluid(machine, fluid_step)
+          if not ok_stock then
+            if active then self:_release_step_stock(active) end
+            lane.last_error = "fluid stock failed: " .. tostring(stock_err)
+            lane.batch_outcome = "failed"
+            self:_transition(machine_id, lane, STATE_IDLE, "queue fluid stock failed")
+            events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+            return false, events
+          end
+          lane.fluid_active_stock = active
+        end
+        lane.fluid_deadline = now + self:_central_interface_wait_s()
+        lane.fluid_phase = "wait_buffer"
+      elseif lane.fluid_phase == "wait_buffer" then
+        if self:_step_fluid_ready(ftp, machine, fluid_step) then
+          lane.fluid_phase = "transfer"
+        elseif now >= lane.fluid_deadline then
+          lane.last_error = string.format("fluid track step %d (%s) not visible on buffer",
+            lane.fluid_idx, tostring(fluid_step.fluid_label or fluid_step.fluid_registry or "?"))
+          lane.batch_outcome = "failed"
+          self:_release_step_stock(lane.fluid_active_stock)
+          lane.fluid_active_stock = nil
+          self:_transition(machine_id, lane, STATE_IDLE, "queue fluid wait timeout")
+          events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+          return false, events
+        end
+      elseif lane.fluid_phase == "transfer" then
+        local moved = self:_transfer_fluids(ftp, machine)
+        if moved then
+          lane.fluid_deadline = now + self.staging_timeout_s
+          lane.fluid_phase = "drain"
+        elseif now >= lane.fluid_deadline then
+          lane.last_error = string.format("fluid track step %d (%s) transfer failed",
+            lane.fluid_idx, tostring(fluid_step.fluid_label or fluid_step.fluid_registry or "?"))
+          lane.batch_outcome = "failed"
+          self:_release_step_stock(lane.fluid_active_stock)
+          lane.fluid_active_stock = nil
+          self:_transition(machine_id, lane, STATE_IDLE, "queue fluid transfer failed")
+          events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+          return false, events
+        end
+      elseif lane.fluid_phase == "drain" then
+        if self:_fluid_buffer_empty(ftp, machine) then
+          self:_release_step_stock(lane.fluid_active_stock)
+          lane.fluid_active_stock = nil
+          lane.fluid_idx = lane.fluid_idx + 1
+          lane.fluid_phase = "stock"
+        elseif now >= lane.fluid_deadline then
+          lane.last_error = string.format("fluid track step %d (%s) buffer never emptied",
+            lane.fluid_idx, tostring(fluid_step.fluid_label or fluid_step.fluid_registry or "?"))
+          lane.batch_outcome = "failed"
+          self:_release_step_stock(lane.fluid_active_stock)
+          lane.fluid_active_stock = nil
+          self:_transition(machine_id, lane, STATE_IDLE, "queue fluid drain timeout")
+          events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
+          return false, events
+        end
+      end
+    end
+
+    if self:_queue_complete(lane) then
+      lane.saw_active = false
+      lane.deadline = now + self.staging_timeout_s
+      self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "queue done")
+      events[#events + 1] = { type = "staged", detail = "queue -> machine" }
+      return true, events
+    end
     return true, events
   end
 

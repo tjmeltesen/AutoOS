@@ -34,7 +34,7 @@ Config.broker_modem_port = 106
 
 -- Shared AE deposit (input_mode = "central" only)
 -- buffer_adapter = OC adapter on item chest (storage bus side)
--- fluid_adapter optional (diag only; never gates dispatch)
+-- fluid_adapter provides central tank-controller fluid manifest inputs in central mode
 -- monitor: "adapter" (default) or "inventory_controller" on broker OC
 -- require_interface_staging: true = reject handoff until dual IF side_buffer shows items
 -- interface_wait_s: max wait after handoff for subnet items to appear on dual IF (default staging_timeout_s)
@@ -43,7 +43,7 @@ Config.central = {
   inventory_controller_side = 0,
   buffer_adapter_address = "30c39ca2-68b9-4f71-8b0d-291cd6bcdc01",
   buffer_adapter_side = 0,
-  fluid_adapter_address = "28d9de66-3f71-48fe-9f8b-fdc4d7332794",
+  fluid_adapter_address = "9a4d0d5f-26e4-4f0e-9330-9d416433c657",
   fluid_adapter_side = 0,
   chest_slot_start = 1,
   max_circuits_in_buffer = 1,
@@ -205,6 +205,12 @@ function Config.validate(cfg)
   local stock_enabled = type(db_addr) == "string"
     and db_addr ~= ""
     and not db_addr:find("SET_", 1, true)
+  if input_mode == "central" and stock_enabled then
+    local c = cfg.central or {}
+    if not c.fluid_adapter_address or c.fluid_adapter_address == "" then
+      return nil, "central.fluid_adapter_address required in central mode when interface stocking is enabled"
+    end
+  end
   local shared_iface = type(cfg.shared_interface_address) == "string"
     and cfg.shared_interface_address ~= ""
     and not cfg.shared_interface_address:find("SET_", 1, true)

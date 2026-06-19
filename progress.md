@@ -505,3 +505,12 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 ## 2026-06-18 — Extended fluid probe with central buffer diagnostics
 
 - Changed `subnet_broker/probe_fluid.lua`: now also probes central adapter fluid visibility (`central.fluid_adapter_address`/`side` and `central.buffer_adapter_address`/`side`) so one script reports both central buffer state and per-lane fluid paths.
+
+## 2026-06-18 — Central tank-controller queue + dual-track lane dispatch
+
+- Added `subnet_broker/fluid_tanks.lua`: shared tank helpers (`getTankLevel(side,idx)`, `getTankLevel(side)`, `getFluidInTank(side)`) plus label matching and buffer-empty checks.
+- Changed `subnet_broker/central_dispatch.lua`: central manifest now includes `queue` steps, merges fluids from `central.fluid_adapter_address`/`fluid_adapter_side`, dedupes against chest `ae2fc:fluid_drop`, and logs queue item/fluid counts at assign.
+- Changed `subnet_broker/interface_stock.lua`: added one-step stocking/clear APIs (`stock_one_item`, `stock_one_fluid`, `clear_item`, `clear_fluid`) while keeping single `interface_fluid_side` semantics.
+- Changed `subnet_broker/lane_dispatch.lua`: central mode now runs a dual-track queue state (`STATE_QUEUE`) where item and fluid tracks progress in parallel, but consecutive same-kind steps are gated by that track's buffer-empty condition.
+- Changed `subnet_broker/probe_fluid.lua`, `subnet_broker/start.lua`, `subnet_broker/config.lua`, `references/gtceu-lcr-gtnh-port-map.md`: wired shared helpers, required-file checks, central fluid adapter validation/comments, and updated topology docs.
+- Added `tests/fluid_tanks_test.lua`; changed `tests/central_dispatch_test.lua` and `tests/lane_dispatch_test.lua`: coverage for central fluid-adapter manifest merge/queue and dual-track queue behavior.

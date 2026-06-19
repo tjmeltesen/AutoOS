@@ -8,6 +8,7 @@
 local HW = require("hw")
 local LaneSides = require("lane_sides")
 local MachinePoll = require("machine_poll")
+local FluidTanks = require("fluid_tanks")
 
 local CentralDispatch = {}
 CentralDispatch.__index = CentralDispatch
@@ -17,6 +18,14 @@ local STATE_STABILIZING = "central_stabilizing"
 local STATE_ASSIGN = "central_assign"
 local STATE_BOUND = "central_bound"
 local FLUID_DROP_ITEM = "ae2fc:fluid_drop"
+
+local function _norm_fluid_label(s)
+  if type(s) ~= "string" then return nil end
+  s = s:lower()
+  s = s:gsub("^drop of ", "")
+  s = s:gsub("^molten ", "")
+  return s
+end
 
 function CentralDispatch.new(deps)
   deps = deps or {}
@@ -93,6 +102,23 @@ function CentralDispatch:_adapter_side()
   return c.buffer_adapter_side
 end
 
+function CentralDispatch:_fluid_adapter()
+  local c = self:_central_cfg()
+  local addr = c.fluid_adapter_address
+  if not addr or addr == "" then
+    return nil, "central fluid_adapter_address not set"
+  end
+  local adapter, err = HW.proxy(self.component, addr, "adapter")
+  if not adapter then return nil, err or "central fluid adapter proxy failed" end
+  return adapter
+end
+
+function CentralDispatch:_fluid_adapter_side()
+  local c = self:_central_cfg()
+  if type(c.fluid_adapter_side) == "number" then return c.fluid_adapter_side end
+  return 0
+end
+
 function CentralDispatch:_slot_count_on_adapter(adapter, side)
   if not adapter or not adapter.getInventorySize then return 0 end
   local ok, n = pcall(adapter.getInventorySize, side)
@@ -118,6 +144,27 @@ function CentralDispatch:_stack_on_adapter(adapter, side, slot)
   return st
 end
 
+function CentralDispatch:_fluids_from_central_tank()
+  local adapter = self:_fluid_adapter()
+  if not adapter then return {} end
+  local c = self:_central_cfg()
+  local map = type(c.fluid_label_map) == "table" and c.fluid_label_map or {}
+  local side = self:_fluid_adapter_side()
+  local out = {}
+  for _, row in ipairs(FluidTanks.non_empty_tanks(adapter, side)) do
+    local raw = tostring(row.name or "")
+    local mapped = map[raw] or map[_norm_fluid_label(raw)] or raw
+    out[#out + 1] = {
+      fluid_label = mapped,
+      fluid_registry = _norm_fluid_label(raw) or raw,
+      fluid_amount_mb = row.amount,
+      fluid_source = "central_tank",
+      fluid_tank_index = row.idx,
+    }
+  end
+  return out
+end
+
 --- Build { slot = size, ... } for non-empty chest slots.
 function CentralDispatch:_item_fingerprint(adapter, side)
   local fp = {}
@@ -131,26 +178,62 @@ function CentralDispatch:_item_fingerprint(adapter, side)
 end
 
 function CentralDispatch:_batch_manifest(adapter, side)
-  local out = { items = {}, fluids = {} }
+  local out = { items = {}, fluids = {}, queue = {} }
+  local seen_fluids = {}
   local start = self:_chest_start()
   local size = self:_slot_count_on_adapter(adapter, side)
   for slot = start, size do
     local st = self:_stack_on_adapter(adapter, side, slot)
     if st then
       if st.name == FLUID_DROP_ITEM then
-        out.fluids[#out.fluids + 1] = {
+        local fluid_spec = {
           fluid_label = st.label and st.label:gsub("^drop of ", "") or nil,
           fluid_filter = { name = st.name, damage = st.damage or 0, label = st.label },
         }
+        out.fluids[#out.fluids + 1] = fluid_spec
+        out.queue[#out.queue + 1] = {
+          kind = "fluid",
+          fluid_label = fluid_spec.fluid_label,
+          fluid_filter = fluid_spec.fluid_filter,
+          fluid_source = "chest_drop",
+          slot = slot,
+        }
+        local key = _norm_fluid_label(fluid_spec.fluid_label)
+        if key then seen_fluids[key] = true end
       else
-        out.items[#out.items + 1] = {
+        local item_spec = {
           slot = slot,
           name = st.name,
           damage = st.damage or 0,
           label = st.label,
           count = st.size or 1,
         }
+        out.items[#out.items + 1] = item_spec
+        out.queue[#out.queue + 1] = {
+          kind = "item",
+          slot = slot,
+          name = item_spec.name,
+          damage = item_spec.damage,
+          label = item_spec.label,
+          count = item_spec.count,
+        }
       end
+    end
+  end
+
+  for _, fluid in ipairs(self:_fluids_from_central_tank()) do
+    local key = _norm_fluid_label(fluid.fluid_label)
+    if not key or not seen_fluids[key] then
+      out.fluids[#out.fluids + 1] = fluid
+      out.queue[#out.queue + 1] = {
+        kind = "fluid",
+        fluid_label = fluid.fluid_label,
+        fluid_registry = fluid.fluid_registry,
+        fluid_amount_mb = fluid.fluid_amount_mb,
+        fluid_source = fluid.fluid_source,
+        fluid_tank_index = fluid.fluid_tank_index,
+      }
+      if key then seen_fluids[key] = true end
     end
   end
   return out
@@ -218,9 +301,7 @@ function CentralDispatch:_slot_size(tp, side, slot)
 end
 
 function CentralDispatch:_fluid_level(tp, side)
-  if not tp or not tp.getTankLevel then return 0 end
-  local ok, lvl = pcall(tp.getTankLevel, side, 1)
-  return ok and type(lvl) == "number" and lvl or 0
+  return FluidTanks.tank_level(tp, side)
 end
 
 function CentralDispatch:_bus_empty(item_tp, machine)
@@ -425,6 +506,8 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     if #manifest.items == 0 and #manifest.fluids == 0 then
       return { { type = "central_wait_output", detail = "central chest empty after stabilize" } }
     end
+    self.log(string.format("[CentralDispatch] queue steps=%d items=%d fluids=%d",
+      #(manifest.queue or {}), #manifest.items, #manifest.fluids))
 
     if lane_dispatch and lane_dispatch.handoff_from_central then
       local ok, handoff_err = lane_dispatch:handoff_from_central(machine, manifest)

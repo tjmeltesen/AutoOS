@@ -362,6 +362,9 @@ do
   check("central handoff accepted", ok_handoff == true)
   now = now + 0.02
   dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  now = now + 0.03
+  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  now = now + 0.03
   local _, ev = dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
   local failed_ev = false
   for _, e in ipairs(ev) do
@@ -370,9 +373,19 @@ do
       break
     end
   end
+  if not failed_ev then
+    now = now + 0.05
+    local _, ev2 = dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+    for _, e in ipairs(ev2) do
+      if e.type == "recover_failed" and tostring(e.detail):find("fluid track step") then
+        failed_ev = true
+        break
+      end
+    end
+  end
   check("central missing fluid triggers recover_failed", failed_ev)
   check("central missing fluid leaves hatch empty", (fluid_tanks[4] and fluid_tanks[4][1] and fluid_tanks[4][1].amount or 0) == 0)
-  check("central missing fluid keeps item staged", item_inv[4] and item_inv[4][1] ~= nil)
+  check("central missing fluid may still move item track", item_inv[4] and item_inv[4][1] ~= nil)
 end
 
 -- central mode: supports getTankLevel(side) + getFluidInTank(side) ----------------
@@ -438,12 +451,84 @@ do
   })
   dispatch:handoff_from_central(cfg.machines[1], {
     items = { { name = "gregtech:gt.integrated_circuit", damage = 18, size = 1 } },
-    fluids = { { fluid_label = "molten.solderingalloy" } },
+    fluids = { { fluid_label = "fluid" } },
   })
-  now = now + 0.02
-  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
-  dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  for _ = 1, 8 do
+    now = now + 0.03
+    dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+  end
   check("getTankLevel(side) transfer moves fluid", (fluid_tanks[4] and fluid_tanks[4][1] and fluid_tanks[4][1].amount or 0) > 0)
+end
+
+-- central mode: dual-track queue (parallel kinds, serial fluids) ------------------
+do
+  local now = 0
+  local item_tp, item_inv = new_item_tp({ [1] = 9, [4] = 9 }, { [1] = { [1] = stack(18) }, [4] = {} })
+  local fluid_tp, fluid_tanks = new_fluid_tp({ [1] = { { amount = 1000, name = "fluid1" } }, [4] = {} })
+  fluid_tp.getFluidInTank = function(side)
+    return fluid_tanks[side] or {}
+  end
+  local component = {
+    proxy = function(a)
+      if a == "item-tp" then return item_tp end
+      if a == "fluid-tp" then return fluid_tp end
+      if a == "gt-1" then return {} end
+    end,
+    list = function() return { ["item-tp"] = "transposer", ["fluid-tp"] = "transposer", ["gt-1"] = "gt_machine" } end,
+  }
+  local cfg = {
+    input_mode = "central",
+    completion_mode = "both",
+    chest_slot_start = 1,
+    circuit_bus_slot = 1,
+    settle_s = 0.01,
+    staging_timeout_s = 0.2,
+    central_interface_wait_s = 0.05,
+    circuit_item_name = "gregtech:gt.integrated_circuit",
+    machines = { {
+      id = "machine_01",
+      gt_address = "gt-1",
+      item_transposer_address = "item-tp",
+      fluid_transposer_address = "fluid-tp",
+      side_buffer = 1,
+      side_bus_b = 4,
+      side_return = 1,
+      side_fluid_buffer = 1,
+      side_fluid_hatch = 4,
+    } },
+  }
+  local dispatch = LaneDispatch.new({
+    config = cfg,
+    component = component,
+    circuit_manager = CircuitManager.new({ config = cfg, component = component }),
+    now = function() return now end,
+    sleep = function() end,
+    log = function() end,
+  })
+  dispatch:handoff_from_central(cfg.machines[1], {
+    queue = {
+      { kind = "item", name = "gregtech:gt.integrated_circuit", damage = 18, count = 1 },
+      { kind = "fluid", fluid_label = "fluid1" },
+      { kind = "fluid", fluid_label = "fluid2" },
+    },
+    items = { { name = "gregtech:gt.integrated_circuit", damage = 18, count = 1 } },
+    fluids = { { fluid_label = "fluid1" }, { fluid_label = "fluid2" } },
+  })
+  local saw_item_move_early = false
+  local saw_fluid_step2 = false
+  for _ = 1, 20 do
+    now = now + 0.03
+    dispatch:tick_lane(cfg.machines[1], { available = true, healthy = true, active = false, has_work = false })
+    local dbg = dispatch:get_lane_debug("machine_01")
+    if item_inv[4] and item_inv[4][1] then saw_item_move_early = true end
+    if dbg.fluid_idx == 2 and not saw_fluid_step2 then
+      saw_fluid_step2 = true
+      fluid_tanks[1] = { { amount = 800, name = "fluid2" } }
+    end
+  end
+  check("dual-track item can move while fluid track runs", saw_item_move_early)
+  check("dual-track reached second fluid step", saw_fluid_step2)
+  check("dual-track second fluid transferred", (fluid_tanks[4] and fluid_tanks[4][1] and fluid_tanks[4][1].amount or 0) >= 1800)
 end
 
 -- round-robin order -------------------------------------------------------------

@@ -6,6 +6,7 @@
 ]]
 
 local HW = require("hw")
+local FluidTanks = require("fluid_tanks")
 
 local InterfaceStock = {}
 InterfaceStock.__index = InterfaceStock
@@ -21,26 +22,7 @@ local function stack_matches(st, spec)
 end
 
 local function fluid_level(tp, side)
-  if not tp then return 0 end
-  if tp.getTankLevel then
-    local ok, lvl = pcall(tp.getTankLevel, side, 1)
-    if ok and type(lvl) == "number" then return lvl end
-    ok, lvl = pcall(tp.getTankLevel, side)
-    if ok and type(lvl) == "number" then return lvl end
-  end
-  if tp.getFluidInTank then
-    local ok, tanks = pcall(tp.getFluidInTank, side)
-    if ok and type(tanks) == "table" then
-      local total = 0
-      for _, t in ipairs(tanks) do
-        if type(t) == "table" and type(t.amount) == "number" and t.amount > 0 then
-          total = total + t.amount
-        end
-      end
-      return total
-    end
-  end
-  return 0
+  return FluidTanks.tank_level(tp, side)
 end
 
 function InterfaceStock.new(deps)
@@ -94,6 +76,104 @@ function InterfaceStock:_push_slot(active, slot)
     if s == slot then return end
   end
   active.db_slots[#active.db_slots + 1] = slot
+end
+
+function InterfaceStock:_new_active(machine, iface)
+  return {
+    machine = machine,
+    iface = iface,
+    items = {},
+    fluids = {},
+    db_slots = {},
+  }
+end
+
+function InterfaceStock:stock_one_item(machine, spec, slot_index)
+  spec = spec or {}
+  local iface, if_err = self:_iface(machine)
+  if not iface then return false, if_err end
+  if not iface.setInterfaceConfiguration then
+    return false, "me_interface missing setInterfaceConfiguration"
+  end
+
+  local slot_start = self:_item_slot_start(machine)
+  local slot_limit = self:_item_slot_limit(machine)
+  local idx = slot_index or 1
+  if idx < 1 or idx > slot_limit then
+    return false, string.format("item slot index %d out of range (1..%d)", idx, slot_limit)
+  end
+  local iface_slot = spec.iface_slot or (slot_start + idx - 1)
+  local active = self:_new_active(machine, iface)
+  local ok_slot, db_slot = self.descriptor_cache:ensure_item(iface, spec)
+  if not ok_slot then return false, tostring(db_slot), active end
+  local ok_cfg, cfg_err = pcall(
+    iface.setInterfaceConfiguration,
+    iface_slot,
+    self.config.database_address,
+    db_slot,
+    spec.count or 1
+  )
+  if not ok_cfg or cfg_err == false then
+    return false, "setInterfaceConfiguration failed: " .. tostring(cfg_err), active
+  end
+  active.items[1] = { iface_slot = iface_slot, db_slot = db_slot, spec = spec }
+  self:_push_slot(active, db_slot)
+  return true, nil, active
+end
+
+function InterfaceStock:stock_one_fluid(machine, spec)
+  spec = spec or {}
+  local iface, if_err = self:_iface(machine)
+  if not iface then return false, if_err end
+  if not iface.setFluidInterfaceConfiguration then
+    return false, "me_interface missing setFluidInterfaceConfiguration"
+  end
+  local active = self:_new_active(machine, iface)
+  local ok_slot, db_slot = self.descriptor_cache:ensure_fluid(iface, spec)
+  if not ok_slot then return false, tostring(db_slot), active end
+  local side = self:_fluid_side(machine)
+  local ok_cfg, cfg_err = pcall(
+    iface.setFluidInterfaceConfiguration,
+    side,
+    self.config.database_address,
+    db_slot
+  )
+  if not ok_cfg or cfg_err == false then
+    return false, "setFluidInterfaceConfiguration failed: " .. tostring(cfg_err), active
+  end
+  active.fluids[1] = { side = side, db_slot = db_slot, spec = spec }
+  self:_push_slot(active, db_slot)
+  return true, nil, active
+end
+
+function InterfaceStock:clear_item(active)
+  active = active or {}
+  local machine = active.machine
+  local iface = active.iface
+  if not iface and machine then
+    local got = self:_iface(machine)
+    if got then iface = got end
+  end
+  if not iface then return false, "me_interface proxy unavailable for clear item" end
+  for _, item_cfg in ipairs(active.items or {}) do
+    pcall(iface.setInterfaceConfiguration, item_cfg.iface_slot)
+  end
+  return true
+end
+
+function InterfaceStock:clear_fluid(active)
+  active = active or {}
+  local machine = active.machine
+  local iface = active.iface
+  if not iface and machine then
+    local got = self:_iface(machine)
+    if got then iface = got end
+  end
+  if not iface then return false, "me_interface proxy unavailable for clear fluid" end
+  for _, fluid_cfg in ipairs(active.fluids or {}) do
+    pcall(iface.setFluidInterfaceConfiguration, fluid_cfg.side)
+  end
+  return true
 end
 
 function InterfaceStock:stock_batch(machine, manifest)

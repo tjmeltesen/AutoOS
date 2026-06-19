@@ -24,10 +24,12 @@ package.path = here .. sep .. "?.lua;" .. package.path
 
 package.loaded.config = nil
 package.loaded.lane_sides = nil
+package.loaded.fluid_tanks = nil
 
 local Config = require("config")
 local LaneSides = require("lane_sides")
 local component = require("component")
+local FluidTanks = require("fluid_tanks")
 
 local function proxy_adapter(addr)
   local ok, ad = pcall(component.proxy, addr, "adapter")
@@ -43,48 +45,9 @@ local function proxy_transposer(addr)
   return ok and tp or nil
 end
 
-local function fluid_rows(tp, side)
-  local rows = {}
-  if tp.getFluidInTank then
-    local ok, tank_list = pcall(tp.getFluidInTank, side)
-    if ok and type(tank_list) == "table" then
-      if tank_list.amount ~= nil then tank_list = { tank_list } end
-      for i, t in ipairs(tank_list) do
-        if type(t) == "table" then
-          rows[#rows + 1] = {
-            idx = i,
-            name = t.name or t.label or t.id or "unknown",
-            amount = tonumber(t.amount) or 0,
-          }
-        end
-      end
-    end
-  end
-  return rows
-end
-
-local function tank_level(tp, side)
-  if tp.getTankLevel then
-    local ok, lvl = pcall(tp.getTankLevel, side, 1)
-    if ok and type(lvl) == "number" then return lvl end
-    ok, lvl = pcall(tp.getTankLevel, side)
-    if ok and type(lvl) == "number" then return lvl end
-  end
-  local total = 0
-  for _, row in ipairs(fluid_rows(tp, side)) do
-    total = total + (row.amount or 0)
-  end
-  return total
-end
-
-local function tank_capacity(tp, side)
-  if not tp.getTankCapacity then return nil end
-  local ok, cap = pcall(tp.getTankCapacity, side, 1)
-  if ok and type(cap) == "number" then return cap end
-  ok, cap = pcall(tp.getTankCapacity, side)
-  if ok and type(cap) == "number" then return cap end
-  return nil
-end
+local function fluid_rows(tp, side) return FluidTanks.fluid_rows(tp, side) end
+local function tank_level(tp, side) return FluidTanks.tank_level(tp, side) end
+local function tank_capacity(tp, side) return FluidTanks.tank_capacity(tp, side) end
 
 local function print_side(tp, side, mark)
   local lvl = tank_level(tp, side)

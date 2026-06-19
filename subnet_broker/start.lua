@@ -5,7 +5,7 @@
     config.lua, hw.lua, lane_sides.lua, lane_dispatch.lua, central_dispatch.lua,
     maintenance_parse.lua, machine_poll.lua, circuit_manager.lua,
     array_watch.lua, network_protocols.lua, broker_main.lua,
-    start.lua, diag.lua, probe_transposer.lua, probe_fluid.lua
+    start.lua, diag.lua, probe_transposer.lua, probe_fluid.lua, fluid_tanks.lua
 
   Run: loadfile("/home/subnet_broker/start.lua")()
   Watch: lua broker_main.lua
@@ -17,7 +17,7 @@ package.path = here .. sep .. "?.lua;" .. package.path
 
 local REQUIRED = {
   "array_watch.lua", "lane_dispatch.lua", "central_dispatch.lua", "machine_poll.lua",
-  "circuit_manager.lua", "descriptor_cache.lua", "interface_stock.lua",
+  "circuit_manager.lua", "descriptor_cache.lua", "interface_stock.lua", "fluid_tanks.lua",
   "network_protocols.lua", "broker_main.lua",
 }
 local missing = {}
