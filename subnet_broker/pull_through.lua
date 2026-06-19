@@ -168,6 +168,22 @@ local function run(args)
     return
   end
 
+  -- ── Step 3.5: Fast path — fluid already on pull side? ──
+  log("── Step 3.5: check if fluid already on pull side ──")
+  local already_there = FluidTanks.tank_level(fluid_tp, fluid_pull)
+  local skip_stock = false
+  if already_there > 0 then
+    log("  fluid already on pull side (level=%s) — skipping stock", tostring(already_there))
+    skip_stock = true
+  else
+    log("  pull side empty — need to stock + wait for delivery")
+  end
+
+  if not skip_stock then
+  -- ══════════════════════════════════════════════════════════════════════
+  -- Steps 4-6 only run if pull side is empty
+  -- ══════════════════════════════════════════════════════════════════════
+
   -- ── Step 4: Find or create a fluid DB entry ──
   log("── Step 4: find/create DB entry ──")
   local db_addr = Config.database_address
@@ -191,18 +207,49 @@ local function run(args)
 
   -- Helper: try to create a fluid DB entry from a fluid drop in the ME network
   local function create_fluid_entry(fluid_name)
-    if not iface or not iface.store or not iface.getItemsInNetwork then
-      return nil, "iface missing store/getItemsInNetwork"
+    if not iface or not iface.store then
+      return nil, "iface missing store"
     end
-    -- Find fluid drops matching this fluid name
-    local drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop" })
-    if type(drops) ~= "table" or #drops == 0 then
+    if not iface.getItemsInNetwork then
+      return nil, "iface missing getItemsInNetwork"
+    end
+
+    -- Try multiple item names for fluid drops (different GTNH versions use
+    -- different names for the fluid drop item)
+    local drop_names = { "ae2fc:fluid_drop", "ae2fc:fluid_drop1", "ae2fc:fluid_drop2" }
+    local drops = nil
+    for _, dn in ipairs(drop_names) do
+      drops = iface.getItemsInNetwork({ name = dn })
+      if type(drops) == "table" and #drops > 0 then
+        log("  found %d fluid drops via '%s'", #drops, dn)
+        break
+      end
+      drops = nil
+    end
+    if not drops then
+      -- Show what IS available for debugging
+      log("  no fluid_drop items found — listing first 10 items in network:")
+      local all = iface.getItemsInNetwork({})
+      if type(all) == "table" then
+        local shown = 0
+        for _, item in ipairs(all) do
+          if shown >= 10 then break end
+          shown = shown + 1
+          log("    [%d] name=%s label=%s damage=%s",
+            shown, tostring(item.name or "?"), tostring(item.label or "-"), tostring(item.damage or 0))
+        end
+        if #all == 0 then log("    (no items in network)") end
+      else
+        log("    getItemsInNetwork({}) returned: %s", tostring(all))
+      end
       return nil, "no fluid_drop items in ME network"
     end
-    local fname = fluid_name:lower()
+
+    -- Match: strip "drop of " prefix from drop label, compare against fluid name
+    local fname = fluid_name:lower():gsub("^drop of ", ""):gsub("^molten ", "")
     for _, drop in ipairs(drops) do
-      local dlabel = drop.label and drop.label:lower()
-      if dlabel and dlabel:find(fname, 1, true) then
+      local dlabel = drop.label and drop.label:lower():gsub("^drop of ", ""):gsub("^molten ", "")
+      if dlabel and (dlabel == fname or dlabel:find(fname, 1, true) or fname:find(dlabel, 1, true)) then
         local empty = find_empty_db_slot()
         if not empty then return nil, "no empty DB slots" end
         local filter = { name = drop.name, damage = drop.damage or 0 }
@@ -214,6 +261,13 @@ local function run(args)
         end
         return nil, "iface.store returned false for slot " .. tostring(empty)
       end
+    end
+
+    -- Show what drops are available for manual matching
+    log("  no match for '%s' — available drops:", fluid_name)
+    for i, drop in ipairs(drops) do
+      if i > 5 then log("    ... and %d more", #drops - 5); break end
+      log("    [%d] name=%s label=%s", i, tostring(drop.name), tostring(drop.label or "-"))
     end
     return nil, "no fluid_drop matching '" .. fluid_name .. "'"
   end
@@ -323,6 +377,8 @@ local function run(args)
     log("  Try running again with items (they work) as a control test")
     return
   end
+
+  end  -- if not skip_stock (Steps 4-6)
 
   -- ── Step 7: Transfer to hatch ──
   log("── Step 7: transfer pull(%d) → hatch(%d) ──", fluid_pull, hatch_side)
