@@ -1,12 +1,12 @@
 --[[
-  AutoOS — Pull-through test: replicates lane_worker stock→wait→transfer
+  AutoOS — Pull-through test: central buffer → dual IF → transposer → hatch
   Usage:
-    loadfile("/home/subnet_broker/pull_through.lua")()
     loadfile("/home/subnet_broker/pull_through.lua")("machine_01")
+    loadfile("/home/subnet_broker/pull_through.lua")("machine_01", "pull.txt")
+    loadfile("/home/subnet_broker/pull_through.lua")("machine_01", "pull.txt", 3)  -- db_slot=3
 ]]
 
 local BUILD = "2026-06-19"
-local VERBOSE = true
 
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
@@ -22,283 +22,341 @@ local FluidTanks   = require("fluid_tanks")
 local component    = require("component")
 local computer     = require("computer")
 
--- ── probe helpers ──────────────────────────────────────────────────────────
-
 local LOG_FILE = nil
-
 local function log(fmt, ...)
   local msg = string.format("[pull_through] " .. fmt, ...)
   print(msg)
-  if LOG_FILE then
-    LOG_FILE:write(msg .. "\n")
-    LOG_FILE:flush()
-  end
+  if LOG_FILE then LOG_FILE:write(msg .. "\n"); LOG_FILE:flush() end
 end
 
-local function log_open(filename)
-  LOG_FILE = io.open("/home/subnet_broker/" .. filename, "w")
-  if LOG_FILE then
-    log("log opened: %s", filename)
-  else
-    print("[pull_through] WARN: cannot open " .. tostring(filename))
-  end
+local function log_open(fn)
+  LOG_FILE = io.open("/home/subnet_broker/" .. fn, "w")
+  if LOG_FILE then log("log opened: %s", fn) end
 end
-
 local function log_close()
-  if LOG_FILE then
-    LOG_FILE:close()
-    LOG_FILE = nil
-  end
+  if LOG_FILE then LOG_FILE:close(); LOG_FILE = nil end
 end
 
-local function dump_tanks(tp, side, label)
-  if not tp then log("%s: no transposer", label or "?"); return end
-  local lvl = FluidTanks.tank_level(tp, side)
-  local cap = FluidTanks.tank_capacity(tp, side)
-  log("%s (side %d): level=%s cap=%s", label or "?", side, tostring(lvl), tostring(cap or "?"))
-  for _, row in ipairs(FluidTanks.non_empty_tanks(tp, side)) do
-    log("  tank[%d] %s : %s mB", row.idx, tostring(row.name), tostring(row.amount))
-  end
-end
-
--- ── component proxy (matching registry pattern) ────────────────────────────
+-- ── proxies ────────────────────────────────────────────────────────────────
 
 local function proxy(addr, ptype)
-  if not addr or addr == "" then return nil, "empty address" end
+  if not addr or addr == "" then return nil end
   local ok, p = pcall(component.proxy, addr, ptype)
   if ok and p then return p end
   ok, p = pcall(component.proxy, addr)
-  if ok and p then return p end
-  return nil, "proxy failed"
+  return ok and p or nil
 end
 
--- ── replicate lane_worker's stock_fluid_slot ───────────────────────────────
+-- ── helpers ────────────────────────────────────────────────────────────────
 
-local function stock_fluid_slot(iface, side, db_address, db_slot)
-  if not db_address or db_address == "" then
-    return false, "empty db_address"
+local function dump_tanks(tp, side, label)
+  if not tp then log("  %s: no transposer", label); return end
+  local lvl = FluidTanks.tank_level(tp, side)
+  local cap = FluidTanks.tank_capacity(tp, side)
+  log("  %s (side %d): level=%s cap=%s", label, side, tostring(lvl), tostring(cap or "?"))
+  for _, row in ipairs(FluidTanks.non_empty_tanks(tp, side)) do
+    log("    tank[%d] %s : %s mB", row.idx, tostring(row.name), tostring(row.amount))
   end
-  if type(db_slot) ~= "number" then
-    return false, "db_slot not a number: " .. tostring(db_slot)
-  end
-  if not iface or not iface.setFluidInterfaceConfiguration then
-    return false, "no setFluidInterfaceConfiguration"
-  end
-  local ok, err = pcall(iface.setFluidInterfaceConfiguration, side, db_address, db_slot)
-  if not ok then return false, tostring(err) end
-  if err == false then return false, "returned false"
-  end
-  return true
 end
 
--- ── replicate lane_worker's transferFluid call ─────────────────────────────
-
-local function transfer_all_fluids(fluid_tp, pull_side, hatch_side, deadline)
-  local total = 0
-  while computer.uptime() < deadline do
-    local tanks = FluidTanks.non_empty_tanks(fluid_tp, pull_side)
-    if #tanks == 0 then break end
-    for _, tank in ipairs(tanks) do
-      local ok, moved = pcall(fluid_tp.transferFluid, pull_side, hatch_side, tank.amount)
-      if ok and moved and moved > 0 then
-        log("  transferred %s mB (%s)", tostring(moved), tostring(tank.name))
-        total = total + moved
-      elseif not ok then
-        log("  transferFluid error: %s", tostring(moved))
-      else
-        log("  transferFluid returned 0 for %s (%s mB)", tostring(tank.name), tostring(tank.amount))
+local function dump_raw_getFluidInTank(tp, side, label)
+  if not tp then log("  %s: no transposer", label); return end
+  local ok, val = pcall(tp.getFluidInTank, side)
+  log("  %s getFluidInTank(%d): ok=%s", label, side, tostring(ok))
+  if not ok then
+    log("    ERROR: %s", tostring(val))
+    return
+  end
+  if type(val) == "table" then
+    if val.amount ~= nil then
+      log("    single: name=%s amount=%s", tostring(val.name or val.label or "?"), tostring(val.amount))
+    else
+      log("    %d entries:", #val)
+      for i, t in ipairs(val) do
+        log("      [%d] name=%s amount=%s label=%s",
+          i, tostring(t.name or "?"), tostring(t.amount), tostring(t.label or "-"))
       end
-      os.sleep(0.05)
     end
+  else
+    log("    raw value: %s", tostring(val))
   end
-  return total
 end
 
 -- ── main ───────────────────────────────────────────────────────────────────
 
 local function run(args)
   local machine_id = args[1] or "machine_01"
-  local out_file = args[2]
+  local out_file   = args[2]  -- e.g. "pull.txt"
+  local manual_slot = tonumber(args[3])  -- optional db_slot override
 
   if out_file then log_open(out_file) end
 
   log("=== pull_through %s | machine=%s ===", BUILD, machine_id)
 
-  -- Resolve machine from config
+  -- Resolve machine
   local m
   for _, mc in ipairs(Config.machines or {}) do
     if mc.id == machine_id then m = mc; break end
   end
-  if not m then log("ERROR: machine '%s' not found", machine_id); return end
+  if not m then log("ERROR: machine '%s' not found", machine_id); goto done end
 
-  -- Proxies (same as lane_worker)
-  local iface, if_err = proxy(m.interface_address, "me_interface")
-  local item_tp, it_err = proxy(LaneSides.item_transposer_address(m), "transposer")
-  local fluid_tp, ft_err = proxy(LaneSides.fluid_transposer_address(m), "transposer")
+  -- ── Proxies ──
+  local iface   = proxy(m.interface_address, "me_interface")
+  local item_tp = proxy(LaneSides.item_transposer_address(m), "transposer")
+  local fluid_tp = proxy(LaneSides.fluid_transposer_address(m), "transposer")
+  local fluid_adapter = nil
+  local central = Config.central or {}
+  if central.fluid_adapter_address and central.fluid_adapter_address ~= "" then
+    fluid_adapter = proxy(central.fluid_adapter_address, "transposer")
+  end
+  local db = proxy(Config.database_address, "database")  -- to look up fluid entries
 
-  log("iface    = %s (%s)", tostring(m.interface_address), iface and "OK" or if_err or "MISSING")
-  log("item_tp  = %s (%s)", tostring(LaneSides.item_transposer_address(m)), item_tp and "OK" or it_err or "MISSING")
-  log("fluid_tp = %s (%s)", tostring(LaneSides.fluid_transposer_address(m)), fluid_tp and "OK" or ft_err or "MISSING")
+  log("iface    = %s", iface and "OK" or "MISSING")
+  log("item_tp  = %s", item_tp and "OK" or "MISSING")
+  log("fluid_tp = %s", fluid_tp and "OK" or "MISSING")
+  log("fluid_ad = %s (%s)", central.fluid_adapter_address or "(none)", fluid_adapter and "OK" or "MISSING")
+  log("db       = %s (%s)", Config.database_address or "(none)", db and "OK" or "MISSING")
 
-  -- Sides (same as lane_worker)
+  -- ── Sides ──
   local item_pull  = LaneSides.central_item_pull_side(m)
   local fluid_pull = LaneSides.central_fluid_pull_side(m)
-  local bus_side   = LaneSides.bus_side(m)
   local hatch_side = LaneSides.fluid_hatch_side(m)
+  local fluid_ad_side = central.fluid_adapter_side or 0
 
-  log("sides: item_pull=%d fluid_pull=%d bus=%d hatch=%d", item_pull, fluid_pull, bus_side, hatch_side)
+  log("sides: item_pull=%d fluid_pull=%d hatch=%d fluid_ad=%d",
+    item_pull, fluid_pull, hatch_side, fluid_ad_side)
 
-  -- DB config (same as lane_worker)
-  local db_addr = Config.database_address
-  if not db_addr or db_addr == "" or db_addr:find("SET_", 1, true) then
-    log("ERROR: database_address is placeholder — set real UUID in config.lua")
-    return
+  -- ── Step 1: Central fluid buffer ──
+  log("── Step 1: central fluid buffer (adapter) ──")
+  if fluid_adapter then
+    dump_tanks(fluid_adapter, fluid_ad_side, "central_tank")
+    dump_raw_getFluidInTank(fluid_adapter, fluid_ad_side, "central_raw")
+  else
+    log("  no fluid adapter configured (central.fluid_adapter_address)")
   end
 
-  -- ── Step 1: Show current fluid configs on the interface ──
-  log("── Step 1: current interface fluid configs ──")
+  -- ── Step 2: Current interface fluid configs (raw dump) ──
+  log("── Step 2: interface fluid configs (raw) ──")
   if iface and iface.getFluidInterfaceConfiguration then
-    local found = false
     for side = 0, 5 do
       local ok, cfg = pcall(iface.getFluidInterfaceConfiguration, side)
-      if ok and cfg then
-        -- config can be {address, slot} or just a boolean false
-        local addr = cfg
-        local slot = nil
-        if type(cfg) == "table" then
-          addr = cfg.address or cfg[1]
-          slot = cfg.slot or cfg[2]
+      local cfg_type = type(cfg)
+      log("  side %d: ok=%s type=%s", side, tostring(ok), cfg_type)
+      if ok and cfg_type == "table" then
+        for k, v in pairs(cfg) do
+          log("    .%s = %s", tostring(k), tostring(v))
         end
-        if addr and addr ~= "" and addr ~= false then
-          log("  side %d: addr=%s slot=%s", side, tostring(addr), tostring(slot))
-          found = true
-        end
+      elseif ok and cfg_type ~= "nil" then
+        log("    value = %s", tostring(cfg))
       end
-    end
-    if not found then
-      log("  (no fluid configs found on any side)")
-    end
-  end
-
-  -- ── Step 2: Show current tank state on BOTH sides ──
-  log("── Step 2: fluid transposer tank state ──")
-  if not fluid_tp then
-    log("  ERROR: no fluid transposer — cannot proceed")
-    return
-  end
-  dump_tanks(fluid_tp, fluid_pull, "pull")
-  dump_tanks(fluid_tp, hatch_side, "hatch")
-
-  -- ── Step 3: Check what getFluidInTank returns on the pull side ──
-  log("── Step 3: raw getFluidInTank on pull side %d ──", fluid_pull)
-  local ok_raw, raw_tanks = pcall(fluid_tp.getFluidInTank, fluid_pull)
-  log("  pcall ok=%s", tostring(ok_raw))
-  if ok_raw then
-    log("  type=%s", type(raw_tanks))
-    if type(raw_tanks) == "table" then
-      if raw_tanks.amount ~= nil then
-        log("  single tank: %s mB (%s)", tostring(raw_tanks.amount), tostring(raw_tanks.name or raw_tanks.label or "?"))
-      else
-        log("  %d tanks:", #raw_tanks)
-        for i, t in ipairs(raw_tanks) do
-          log("    [%d] name=%s amount=%s", i, tostring(t.name or t.label or "?"), tostring(t.amount))
-        end
-      end
-    else
-      log("  value: %s", tostring(raw_tanks))
     end
   else
-    log("  ERROR: %s", tostring(raw_tanks))
+    log("  getFluidInterfaceConfiguration not available")
   end
 
-  -- Also check getTankLevel
-  local ok_gtl, gtl = pcall(fluid_tp.getTankLevel, fluid_pull)
-  log("  getTankLevel(side=%d): ok=%s value=%s", fluid_pull, tostring(ok_gtl), tostring(gtl))
-  ok_gtl, gtl = pcall(fluid_tp.getTankLevel, fluid_pull, 1)
-  log("  getTankLevel(side=%d, 1): ok=%s value=%s", fluid_pull, tostring(ok_gtl), tostring(gtl))
+  -- ── Step 3: Current tank state on pull + hatch ──
+  log("── Step 3: transposer tank state ──")
+  if fluid_tp then
+    dump_tanks(fluid_tp, fluid_pull, "pull")
+    dump_raw_getFluidInTank(fluid_tp, fluid_pull, "pull_raw")
+    dump_tanks(fluid_tp, hatch_side, "hatch")
+  else
+    log("  no fluid transposer")
+    goto done
+  end
 
-  -- ── Step 4: Find an existing fluid config to test with ──
-  log("── Step 4: test stock+deliver ──")
+  -- ── Step 4: Find or create a fluid DB entry ──
+  log("── Step 4: find/create DB entry ──")
+  local db_addr = Config.database_address
+  if not db_addr or db_addr == "" or db_addr:find("SET_", 1, true) then
+    log("  database_address is placeholder — set in config.lua")
+    goto done
+  end
 
-  -- Use the first fluid config we found on any side, but re-apply to fluid_pull side
-  local test_db_slot = nil
-  local test_side = nil
-  for side = 0, 5 do
-    local ok, cfg = pcall(iface.getFluidInterfaceConfiguration, side)
-    if ok and cfg then
-      if type(cfg) == "table" then
-        test_db_slot = cfg.slot or cfg[2]
-        test_side = side
-      end
-      if test_db_slot then break end
+  local stock_slot = manual_slot
+  local stock_label = "manual"
+
+  -- Helper: find an empty DB slot
+  local function find_empty_db_slot()
+    if not db or not db.get then return nil end
+    for slot = 1, (Config.database_slot_count or 9) do
+      local ok_s, entry = pcall(db.get, slot)
+      if not ok_s or entry == nil then return slot end
     end
+    return nil
   end
 
-  if not test_db_slot then
-    log("  No existing fluid config found on any side.")
-    log("  Configure one via the interface GUI, then re-run this test.")
-    log("  Or manually in the Lua prompt:")
-    log("    iface.setFluidInterfaceConfiguration(%d, db_addr, db_slot)", fluid_pull)
-    return
+  -- Helper: try to create a fluid DB entry from a fluid drop in the ME network
+  local function create_fluid_entry(fluid_name)
+    if not iface or not iface.store or not iface.getItemsInNetwork then
+      return nil, "iface missing store/getItemsInNetwork"
+    end
+    -- Find fluid drops matching this fluid name
+    local drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop" })
+    if type(drops) ~= "table" or #drops == 0 then
+      return nil, "no fluid_drop items in ME network"
+    end
+    local fname = fluid_name:lower()
+    for _, drop in ipairs(drops) do
+      local dlabel = drop.label and drop.label:lower()
+      if dlabel and dlabel:find(fname, 1, true) then
+        local empty = find_empty_db_slot()
+        if not empty then return nil, "no empty DB slots" end
+        local filter = { name = drop.name, damage = drop.damage or 0 }
+        if drop.label then filter.label = drop.label end
+        local ok_s = iface.store(filter, db_addr, empty, 1)
+        if ok_s then
+          log("  created DB entry: slot %d = %s", empty, tostring(drop.label or drop.name))
+          return empty, drop.label or drop.name
+        end
+        return nil, "iface.store returned false for slot " .. tostring(empty)
+      end
+    end
+    return nil, "no fluid_drop matching '" .. fluid_name .. "'"
   end
 
-  log("  Found existing config on side %d (db_slot=%s)", test_side, tostring(test_db_slot))
-  log("  Will reconfigure on pull side %d", fluid_pull)
+  if not stock_slot then
+    -- First: try to match fluids from the central tank to existing DB entries
+    if fluid_adapter then
+      local tanks = FluidTanks.non_empty_tanks(fluid_adapter, fluid_ad_side)
+      for _, tank in ipairs(tanks) do
+        local raw = tostring(tank.name or "")
+        for slot = 1, (Config.database_slot_count or 9) do
+          local ok_s, entry = pcall(db.get, slot)
+          if ok_s and type(entry) == "table" then
+            local ename = tostring(entry.name or entry.label or "")
+            if ename ~= "" and (raw:lower():find(ename:lower(), 1, true) or ename:lower():find(raw:lower(), 1, true)) then
+              stock_slot = slot
+              stock_label = ename
+              log("  matched tank '%s' → DB slot %d (%s)", raw, slot, ename)
+              goto got_slot
+            end
+          end
+        end
+      end
 
-  -- First clear the pull side
+      -- No match found — try to create entries for fluids in the central tank
+      log("  no matching DB entries found — attempting to create them")
+      for _, tank in ipairs(FluidTanks.non_empty_tanks(fluid_adapter, fluid_ad_side)) do
+        local raw = tostring(tank.name or "")
+        local slot, err = create_fluid_entry(raw)
+        if slot then
+          stock_slot = slot
+          stock_label = err  -- err holds the label on success
+          log("  created entry for '%s' → slot %d", raw, slot)
+          goto got_slot
+        else
+          log("  could not create entry for '%s': %s", raw, tostring(err))
+        end
+      end
+    end
+
+    -- Fallback: list all DB slots
+    log("  no usable DB entry — listing all DB slots:")
+    if db then
+      for slot = 1, (Config.database_slot_count or 9) do
+        local ok_s, entry = pcall(db.get, slot)
+        if ok_s and type(entry) == "table" then
+          local ename = tostring(entry.name or entry.label or "?")
+          log("    slot %d: %s", slot, ename)
+        else
+          log("    slot %d: (empty)", slot)
+        end
+      end
+    end
+    log("  re-run with db_slot as 3rd arg: pull_through(\"machine_01\", \"pull.txt\", N)")
+    goto done
+  end
+
+  ::got_slot::
+  if not stock_slot then
+    log("  no DB slot found — pass db_slot as 3rd argument")
+    goto done
+  end
+  log("  using db_slot=%s label=%s", tostring(stock_slot), stock_label)
+
+  -- ── Step 5: Stock the fluid on the pull side ──
+  log("── Step 5: stock fluid on pull side %d ──", fluid_pull)
+  if not iface or not iface.setFluidInterfaceConfiguration then
+    log("  ERROR: no setFluidInterfaceConfiguration")
+    goto done
+  end
+
+  -- Clear existing config on pull side first
   pcall(iface.setFluidInterfaceConfiguration, fluid_pull)
+  log("  cleared side %d", fluid_pull)
 
-  -- Stock the fluid on the pull side
-  local ok_stock, stock_err = stock_fluid_slot(iface, fluid_pull, db_addr, test_db_slot)
-  if not ok_stock then
-    log("  stock_fluid_slot FAILED: %s", stock_err)
-    return
+  -- Stock
+  local ok_stock, stock_err = pcall(iface.setFluidInterfaceConfiguration, fluid_pull, db_addr, stock_slot)
+  if not ok_stock or stock_err == false then
+    log("  stock FAILED: ok=%s err=%s", tostring(ok_stock), tostring(stock_err))
+    goto done
   end
-  log("  stock_fluid_slot OK (side=%d addr=%s slot=%s)", fluid_pull, db_addr, tostring(test_db_slot))
+  log("  stock OK: side=%d addr=%s slot=%s", fluid_pull, db_addr, tostring(stock_slot))
 
-  -- ── Step 5: Poll for delivery ──
-  log("── Step 5: polling delivery (15s timeout) ──")
-  local deadline = computer.uptime() + 15
+  -- ── Step 6: Poll for delivery ──
+  log("── Step 6: polling delivery (20s timeout) ──")
+  local deadline = computer.uptime() + 20
   local delivered = false
   while computer.uptime() < deadline do
     local lvl = FluidTanks.tank_level(fluid_tp, fluid_pull)
     if lvl > 0 then
       delivered = true
-      log("  DELIVERED after %.1fs", 15 - (deadline - computer.uptime()))
+      local elapsed = 20 - (deadline - computer.uptime())
+      log("  DELIVERED after %.1fs (level=%s)", elapsed, tostring(lvl))
       break
     end
-    os.sleep(0.5)
+    os.sleep(0.25)
   end
 
-  if delivered then
-    dump_tanks(fluid_tp, fluid_pull, "pull (after delivery)")
-  else
-    log("  NOT DELIVERED after 15s")
-    log("  Final state:")
+  if not delivered then
+    log("  NOT DELIVERED after 20s — checking final state:")
     dump_tanks(fluid_tp, fluid_pull, "pull (timeout)")
-    dump_tanks(fluid_tp, hatch_side, "hatch (timeout)")
-    log("  Check: is the dual IF correctly configured?")
-    log("    - Did AE2 craft/stock the fluid?")
-    log("    - Is the transposer adjacent to side %d of the dual IF?", fluid_pull)
-    return
+    dump_raw_getFluidInTank(fluid_tp, fluid_pull, "pull_raw (timeout)")
+    log("  Possible issues:")
+    log("    - AE2 hasn't crafted/stocked the fluid yet")
+    log("    - fluid_pull_side (%d) doesn't match the dual IF side the transposer sees", fluid_pull)
+    log("    - setFluidInterfaceConfiguration needs a DIFFERENT first arg")
+    log("  Try running again with items (they work) as a control test")
+    goto done
   end
 
-  -- ── Step 6: Transfer to hatch ──
-  log("── Step 6: transfer pull(%d) → hatch(%d) ──", fluid_pull, hatch_side)
+  -- ── Step 7: Transfer to hatch ──
+  log("── Step 7: transfer pull(%d) → hatch(%d) ──", fluid_pull, hatch_side)
   local before_hatch = FluidTanks.tank_level(fluid_tp, hatch_side)
-  local xfer_deadline = computer.uptime() + 10
-  local total = transfer_all_fluids(fluid_tp, fluid_pull, hatch_side, xfer_deadline)
-  log("  total transferred: %s mB", tostring(total))
+  log("  hatch before: %s", tostring(before_hatch))
 
+  local total = 0
+  local xfer_deadline = computer.uptime() + 10
+  while computer.uptime() < xfer_deadline do
+    local tanks = FluidTanks.non_empty_tanks(fluid_tp, fluid_pull)
+    if #tanks == 0 then break end
+    for _, tank in ipairs(tanks) do
+      local ok, moved = pcall(fluid_tp.transferFluid, fluid_pull, hatch_side, tank.amount)
+      if ok and moved and moved > 0 then
+        log("  transferred %s mB (%s)", tostring(moved), tostring(tank.name))
+        total = total + moved
+      else
+        log("  transferFluid: ok=%s moved=%s (name=%s amount=%s)",
+          tostring(ok), tostring(moved), tostring(tank.name), tostring(tank.amount))
+      end
+      os.sleep(0.05)
+    end
+  end
+
+  log("  total transferred: %s mB", tostring(total))
   log("── After transfer ──")
   dump_tanks(fluid_tp, fluid_pull, "pull")
   dump_tanks(fluid_tp, hatch_side, "hatch")
+  local after_hatch = FluidTanks.tank_level(fluid_tp, hatch_side)
+  log("  hatch delta: %s → %s", tostring(before_hatch), tostring(after_hatch))
 
-  -- ── Step 7: Cleanup ──
-  log("── Step 7: cleanup ──")
+  -- ── Step 8: Cleanup ──
+  log("── Step 8: cleanup ──")
   pcall(iface.setFluidInterfaceConfiguration, fluid_pull)
   log("  cleared fluid config on side %d", fluid_pull)
 
+  ::done::
   log("=== done ===")
   if out_file then log_close() end
 end
@@ -306,4 +364,8 @@ end
 local ok, err = pcall(run, {...})
 if not ok then
   print("[pull_through] crashed: " .. tostring(err))
+  if LOG_FILE then
+    LOG_FILE:write("[pull_through] crashed: " .. tostring(err) .. "\n")
+    LOG_FILE:close()
+  end
 end
