@@ -44,9 +44,11 @@ function FluidTanks.tank_level(dev, side)
   if not dev then return 0 end
   if dev.getTankLevel then
     local ok, lvl = pcall(dev.getTankLevel, side, 1)
-    if ok and type(lvl) == "number" then return lvl end
+    -- ponytail: don't trust getTankLevel(side,1) when it returns 0 —
+    -- the fluid may be in a different tank index (dual IF has 6+ slots).
+    if ok and type(lvl) == "number" and lvl > 0 then return lvl end
     ok, lvl = pcall(dev.getTankLevel, side)
-    if ok and type(lvl) == "number" then return lvl end
+    if ok and type(lvl) == "number" and lvl > 0 then return lvl end
   end
 
   local total = 0
