@@ -36,7 +36,7 @@ local function boot()
     descriptor_cache = nil, -- ROM-pinned by registry; descriptor_cache not needed
     yield_sleep = function() end, -- replaced after scheduler is built
   })
-  registry:seed(computer.uptime, print, circuit_mgr)
+  registry.seed(computer.uptime, print, circuit_mgr)
 
   return registry
 end

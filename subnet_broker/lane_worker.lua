@@ -219,7 +219,7 @@ end
 --- Yields at least once even if condition is already true (scheduler fairness).
 local function await_delivery(registry, machine, item_tp, fluid_tp, condition_fn,
                               timeout_s, start_time, phase_name)
-  local now_fn = registry:get_now()
+  local now_fn = registry.get_now()
   local deadline = start_time + timeout_s
   local first = true
 
@@ -259,24 +259,24 @@ end
 ---@return table { status = "done"|"failed", error = string|nil }
 function LaneWorker.execute(registry, job, machine_id, event)
   -- Resolve dependencies from registry (no component.proxy() calls)
-  local machine = registry:get_machine(machine_id)
+  local machine = registry.get_machine(machine_id)
   if not machine then
     return { status = "failed", error = "machine not found: " .. tostring(machine_id) }
   end
 
-  local config = registry:get_config()
-  local now_fn = registry:get_now()
+  local config = registry.get_config()
+  local now_fn = registry.get_now()
   local log = registry._log or function() end
 
   -- Cached transposer proxies (pre-resolved by registry at boot)
-  local item_tp = machine.item_tp or registry:get_transposer(machine.item_transposer_address)
-  local fluid_tp = machine.fluid_tp or registry:get_transposer(machine.fluid_transposer_address)
+  local item_tp = machine.item_tp or registry.get_transposer(machine.item_transposer_address)
+  local fluid_tp = machine.fluid_tp or registry.get_transposer(machine.fluid_transposer_address)
 
   -- ME interface proxy (pre-resolved by registry at boot)
   local iface = machine.iface
 
   -- Circuit manager (already initialized by Phase 1)
-  local circuit_mgr = registry:get_circuit_manager()
+  local circuit_mgr = registry.get_circuit_manager()
 
   -- Config values
   local interface_wait_s = (config.central and config.central.interface_wait_s)
@@ -413,7 +413,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
 
     local function completion_ready()
       -- Check machine active state via poll result cached in registry
-      local poll = registry:get_poll_result(machine_id)
+      local poll = registry.get_poll_result(machine_id)
       if poll and poll.active then saw_active = true end
       local drained = drain_complete(item_tp, fluid_tp, machine, circuit_bus_slot)
       if not drained then return false end

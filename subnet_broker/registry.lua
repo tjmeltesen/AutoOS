@@ -235,73 +235,48 @@ function Registry.build(config, component)
     central_fluid_side = central_fluid_side,
   }
 
-  return setmetatable(self, {
-    __index    = Registry,
-    __newindex = function()
-      error("registry is read-only — no runtime writes after build()", 2)
-    end,
-  })
+  bind_methods(self)
+  return self
 end
 
---- Lookup an item descriptor in the database.
----@return table|nil  { address, slot } or nil if not found
-function Registry.lookup_db(item_name, damage, label)
-  return self._item_db[item_cache_key(item_name, damage, label)]
+--- Build method closures bound to a specific instance (no self/metatable dependency).
+local function bind_methods(inst)
+  inst.lookup_db = function(item_name, damage, label)
+    return inst._item_db[item_cache_key(item_name, damage, label)]
+  end
+  inst.lookup_fluid_db = function(fluid_label)
+    return inst._fluid_db[fluid_cache_key(fluid_label)]
+  end
+  inst.get_machine = function(machine_id)
+    return inst._machines[machine_id]
+  end
+  inst.get_iface = function(address)
+    if not address then return nil end
+    return HW.proxy(inst._component, address, "me_interface")
+  end
+  inst.get_interface = inst.get_iface
+  inst.get_transposer = function(address)
+    if not address then return nil end
+    return HW.proxy(inst._component, address, "transposer")
+  end
+  inst.get_config = function()
+    return inst._config
+  end
+  inst.get_now = function()
+    return inst._now or function() return 0 end
+  end
+  inst.get_circuit_manager = function()
+    return inst._circuit_manager
+  end
+  inst.get_poll_result = function(machine_id)
+    return inst._poll_results[machine_id]
+  end
+  inst.seed = function(now_fn, log_fn, circuit_mgr)
+    inst._now = now_fn
+    inst._log = log_fn
+    inst._circuit_manager = circuit_mgr
+  end
+  return inst
 end
 
---- Lookup a fluid descriptor in the database.
----@return table|nil  { address, slot } or nil if not found
-function Registry.lookup_fluid_db(fluid_label)
-  return self._fluid_db[fluid_cache_key(fluid_label)]
-end
-
---- Get a pre-resolved machine entry by id.
----@return table|nil
-function Registry.get_machine(machine_id)
-  return self._machines[machine_id]
-end
-
---- Get a cached me_interface proxy.
----@return table|nil
-function Registry.get_iface(address)
-  if not address then return nil end
-  return HW.proxy(self._component, address, "me_interface")
-end
-
---- Alias for lane_worker compatibility.
-function Registry.get_interface(address)
-  return Registry.get_iface(self, address)
-end
-
---- Get a cached transposer proxy.
----@return table|nil
-function Registry.get_transposer(address)
-  if not address then return nil end
-  return HW.proxy(self._component, address, "transposer")
-end
-
---- Runtime config accessors (set by bootloader after build).
-function Registry.get_config()
-  return self._config
-end
-
-function Registry.get_now()
-  return self._now or function() return 0 end
-end
-
-function Registry.get_circuit_manager()
-  return self._circuit_manager
-end
-
-function Registry.get_poll_result(machine_id)
-  return self._poll_results[machine_id]
-end
-
---- Seed runtime deps (called by bootloader after Registry.build).
-function Registry.seed(now_fn, log_fn, circuit_mgr)
-  self._now = now_fn
-  self._log = log_fn
-  self._circuit_manager = circuit_mgr
-end
-
-return Registry
+return { build = Registry.build, bind_methods = bind_methods }
