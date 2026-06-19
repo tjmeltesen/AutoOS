@@ -107,6 +107,7 @@ function BrokerMain.build()
     component = component,
     poll = poll,
     circuit_manager = circuit_manager,
+    descriptor_cache = descriptor_cache,
     lane_dispatch = lane_dispatch,
     link = link,
     reply_to = Config.orchestrator_address ~= "" and Config.orchestrator_address or nil,

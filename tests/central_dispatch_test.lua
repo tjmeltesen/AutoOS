@@ -17,6 +17,7 @@ package.path = table.concat({
 local CentralDispatch = require("central_dispatch")
 local LaneDispatch = require("lane_dispatch")
 local CircuitManager = require("circuit_manager")
+local DescriptorCache = require("descriptor_cache")
 
 local ESC = string.char(27)
 local function color(c, t) return ESC .. "[" .. c .. "m" .. t .. ESC .. "[0m" end
@@ -140,6 +141,15 @@ local function make_fixture(opts)
     proxy = function(address)
       if address == "item-adapter" then return item_adapter end
       if address == "fluid-adapter" then return fluid_adapter end
+      if address == "db-1" then
+        return opts.database_proxy or {
+          get = function() return nil end,
+          clear = function() return true end,
+        }
+      end
+      if address == "iface-1" or address == "iface-2" then
+        return opts.interface_proxy or {}
+      end
       if address == "lane1-item" then return lane1_item end
       if address == "lane1-fluid" then return lane1_fluid end
       if address == "lane2-item" then return lane2_item end
@@ -151,6 +161,9 @@ local function make_fixture(opts)
       return {
         ["item-adapter"] = "adapter",
         ["fluid-adapter"] = "adapter",
+        ["db-1"] = "database",
+        ["iface-1"] = "me_interface",
+        ["iface-2"] = "me_interface",
         ["lane1-item"] = "transposer", ["lane1-fluid"] = "transposer",
         ["lane2-item"] = "transposer", ["lane2-fluid"] = "transposer",
       }
@@ -163,6 +176,8 @@ local function make_fixture(opts)
     completion_mode = "both",
     chest_slot_start = 1,
     circuit_bus_slot = 1,
+    database_address = opts.database_address,
+    database_slot_count = opts.database_slot_count or 9,
     settle_s = 0.05,
     staging_timeout_s = 30,
     circuit_item_name = "gregtech:gt.integrated_circuit",
@@ -180,6 +195,7 @@ local function make_fixture(opts)
     machines = {
       {
         id = "machine_01", gt_address = "gt-1",
+        interface_address = "iface-1",
         item_transposer_address = "lane1-item",
         fluid_transposer_address = "lane1-fluid",
         side_buffer = 2, side_bus_b = 0, side_return = 5,
@@ -187,6 +203,7 @@ local function make_fixture(opts)
       },
       {
         id = "machine_02", gt_address = "gt-2",
+        interface_address = "iface-2",
         item_transposer_address = "lane2-item",
         fluid_transposer_address = "lane2-fluid",
         side_buffer = 2, side_bus_b = 4, side_return = 5,
@@ -202,6 +219,7 @@ local function make_fixture(opts)
   })
   local central = CentralDispatch.new({
     config = cfg, component = component, circuit_manager = manager,
+    descriptor_cache = opts.descriptor_cache,
     lane_dispatch = lane_dispatch,
     now = function() return now end, log = function() end,
   })
@@ -289,6 +307,50 @@ do
   local job = fx.central:pending_queue()[1]
   check("manifest stored on job",
     job and job.manifest and type(job.manifest.items) == "table" and #job.manifest.items >= 1)
+end
+
+-- central enqueue prepares read-only DB pointers for lane workers ----------------
+do
+  local db = {}
+  local store_calls = 0
+  local iface = {
+    store = function(filter, db_addr, slot, count)
+      store_calls = store_calls + 1
+      db[slot] = { name = filter.name, damage = filter.damage or 0, label = filter.label }
+      return db_addr == "db-1"
+    end,
+  }
+  local db_proxy = {
+    get = function(slot) return db[slot] end,
+    clear = function(slot) db[slot] = nil; return true end,
+  }
+  local component = {
+    proxy = function(address)
+      if address == "db-1" then return db_proxy end
+      return iface
+    end,
+    list = function() return { ["db-1"] = "database", ["iface-1"] = "me_interface" } end,
+  }
+  local cfg = {
+    database_address = "db-1",
+    database_slot_count = 4,
+    circuit_item_name = "gregtech:gt.integrated_circuit",
+  }
+  local descriptor_cache = DescriptorCache.new({ config = cfg, component = component })
+  local fx = make_fixture({
+    stabilize_s = 0.1,
+    database_address = "db-1",
+    database_proxy = db_proxy,
+    interface_proxy = iface,
+    descriptor_cache = descriptor_cache,
+  })
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(0.2)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  local job = fx.central:pending_queue()[1]
+  local step = job and job.manifest and job.manifest.queue and job.manifest.queue[1]
+  check("central job carries DB ROM pointer",
+    store_calls >= 1 and step and step.db_address == "db-1" and type(step.db_slot) == "number")
 end
 
 -- central fluid adapter contributes fluids + queue steps --------------------------

@@ -33,6 +33,7 @@ function CentralDispatch.new(deps)
   self.config = deps.config or error("CentralDispatch.new: config required")
   self.component = deps.component or error("CentralDispatch.new: component required")
   self.circuit_manager = deps.circuit_manager or error("CentralDispatch.new: circuit_manager required")
+  self.descriptor_cache = deps.descriptor_cache
   self.lane_dispatch = deps.lane_dispatch
   self.log = deps.log or function() end
   self.now = deps.now or function() return 0 end
@@ -121,8 +122,65 @@ function CentralDispatch:_manifest_leftovers(manifest)
   return leftovers
 end
 
+function CentralDispatch:_descriptor_iface()
+  local c = self:_central_cfg()
+  local addr = c.descriptor_interface_address
+    or self.config.descriptor_interface_address
+    or self.config.shared_interface_address
+  if (not addr or addr == "") and self.config.machines and self.config.machines[1] then
+    addr = self.config.machines[1].interface_address
+  end
+  if not addr or addr == "" then return nil, "descriptor interface address not configured" end
+  return HW.require_proxy(self.component, "me_interface", addr, "me_interface")
+end
+
+function CentralDispatch:_prepare_manifest_descriptors(manifest)
+  if not self.descriptor_cache then return true end
+  local db_addr = self.config.database_address
+  if not db_addr or db_addr == "" then return true end
+  local iface, if_err = self:_descriptor_iface()
+  if not iface then return false, if_err end
+
+  local function prep_item(spec)
+    if type(spec) ~= "table" or type(spec.db_slot) == "number" then return true end
+    local ensure = self.descriptor_cache.ensure_item_rom or self.descriptor_cache.ensure_item
+    local ok, slot_or_err = ensure(self.descriptor_cache, iface, spec)
+    if not ok then return false, slot_or_err end
+    spec.db_address = db_addr
+    spec.db_slot = slot_or_err
+    return true
+  end
+
+  local function prep_fluid(spec)
+    if type(spec) ~= "table" or type(spec.db_slot) == "number" then return true end
+    local ensure = self.descriptor_cache.ensure_fluid_rom or self.descriptor_cache.ensure_fluid
+    local ok, slot_or_err = ensure(self.descriptor_cache, iface, spec)
+    if not ok then return false, slot_or_err end
+    spec.db_address = db_addr
+    spec.db_slot = slot_or_err
+    return true
+  end
+
+  for _, spec in ipairs((manifest and manifest.items) or {}) do
+    local ok, err = prep_item(spec)
+    if not ok then return false, err end
+  end
+  for _, spec in ipairs((manifest and manifest.fluids) or {}) do
+    local ok, err = prep_fluid(spec)
+    if not ok then return false, err end
+  end
+  for _, step in ipairs((manifest and manifest.queue) or {}) do
+    local ok, err
+    if step.kind == "fluid" then ok, err = prep_fluid(step) else ok, err = prep_item(step) end
+    if not ok then return false, err end
+  end
+  return true
+end
+
 function CentralDispatch:_enqueue_manifest(manifest, source)
   if not self:_manifest_has_work(manifest) then return nil, "empty manifest" end
+  local ok_desc, desc_err = self:_prepare_manifest_descriptors(manifest)
+  if not ok_desc then return nil, "descriptor prepare failed: " .. tostring(desc_err) end
   self._job_seq = self._job_seq + 1
   local job = {
     id = string.format("central-%06d", self._job_seq),

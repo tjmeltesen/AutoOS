@@ -103,12 +103,17 @@ function InterfaceStock:stock_one_item(machine, spec, slot_index)
   end
   local iface_slot = spec.iface_slot or (slot_start + idx - 1)
   local active = self:_new_active(machine, iface)
-  local ok_slot, db_slot = self.descriptor_cache:ensure_item(iface, spec)
-  if not ok_slot then return false, tostring(db_slot), active end
+  local db_slot = spec.db_slot
+  local db_addr = spec.db_address or self.config.database_address
+  if type(db_slot) ~= "number" then
+    local ok_slot, got_slot = self.descriptor_cache:ensure_item(iface, spec)
+    if not ok_slot then return false, tostring(got_slot), active end
+    db_slot = got_slot
+  end
   local ok_cfg, cfg_err = pcall(
     iface.setInterfaceConfiguration,
     iface_slot,
-    self.config.database_address,
+    db_addr,
     db_slot,
     spec.count or 1
   )
@@ -116,7 +121,7 @@ function InterfaceStock:stock_one_item(machine, spec, slot_index)
     return false, "setInterfaceConfiguration failed: " .. tostring(cfg_err), active
   end
   active.items[1] = { iface_slot = iface_slot, db_slot = db_slot, spec = spec }
-  self:_push_slot(active, db_slot)
+  if not spec.db_slot then self:_push_slot(active, db_slot) end
   return true, nil, active
 end
 
@@ -128,20 +133,25 @@ function InterfaceStock:stock_one_fluid(machine, spec)
     return false, "me_interface missing setFluidInterfaceConfiguration"
   end
   local active = self:_new_active(machine, iface)
-  local ok_slot, db_slot = self.descriptor_cache:ensure_fluid(iface, spec)
-  if not ok_slot then return false, tostring(db_slot), active end
+  local db_slot = spec.db_slot
+  local db_addr = spec.db_address or self.config.database_address
+  if type(db_slot) ~= "number" then
+    local ok_slot, got_slot = self.descriptor_cache:ensure_fluid(iface, spec)
+    if not ok_slot then return false, tostring(got_slot), active end
+    db_slot = got_slot
+  end
   local side = self:_fluid_side(machine)
   local ok_cfg, cfg_err = pcall(
     iface.setFluidInterfaceConfiguration,
     side,
-    self.config.database_address,
+    db_addr,
     db_slot
   )
   if not ok_cfg or cfg_err == false then
     return false, "setFluidInterfaceConfiguration failed: " .. tostring(cfg_err), active
   end
   active.fluids[1] = { side = side, db_slot = db_slot, spec = spec }
-  self:_push_slot(active, db_slot)
+  if not spec.db_slot then self:_push_slot(active, db_slot) end
   return true, nil, active
 end
 
@@ -207,9 +217,14 @@ function InterfaceStock:stock_batch(machine, manifest)
 
   for i, spec in ipairs(items) do
     local iface_slot = slot_start + (i - 1)
-    local ok_slot, db_slot = self.descriptor_cache:ensure_item(iface, spec)
-    if not ok_slot then return false, tostring(db_slot), active end
-    local ok_cfg, cfg_err = pcall(iface.setInterfaceConfiguration, iface_slot, self.config.database_address, db_slot, spec.count or 1)
+    local db_slot = spec.db_slot
+    local db_addr = spec.db_address or self.config.database_address
+    if type(db_slot) ~= "number" then
+      local ok_slot, got_slot = self.descriptor_cache:ensure_item(iface, spec)
+      if not ok_slot then return false, tostring(got_slot), active end
+      db_slot = got_slot
+    end
+    local ok_cfg, cfg_err = pcall(iface.setInterfaceConfiguration, iface_slot, db_addr, db_slot, spec.count or 1)
     if not ok_cfg or cfg_err == false then
       return false, "setInterfaceConfiguration failed: " .. tostring(cfg_err), active
     end
@@ -218,14 +233,19 @@ function InterfaceStock:stock_batch(machine, manifest)
       db_slot = db_slot,
       spec = spec,
     }
-    self:_push_slot(active, db_slot)
+    if not spec.db_slot then self:_push_slot(active, db_slot) end
   end
 
   local fluid_side = self:_fluid_side(machine)
   for _, spec in ipairs(fluids) do
-    local ok_slot, db_slot = self.descriptor_cache:ensure_fluid(iface, spec)
-    if not ok_slot then return false, tostring(db_slot), active end
-    local ok_cfg, cfg_err = pcall(iface.setFluidInterfaceConfiguration, fluid_side, self.config.database_address, db_slot)
+    local db_slot = spec.db_slot
+    local db_addr = spec.db_address or self.config.database_address
+    if type(db_slot) ~= "number" then
+      local ok_slot, got_slot = self.descriptor_cache:ensure_fluid(iface, spec)
+      if not ok_slot then return false, tostring(got_slot), active end
+      db_slot = got_slot
+    end
+    local ok_cfg, cfg_err = pcall(iface.setFluidInterfaceConfiguration, fluid_side, db_addr, db_slot)
     if not ok_cfg or cfg_err == false then
       return false, "setFluidInterfaceConfiguration failed: " .. tostring(cfg_err), active
     end
@@ -234,7 +254,7 @@ function InterfaceStock:stock_batch(machine, manifest)
       db_slot = db_slot,
       spec = spec,
     }
-    self:_push_slot(active, db_slot)
+    if not spec.db_slot then self:_push_slot(active, db_slot) end
   end
 
   return true, nil, active

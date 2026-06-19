@@ -181,6 +181,56 @@ do
   check("interface_stock release after transfer", release_calls >= 1)
 end
 
+-- central ROM pointers are read-only during lane execution -----------------------
+do
+  local ensure_calls = 0
+  local cfg = {
+    input_mode = "central",
+    database_address = "db-1",
+    interface_item_slots = 9,
+    interface_item_slot_start = 1,
+    interface_fluid_side = 0,
+  }
+  local iface_cfg = {}
+  local iface = {
+    setInterfaceConfiguration = function(slot, db_addr, db_slot, count)
+      iface_cfg[#iface_cfg + 1] = { slot = slot, db_addr = db_addr, db_slot = db_slot, count = count }
+      return true
+    end,
+    setFluidInterfaceConfiguration = function() return true end,
+  }
+  local component = {
+    list = function() return { ["iface-1"] = "me_interface" } end,
+    proxy = function() return iface end,
+  }
+  local InterfaceStock = require("interface_stock")
+  local stock = InterfaceStock.new({
+    config = cfg,
+    component = component,
+    descriptor_cache = {
+      ensure_item = function()
+        ensure_calls = ensure_calls + 1
+        return true, 99
+      end,
+      ensure_fluid = function() return true, 98 end,
+      release_slots = function() return 0 end,
+    },
+  })
+  local ok = stock:stock_one_item({
+    id = "machine_01",
+    interface_address = "iface-1",
+  }, {
+    name = "gregtech:gt.integrated_circuit",
+    damage = 9,
+    label = "Programmed Circuit",
+    count = 1,
+    db_address = "db-1",
+    db_slot = 2,
+  })
+  check("lane uses ROM DB pointer without descriptor write",
+    ok and ensure_calls == 0 and iface_cfg[1] and iface_cfg[1].db_slot == 2)
+end
+
 io.write("\n" .. bold("AutoOS Lane Dispatch Tests") .. "\n")
 io.write(string.rep("-", 60) .. "\n")
 

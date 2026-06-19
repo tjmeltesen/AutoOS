@@ -31,6 +31,7 @@ function DescriptorCache.new(deps)
   self._entries = {}     -- cache_key -> { slot = n, last_used = t }
   self._slot_owner = {}  -- slot -> cache_key
   self._slot_refs = {}   -- slot -> active interface config reference count
+  self._slot_pinned = {} -- slot -> true for ROM descriptors
   self._clock = 0
   return self
 end
@@ -75,6 +76,7 @@ function DescriptorCache:reset()
   self._entries = {}
   self._slot_owner = {}
   self._slot_refs = {}
+  self._slot_pinned = {}
 end
 
 function DescriptorCache:debug_dump()
@@ -90,6 +92,7 @@ function DescriptorCache:_forget_slot(slot)
   if key then self._entries[key] = nil end
   self._slot_owner[slot] = nil
   self._slot_refs[slot] = nil
+  self._slot_pinned[slot] = nil
 end
 
 function DescriptorCache:_first_empty_slot()
@@ -102,12 +105,14 @@ end
 function DescriptorCache:_lru_owned_slot()
   local oldest_slot, oldest_time
   for slot, key in pairs(self._slot_owner) do
+    if self._slot_pinned[slot] then goto continue end
     local entry = self._entries[key]
     local t = entry and entry.last_used or 0
     if not oldest_time or t < oldest_time then
       oldest_time = t
       oldest_slot = slot
     end
+    ::continue::
   end
   return oldest_slot
 end
@@ -125,6 +130,12 @@ end
 function DescriptorCache:_reserve_slot(slot)
   if type(slot) ~= "number" then return end
   self._slot_refs[slot] = (self._slot_refs[slot] or 0) + 1
+end
+
+function DescriptorCache:_pin_slot(slot)
+  if type(slot) ~= "number" then return end
+  self._slot_pinned[slot] = true
+  self._slot_refs[slot] = 0
 end
 
 function DescriptorCache:_find_matching_slot(verify_fn)
@@ -233,6 +244,12 @@ function DescriptorCache:ensure_item(iface, spec)
   return self:_resolve_slot(cache_key, write, verify)
 end
 
+function DescriptorCache:ensure_item_rom(iface, spec)
+  local ok, slot_or_err = self:ensure_item(iface, spec)
+  if ok then self:_pin_slot(slot_or_err) end
+  return ok, slot_or_err
+end
+
 function DescriptorCache:ensure_circuit(iface, circuit_damage)
   return self:ensure_item(iface, {
     name = self:_circuit_item_name(),
@@ -333,6 +350,12 @@ function DescriptorCache:ensure_fluid(iface, rules)
   return self:_resolve_slot(cache_key, write, verify)
 end
 
+function DescriptorCache:ensure_fluid_rom(iface, rules)
+  local ok, slot_or_err = self:ensure_fluid(iface, rules)
+  if ok then self:_pin_slot(slot_or_err) end
+  return ok, slot_or_err
+end
+
 function DescriptorCache:release_slots(slots)
   if type(slots) ~= "table" then return 0 end
   local released = 0
@@ -341,6 +364,10 @@ function DescriptorCache:release_slots(slots)
     if type(slot) == "number" and slot >= 1 and not seen[slot] then
       seen[slot] = true
       if self._slot_owner[slot] ~= nil then
+        if self._slot_pinned[slot] then
+          released = released + 1
+          goto continue
+        end
         local refs = (self._slot_refs[slot] or 1) - 1
         if refs > 0 then
           self._slot_refs[slot] = refs
@@ -350,6 +377,7 @@ function DescriptorCache:release_slots(slots)
         end
         released = released + 1
       end
+      ::continue::
     end
   end
   return released

@@ -44,6 +44,7 @@ function ArrayWatch.new(deps)
       config = self.config,
       component = deps.component or error("ArrayWatch.new: component required for central_dispatch"),
       circuit_manager = self.circuit_manager or error("ArrayWatch.new: circuit_manager required"),
+      descriptor_cache = deps.descriptor_cache,
       lane_dispatch = self.lane_dispatch,
       pending_jobs = self.pending_jobs,
       log = self.log,

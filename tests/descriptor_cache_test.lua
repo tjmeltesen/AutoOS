@@ -159,6 +159,20 @@ do
 end
 
 do
+  local fx = new_fixture()
+  local ok1, slot1 = fx.cache:ensure_item_rom(fx.iface, {
+    name = "minecraft:redstone",
+    damage = 0,
+    count = 1,
+  })
+  local released = fx.cache:release_slots({ slot1 })
+  local ok2, slot2 = fx.cache:ensure_circuit(fx.iface, 18)
+  local ok3, slot3 = fx.cache:ensure_fluid(fx.iface, { fluid_label = "Oxygen" })
+  check("ROM descriptor stays pinned and out of LRU",
+    ok1 and released == 1 and fx.db[slot1] ~= nil and ok2 and ok3 and slot2 ~= slot1 and slot3 ~= slot1)
+end
+
+do
   local db_set_called = false
   local component = {
     list = function() return { ["db-1"] = "database" } end,
