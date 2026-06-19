@@ -41,10 +41,11 @@ function BrokerMain.build()
   local Config = require("config")
   local Scheduler = require("coroutine_scheduler")
   local MachinePoll = require("machine_poll")
-  local BrokerBoot = require("broker_boot")
-  local ROBDispatcher = require("rob_dispatcher")
 
-  -- Phase 1 (MMU): Static hardware registry — one scan, all proxies + DB slots cached
+  -- Phase 1 (MMU): Static hardware registry
+  local ok_boot, BrokerBoot = pcall(require, "broker_boot")
+  if not ok_boot then return nil, "broker_boot load failed: " .. tostring(BrokerBoot) end
+
   local registry, boot_err = BrokerBoot.boot()
   if not registry then return nil, "boot failed: " .. tostring(boot_err) end
 
@@ -59,23 +60,16 @@ function BrokerMain.build()
   if orch_port ~= listen_port then modem.open(orch_port) end
 
   local scheduler = Scheduler.new({ event = event, computer = computer, log = print })
-  local function in_task()
-    local co, is_main = coroutine.running()
-    return co ~= nil and not is_main
-  end
-  local function yield_now()
-    if in_task() then return Scheduler.yield_now() end
-  end
-  local function yield_sleep(seconds)
-    if in_task() then return Scheduler.sleep(seconds) end
-  end
 
-  -- Seed runtime deps that broker_boot couldn't set (needs computer.uptime)
+  -- Seed runtime deps
   registry:seed(computer.uptime, print, registry.get_circuit_manager())
 
   local poll = MachinePoll.new({ config = Config, component = component })
 
-  -- Phase 3 (ROB): Central dispatcher — buffer monitor, job creation, lane assignment, mutex
+  -- Phase 3 (ROB): Central dispatcher
+  local ok_rob, ROBDispatcher = pcall(require, "rob_dispatcher")
+  if not ok_rob then return nil, "rob_dispatcher load failed: " .. tostring(ROBDispatcher) end
+
   local rob = ROBDispatcher.new(registry, Config, {
     now = computer.uptime,
     log = print,
@@ -97,7 +91,11 @@ end
 function BrokerMain.attach_tasks(ctx)
   local Scheduler = require("coroutine_scheduler")
   local Protocols = require("network_protocols")
-  local LaneWorker = require("lane_worker")
+  local ok_lw, LaneWorker = pcall(require, "lane_worker")
+  if not ok_lw then
+    print("[Broker] lane_worker load failed: " .. tostring(LaneWorker))
+    LaneWorker = nil
+  end
   local scheduler = ctx.scheduler
   local state = ctx.state
   local cfg = ctx.config
@@ -199,11 +197,13 @@ function BrokerMain.attach_tasks(ctx)
     scheduler:spawn("lane_" .. tostring(machine.id), function()
       while true do
         local job = rob:get_assigned_job(machine.id)
-        if job then
-          local result = LaneWorker.execute(registry, job, machine.id)
+        if job and LaneWorker then
+          local ok_exec, result = pcall(LaneWorker.execute, registry, job, machine.id)
+          if not ok_exec then
+            result = { status = "failed", error = "LaneWorker crashed: " .. tostring(result) }
+          end
           local results_table = rob:get_results_table()
           results_table[machine.id] = result
-          -- Immediately release faulted state so next tick can recover
           if result.status == "failed" then
             rob:fault_lane(machine.id, result.error or "lane worker failed")
           end
