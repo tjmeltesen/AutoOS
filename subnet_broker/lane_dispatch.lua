@@ -42,6 +42,9 @@ function LaneDispatch.new(deps)
   self.completion_mode = deps.completion_mode or self.config.completion_mode or "both"
   self.circuit_bus_slot = self.config.circuit_bus_slot or 1
   self.transfer_scan_budget = deps.transfer_scan_budget or self.config.transfer_scan_budget or 64
+  self.completion_quiet_failsafe_s = deps.completion_quiet_failsafe_s
+    or self.config.completion_quiet_failsafe_s
+    or 5
   self._lanes = {}
   self._rr_index = 1
   return self
@@ -75,6 +78,8 @@ local function lane_default(now, deadline_s)
     transfer_item_retry = 1,
     transfer_moved_items = false,
     transfer_moved_fluids = false,
+    wait_quiet_since = nil,
+    wait_last_signal = nil,
   }
 end
 
@@ -552,14 +557,57 @@ end
 
 function LaneDispatch:_item_drained(item_tp, machine)
   local side = LaneSides.bus_side(machine)
-  local after_slot = self.circuit_bus_slot + 1
-  return self:_slot_size(item_tp, side, after_slot) == 0
+  local size = self:_pull_scan_max(item_tp, side)
+  for slot = 1, size do
+    if slot ~= self.circuit_bus_slot and self:_slot_size(item_tp, side, slot) > 0 then
+      return false
+    end
+  end
+  return true
 end
 
 function LaneDispatch:_drain_complete(item_tp, fluid_tp, machine)
   local fluid_ok = not fluid_tp or self:_fluid_drained(fluid_tp, machine)
   local item_ok = not item_tp or self:_item_drained(item_tp, machine)
   return fluid_ok and item_ok
+end
+
+function LaneDispatch:_wait_signal(poll_status, item_tp, fluid_tp, machine)
+  local bus_side = LaneSides.bus_side(machine)
+  local hatch_side = LaneSides.fluid_hatch_side(machine)
+  return table.concat({
+    poll_status and tostring(poll_status.active) or "?",
+    poll_status and tostring(poll_status.has_work) or "?",
+    poll_status and tostring(poll_status.work_progress) or "?",
+    poll_status and tostring(poll_status.work_max_progress) or "?",
+    item_tp and tostring(self:_item_drained(item_tp, machine)) or "?",
+    fluid_tp and tostring(self:_fluid_level(fluid_tp, hatch_side)) or "?",
+    item_tp and tostring(self:_slot_size(item_tp, bus_side, self.circuit_bus_slot)) or "?",
+  }, "|")
+end
+
+function LaneDispatch:_quiet_drained_for(lane, poll_status, item_tp, fluid_tp, machine)
+  if poll_status and (poll_status.active or poll_status.has_work) then
+    lane.wait_quiet_since = nil
+    lane.wait_last_signal = nil
+    return false
+  end
+
+  if not self:_drain_complete(item_tp, fluid_tp, machine) then
+    lane.wait_quiet_since = nil
+    lane.wait_last_signal = nil
+    return false
+  end
+
+  local now = self.now()
+  local signal = self:_wait_signal(poll_status, item_tp, fluid_tp, machine)
+  if lane.wait_last_signal ~= signal then
+    lane.wait_last_signal = signal
+    lane.wait_quiet_since = now
+    return false
+  end
+  lane.wait_quiet_since = lane.wait_quiet_since or now
+  return (now - lane.wait_quiet_since) >= self.completion_quiet_failsafe_s
 end
 
 function LaneDispatch:_completion_ready(lane, poll_status, item_tp, fluid_tp, machine)
@@ -570,7 +618,10 @@ function LaneDispatch:_completion_ready(lane, poll_status, item_tp, fluid_tp, ma
   local drained = self:_drain_complete(item_tp, fluid_tp, machine)
   if not drained then return false end
 
-  -- ponytail: central push must reach lane bus; never "complete" on empty ghost batch
+  if not lane.saw_active and self:_quiet_drained_for(lane, poll_status, item_tp, fluid_tp, machine) then
+    return true
+  end
+
   if self:_is_central_mode() and not lane.saw_active then
     return false
   end
@@ -630,6 +681,8 @@ function LaneDispatch:tick_lane(machine, poll_status)
     lane.transfer_item_retry = 1
     lane.transfer_moved_items = false
     lane.transfer_moved_fluids = false
+    lane.wait_quiet_since = nil
+    lane.wait_last_signal = nil
 
     if self:_is_central_mode() then
       return false, events
@@ -663,6 +716,8 @@ function LaneDispatch:tick_lane(machine, poll_status)
     lane.transfer_item_retry = 1
     lane.transfer_moved_items = false
     lane.transfer_moved_fluids = false
+    lane.wait_quiet_since = nil
+    lane.wait_last_signal = nil
     self:_transition(machine_id, lane, STATE_SETTLE, "buffer ready")
     events[#events + 1] = { type = "buffer_ready", detail = "inputs detected" }
     return true, events
@@ -835,6 +890,8 @@ function LaneDispatch:tick_lane(machine, poll_status)
     if self:_queue_complete(lane) then
       lane.saw_active = false
       lane.deadline = now + self.staging_timeout_s
+      lane.wait_quiet_since = nil
+      lane.wait_last_signal = nil
       self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "queue done")
       events[#events + 1] = { type = "staged", detail = "queue -> machine" }
       return true, events
@@ -892,6 +949,8 @@ function LaneDispatch:tick_lane(machine, poll_status)
     lane.transfer_moved_fluids = false
     lane.saw_active = false
     lane.deadline = now + self.staging_timeout_s
+    lane.wait_quiet_since = nil
+    lane.wait_last_signal = nil
     self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "transfer done")
     events[#events + 1] = { type = "staged", detail = "buffer -> machine" }
     return true, events

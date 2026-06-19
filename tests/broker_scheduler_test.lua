@@ -74,6 +74,11 @@ do
         lane_steps = lane_steps + 1
       end,
     },
+    lane_dispatch = {
+      get_lane_debug = function()
+        return { state = lane_steps < 3 and "transfer" or "idle" }
+      end,
+    },
   }
 
   BrokerMain.attach_tasks(ctx)
@@ -84,6 +89,7 @@ do
     if ev.type == "modem_message" and ev.from == "orch" then saw_modem = true end
   end
   check("modem event processed while lanes active", saw_modem and lane_steps > 0)
+  check("active lane consumes multiple slices per wake", lane_steps >= 3)
   check("component event marks poll cache stale", stale == true)
 end
 

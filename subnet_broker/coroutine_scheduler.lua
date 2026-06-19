@@ -41,6 +41,27 @@ function Scheduler:spawn(name, fn)
   return task
 end
 
+function Scheduler:wake(name)
+  for _, task in ipairs(self.tasks) do
+    if not task.dead and task.name == name then
+      task.wait = { type = "ready" }
+      return true
+    end
+  end
+  return false
+end
+
+function Scheduler:wake_prefix(prefix)
+  local n = 0
+  for _, task in ipairs(self.tasks) do
+    if not task.dead and task.name and task.name:sub(1, #prefix) == prefix then
+      task.wait = { type = "ready" }
+      n = n + 1
+    end
+  end
+  return n
+end
+
 function Scheduler.sleep(seconds)
   return coroutine.yield({ type = "sleep", seconds = seconds or 0 })
 end

@@ -229,6 +229,45 @@ do
   check("adapter+drain triggers extract", extract or fx.dispatch:get_lane_debug("machine_01").state == "extract" or fx.dispatch:get_lane_debug("machine_01").state == "wait_import")
 end
 
+-- completion failsafe: fast recipe can finish between machine polls ---------------
+do
+  local fx = make_fixture({
+    item_inv = { [1] = { [1] = stack(18) }, [4] = {} },
+    fluid_tanks = {},
+  })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.advance(0.2)
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.advance(4.9)
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  local before = fx.dispatch:get_lane_debug("machine_01").state
+  fx.advance(0.2)
+  local _, ev = fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  local extract = false
+  for _, e in ipairs(ev) do if e.type == "extract_start" then extract = true end end
+  check("missed-active quiet drain waits before release", before == "wait_complete")
+  check("missed-active quiet drain triggers extract after failsafe", extract and fx.dispatch:get_lane_debug("machine_01").state == "extract")
+end
+
+-- completion failsafe must not release while input bus still holds ingredients -----
+do
+  local fx = make_fixture({
+    item_inv = { [1] = { [1] = stack(18) }, [4] = {} },
+    fluid_tanks = {},
+  })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.advance(0.2)
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.item_inv[4][2] = { name = "gt:ingredient", size = 1 }
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  fx.advance(6.0)
+  fx.dispatch:tick_lane(fx.machine, { available = true, healthy = true, active = false, has_work = false })
+  check("quiet failsafe keeps waiting while bus input remains", fx.dispatch:get_lane_debug("machine_01").state == "wait_complete")
+end
+
 -- full cycle extract + import ---------------------------------------------------
 do
   local fx = make_fixture({

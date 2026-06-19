@@ -132,10 +132,16 @@ function BrokerMain.attach_tasks(ctx)
   local state = ctx.state
   local cfg = ctx.config
   local machines = cfg.machines or {}
+  local active_lane_budget = cfg.active_lane_budget or 4
 
   local function fast_interval()
     if ctx.watch:any_fast_tick() then return cfg.monitor_poll_s or 0.15 end
     return cfg.tick_interval or 1.0
+  end
+
+  local function wake_dispatch()
+    scheduler:wake("central_dispatch")
+    scheduler:wake_prefix("lane_")
   end
 
   scheduler:spawn("modem_rx", function()
@@ -147,6 +153,7 @@ function BrokerMain.attach_tasks(ctx)
           tostring(from)))
       end
       state.events[#state.events + 1] = { type = "modem_message", from = from, packet = pkt }
+      wake_dispatch()
       Scheduler.yield_now()
     end
   end)
@@ -159,6 +166,8 @@ function BrokerMain.attach_tasks(ctx)
       if ctx.poll.mark_proxy_cache_stale then ctx.poll:mark_proxy_cache_stale() end
       state.dirty.components = true
       state.events[#state.events + 1] = { type = id }
+      scheduler:wake("machine_poll")
+      wake_dispatch()
       Scheduler.yield_now()
     end
   end)
@@ -170,6 +179,8 @@ function BrokerMain.attach_tasks(ctx)
         local machine = machines[idx]
         state.poll_results[machine.id] = ctx.poll:poll_machine(machine)
         state.dirty[machine.id] = true
+        scheduler:wake("lane_" .. tostring(machine.id))
+        scheduler:wake("central_dispatch")
         idx = (idx % #machines) + 1
       end
       Scheduler.sleep(fast_interval())
@@ -187,9 +198,18 @@ function BrokerMain.attach_tasks(ctx)
   for _, machine in ipairs(machines) do
     scheduler:spawn("lane_" .. tostring(machine.id), function()
       while true do
-        ctx.watch:step_lane(machine, state.poll_results)
-        Scheduler.yield_now()
-        Scheduler.sleep(fast_interval())
+        for _ = 1, active_lane_budget do
+          ctx.watch:step_lane(machine, state.poll_results)
+          Scheduler.yield_now()
+          local dbg = ctx.lane_dispatch and ctx.lane_dispatch:get_lane_debug(machine.id)
+          if not dbg or dbg.state == "idle" then break end
+        end
+        local dbg = ctx.lane_dispatch and ctx.lane_dispatch:get_lane_debug(machine.id)
+        if dbg and dbg.state ~= "idle" then
+          Scheduler.sleep(cfg.monitor_poll_s or 0.15)
+        else
+          Scheduler.sleep(cfg.tick_interval or 1.0)
+        end
       end
     end)
   end
