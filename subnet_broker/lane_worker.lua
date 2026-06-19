@@ -227,32 +227,21 @@ end
 -- Event-driven wait helper
 ---------------------------------------------------------------------------
 
---- Yield for inventory_changed events, re-checking a condition after each
---- delivery.  Returns true when condition is met, false+err on timeout.
---- Yields at least once even if condition is already true (scheduler fairness).
+--- Yield once per scheduler tick, re-checking a condition each cycle.
+--- Returns true when condition is met, false+err on timeout.
 local function await_delivery(registry, machine, item_tp, fluid_tp, condition_fn,
                               timeout_s, start_time, phase_name)
   local now_fn = registry.get_now()
   local deadline = start_time + timeout_s
-  local first = true
 
   while true do
-    if not first then
-      -- Wait for the next inventory change event
-      coroutine.yield({ type = "event", filter = "inventory_changed" })
-    end
-    first = false
-
-    -- Check condition after event (or immediately on first pass)
     local ok_cond, result = pcall(condition_fn)
     if ok_cond and result then return true end
 
-    -- Timeout check
     if now_fn() >= deadline then
       return false, phase_name .. " timeout after " .. tostring(timeout_s) .. "s"
     end
 
-    -- Yield a brief sleep so the scheduler can check timeout on next cycle
     coroutine.yield({ type = "yield" })
   end
 end
