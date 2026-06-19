@@ -382,12 +382,15 @@ function ROBDispatcher:_resolve_db_pointers(manifest)
   local lookup_item = self._registry.lookup_db
   local lookup_fluid = self._registry.lookup_fluid_db
 
+  local missing = {}
   for _, spec in ipairs(manifest.items or {}) do
     if type(spec.db_slot) ~= "number" and lookup_item then
       local entry = lookup_item(spec.name, spec.damage, spec.label)
       if entry then
         spec.db_slot = entry.slot
         spec.db_address = entry.address
+      else
+        missing[#missing + 1] = "item:" .. tostring(spec.label or spec.name) .. " dmg=" .. tostring(spec.damage or 0)
       end
     end
   end
@@ -397,6 +400,8 @@ function ROBDispatcher:_resolve_db_pointers(manifest)
       if entry then
         spec.db_slot = entry.slot
         spec.db_address = entry.address
+      else
+        missing[#missing + 1] = "fluid:" .. tostring(spec.fluid_label)
       end
     end
   end
@@ -407,15 +412,25 @@ function ROBDispatcher:_resolve_db_pointers(manifest)
         if entry then
           step.db_slot = entry.slot
           step.db_address = entry.address
+        else
+          missing[#missing + 1] = "queue-fluid:" .. tostring(step.fluid_label)
         end
       elseif step.kind == "item" and step.name and lookup_item then
         local entry = lookup_item(step.name, step.damage, step.label)
         if entry then
           step.db_slot = entry.slot
           step.db_address = entry.address
+        else
+          missing[#missing + 1] = "queue-item:" .. tostring(step.label or step.name) .. " dmg=" .. tostring(step.damage or 0)
         end
       end
     end
+  end
+  if #missing > 0 then
+    self._log(string.format("[ROBDispatcher] DB MISS: %s (db has %d items, %d fluids)",
+      table.concat(missing, ", "),
+      next(self._registry._item_db) ~= nil and 1 or 0,
+      next(self._registry._fluid_db) ~= nil and 1 or 0))
   end
 end
 

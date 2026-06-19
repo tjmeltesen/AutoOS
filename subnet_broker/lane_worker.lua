@@ -83,6 +83,12 @@ end
 
 --- Configure one item slot on the ME interface.
 local function stock_item_slot(iface, slot, db_address, db_slot, count)
+  if not db_address or db_address == "" then
+    return false, "db_address is nil/empty — item not in database"
+  end
+  if type(db_slot) ~= "number" then
+    return false, "db_slot is nil — item not in database"
+  end
   if not iface or not iface.setInterfaceConfiguration then
     return false, "no setInterfaceConfiguration on interface"
   end
@@ -94,6 +100,12 @@ end
 
 --- Configure one fluid slot on the ME interface.
 local function stock_fluid_slot(iface, side, db_address, db_slot)
+  if not db_address or db_address == "" then
+    return false, "db_address is nil/empty — fluid not in database"
+  end
+  if type(db_slot) ~= "number" then
+    return false, "db_slot is nil — fluid not in database"
+  end
   if not iface or not iface.setFluidInterfaceConfiguration then
     return false, "no setFluidInterfaceConfiguration on interface"
   end

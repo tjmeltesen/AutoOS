@@ -14,6 +14,32 @@ local HW = require("hw")
 
 local Registry = {}
 
+-- Lazy-fill: on first cache miss, write the descriptor to an empty DB slot.
+-- Once written, the mapping persists in _item_db / _fluid_db for O(1) lookup.
+local function ensure_db_entry(inst, spec, kind)
+  local cache = inst._descriptor_cache
+  if not cache then return nil end
+  local iface = inst._stock_iface
+  if not iface then return nil end
+
+  if kind == "item" then
+    local ok, slot = cache:ensure_item(iface, spec)
+    if ok and slot then
+      local info = { address = inst._config.database_address, slot = slot }
+      inst._item_db[item_cache_key(spec.name, spec.damage, spec.label)] = info
+      return info
+    end
+  elseif kind == "fluid" then
+    local ok, slot = cache:ensure_fluid(iface, spec)
+    if ok and slot then
+      local info = { address = inst._config.database_address, slot = slot }
+      inst._fluid_db[fluid_cache_key(spec.fluid_label)] = info
+      return info
+    end
+  end
+  return nil
+end
+
 -- ---------------------------------------------------------------------------
 -- cache-key helpers (must match descriptor_cache.lua format)
 -- ---------------------------------------------------------------------------
@@ -28,11 +54,26 @@ end
 
 -- Build method closures bound to a specific instance (called at end of build()).
 local function bind_methods(inst)
+  -- Lazy-fill lookup: check pre-scanned cache first, write-once on miss.
   inst.lookup_db = function(item_name, damage, label)
-    return inst._item_db[item_cache_key(item_name, damage, label)]
+    local key = item_cache_key(item_name, damage, label)
+    local entry = inst._item_db[key]
+    if entry then return entry end
+    -- Cache miss — write descriptor to an empty DB slot (one-time allocation)
+    entry = ensure_db_entry(inst, {
+      name = item_name, damage = damage or 0, label = label, count = 1,
+      cache_key = key,
+    }, "item")
+    return entry
   end
   inst.lookup_fluid_db = function(fluid_label)
-    return inst._fluid_db[fluid_cache_key(fluid_label)]
+    local key = fluid_cache_key(fluid_label)
+    local entry = inst._fluid_db[key]
+    if entry then return entry end
+    entry = ensure_db_entry(inst, {
+      fluid_label = fluid_label,
+    }, "fluid")
+    return entry
   end
   inst.get_machine = function(machine_id)
     return inst._machines[machine_id]
@@ -274,7 +315,22 @@ function Registry.build(config, component)
     central_item_side = central_item_side,
     central_fluid_adapter = central_fluid_adapter,
     central_fluid_side = central_fluid_side,
+    _descriptor_cache = nil,  -- set below
+    _stock_iface = nil,       -- set below
   }
+
+  -- Lazy-fill setup: DescriptorCache for write-once DB allocation + first
+  -- available me_interface for descriptor writes (any machine's iface works).
+  local DescriptorCache = require("descriptor_cache")
+  self._descriptor_cache = DescriptorCache.new({ config = config, component = component })
+  -- Pick the first machine's interface (or shared) as the stock writer
+  local stock_addr = config.shared_interface_address
+  if (not stock_addr or stock_addr == "") and machines_list[1] then
+    stock_addr = machines_list[1].interface_address
+  end
+  if stock_addr and stock_addr ~= "" then
+    self._stock_iface = HW.proxy(component, stock_addr, "me_interface")
+  end
 
   bind_methods(self)
   return self
