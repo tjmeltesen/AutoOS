@@ -5,7 +5,7 @@
     config.lua, hw.lua, lane_sides.lua, lane_dispatch.lua, central_dispatch.lua,
     maintenance_parse.lua, machine_poll.lua, circuit_manager.lua,
     array_watch.lua, network_protocols.lua, broker_main.lua,
-    start.lua, diag.lua, probe_transposer.lua
+    start.lua, diag.lua, probe_transposer.lua, probe_fluid.lua
 
   Run: loadfile("/home/subnet_broker/start.lua")()
   Watch: lua broker_main.lua
@@ -41,8 +41,9 @@ end
 print("[AutoOS] Broker loaded. Usage:")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
 print("  Find/probe:  loadfile('" .. here .. "/find.lua')('probe')  → also writes find.txt")
-print("  Watch loop:  broker_main   (or loadfile('" .. here .. "/broker_main.lua")())")
-print("  One tick:    loadfile('" .. here .. "/broker_main.lua")('test')")
+print("  Fluid probe: loadfile('" .. here .. "/probe_fluid.lua')('machine_01', 1000, '--xfer')")
+print("  Watch loop:  broker_main   (or loadfile('" .. here .. "/broker_main.lua')())")
+print("  One tick:    loadfile('" .. here .. "/broker_main.lua')('test')")
 print("  Note: broker is headless — no GPU screen; Ctrl+C stops the watch loop")
 
 return Config

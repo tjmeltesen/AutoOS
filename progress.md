@@ -496,3 +496,12 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/lane_dispatch.lua`: fluid level detection now supports both `getTankLevel(side, tank)` and `getTankLevel(side)`, with `getFluidInTank(side)` fallback aggregation for buffer/hatch checks and transfer gating.
 - Changed `subnet_broker/interface_stock.lua`: `wait_pull_ready()` fluid readiness now uses the same compatible fluid-level strategy so settle waits work with tank-controller style transposer methods.
 - Changed `tests/lane_dispatch_test.lua`: added central-mode regression for single-argument `getTankLevel(side)` + `getFluidInTank(side)` to ensure fluid actually transfers.
+
+## 2026-06-18 — Added lane fluid hatch probe script
+
+- Added `subnet_broker/probe_fluid.lua`: standalone fluid diagnostics for each lane transposer side (level/capacity/fluid names), with optional one-shot `transferFluid(buffer -> hatch, amount)` probe via `--xfer`.
+- Changed `subnet_broker/start.lua`: boot helper now advertises `probe_fluid.lua` usage and fixed broken `broker_main.lua` usage string quoting found during syntax check.
+
+## 2026-06-18 — Extended fluid probe with central buffer diagnostics
+
+- Changed `subnet_broker/probe_fluid.lua`: now also probes central adapter fluid visibility (`central.fluid_adapter_address`/`side` and `central.buffer_adapter_address`/`side`) so one script reports both central buffer state and per-lane fluid paths.

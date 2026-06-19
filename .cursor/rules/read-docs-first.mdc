@@ -22,7 +22,7 @@ Before planning or writing code, read the project docs in this order:
 | GPU / monitoring UI | `references/OC-GTNH-docs-main/docs/components/gpu.lua`, `screen.lua` |
 | Polling, tick budget, crashes | `references/performance-pitfalls.md` |
 | GTNH adapter / MFU setup | `references/gtnh-opencomputers-overview.md` |
-
+| General OC-GTNH docs | `references/OC-GTNH-docs-main/docs/` |
 ## Non-Negotiables (from docs)
 
 - Modules read the **State Cache** only — never poll hardware directly
