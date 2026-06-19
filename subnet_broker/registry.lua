@@ -18,6 +18,46 @@ local Registry = {}
 -- cache-key helpers (must match descriptor_cache.lua format)
 -- ---------------------------------------------------------------------------
 
+-- Build method closures bound to a specific instance (called at end of build()).
+local function bind_methods(inst)
+  inst.lookup_db = function(item_name, damage, label)
+    return inst._item_db[item_cache_key(item_name, damage, label)]
+  end
+  inst.lookup_fluid_db = function(fluid_label)
+    return inst._fluid_db[fluid_cache_key(fluid_label)]
+  end
+  inst.get_machine = function(machine_id)
+    return inst._machines[machine_id]
+  end
+  inst.get_iface = function(address)
+    if not address then return nil end
+    return HW.proxy(inst._component, address, "me_interface")
+  end
+  inst.get_interface = inst.get_iface
+  inst.get_transposer = function(address)
+    if not address then return nil end
+    return HW.proxy(inst._component, address, "transposer")
+  end
+  inst.get_config = function()
+    return inst._config
+  end
+  inst.get_now = function()
+    return inst._now or function() return 0 end
+  end
+  inst.get_circuit_manager = function()
+    return inst._circuit_manager
+  end
+  inst.get_poll_result = function(machine_id)
+    return inst._poll_results[machine_id]
+  end
+  inst.seed = function(now_fn, log_fn, circuit_mgr)
+    inst._now = now_fn
+    inst._log = log_fn
+    inst._circuit_manager = circuit_mgr
+  end
+  return inst
+end
+
 local function item_cache_key(name, damage, label)
   return "item:" .. tostring(name) .. ":" .. tostring(damage or 0) .. ":" .. tostring(label or "")
 end
@@ -239,44 +279,4 @@ function Registry.build(config, component)
   return self
 end
 
---- Build method closures bound to a specific instance (no self/metatable dependency).
-local function bind_methods(inst)
-  inst.lookup_db = function(item_name, damage, label)
-    return inst._item_db[item_cache_key(item_name, damage, label)]
-  end
-  inst.lookup_fluid_db = function(fluid_label)
-    return inst._fluid_db[fluid_cache_key(fluid_label)]
-  end
-  inst.get_machine = function(machine_id)
-    return inst._machines[machine_id]
-  end
-  inst.get_iface = function(address)
-    if not address then return nil end
-    return HW.proxy(inst._component, address, "me_interface")
-  end
-  inst.get_interface = inst.get_iface
-  inst.get_transposer = function(address)
-    if not address then return nil end
-    return HW.proxy(inst._component, address, "transposer")
-  end
-  inst.get_config = function()
-    return inst._config
-  end
-  inst.get_now = function()
-    return inst._now or function() return 0 end
-  end
-  inst.get_circuit_manager = function()
-    return inst._circuit_manager
-  end
-  inst.get_poll_result = function(machine_id)
-    return inst._poll_results[machine_id]
-  end
-  inst.seed = function(now_fn, log_fn, circuit_mgr)
-    inst._now = now_fn
-    inst._log = log_fn
-    inst._circuit_manager = circuit_mgr
-  end
-  return inst
-end
-
-return { build = Registry.build, bind_methods = bind_methods }
+return { build = Registry.build }
