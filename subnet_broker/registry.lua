@@ -1,6 +1,6 @@
 --[[
   AutoOS — Static Hardware Registry (MMU Phase 1)
-
+  Version: 2026-06-19-mmu-phase1
   Boot-time discovery: scans the OC network, caches every me_interface and
   transposer proxy, pre-reads the physical database, and builds pre-resolved
   machine entries.  The returned table is READ-ONLY — no runtime writes.
