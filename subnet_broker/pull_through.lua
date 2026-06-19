@@ -392,7 +392,7 @@ local function run(args)
     if #tanks == 0 then break end
     for _, tank in ipairs(tanks) do
       local ok, moved = pcall(fluid_tp.transferFluid, fluid_pull, hatch_side, tank.amount)
-      if ok and moved and moved > 0 then
+      if ok and type(moved) == "number" and moved > 0 then
         log("  transferred %s mB (%s)", tostring(moved), tostring(tank.name))
         total = total + moved
       else
