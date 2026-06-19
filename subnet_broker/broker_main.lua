@@ -7,7 +7,7 @@
     loadfile("/home/subnet_broker/broker_main.lua")("test")  -- one tick, then exit
 ]]
 
-local BROKER_BUILD = "2026-06-19-me-only"
+local BROKER_BUILD = "2026-06-19-me-onlyv2"
 
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
