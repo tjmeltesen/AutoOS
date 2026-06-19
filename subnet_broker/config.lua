@@ -28,6 +28,12 @@ Config.tick_interval = 1.0
 Config.monitor_poll_s = 0.15
 Config.staging_timeout_s = 60.0
 Config.require_empty_return = true
+Config.scheduler = {
+  max_parallel_lanes = nil, -- nil defaults to #machines after Config.machines is loaded
+  max_job_attempts = 2,
+  watchdog_grace_s = 10,
+  persist_jobs = "startup_sweep",
+}
 
 Config.orchestrator_address = "3bd12f6b-b5d6-4d0d-ad56-e1d372fdb4ac"
 Config.broker_modem_port = 106
@@ -48,6 +54,8 @@ Config.central = {
   fluid_adapter_side = 0,
   chest_slot_start = 1,
   max_circuits_in_buffer = 1,
+  ingest_mode = "event_or_poll",
+  job_stabilize_s = 1.0,
   stabilize_s = 1.0,
   settle_s = 0.0,
   interface_wait_s = 5.0,
@@ -200,6 +208,13 @@ function Config.validate(cfg)
     if c.stabilize_s ~= nil and (type(c.stabilize_s) ~= "number" or c.stabilize_s < 0) then
       return nil, "central.stabilize_s must be a non-negative number"
     end
+    if c.job_stabilize_s ~= nil and (type(c.job_stabilize_s) ~= "number" or c.job_stabilize_s < 0) then
+      return nil, "central.job_stabilize_s must be a non-negative number"
+    end
+    local ingest_mode = c.ingest_mode or "event_or_poll"
+    if ingest_mode ~= "event_or_poll" and ingest_mode ~= "poll" and ingest_mode ~= "event" then
+      return nil, "central.ingest_mode must be 'event_or_poll', 'event', or 'poll'"
+    end
     if c.settle_s ~= nil and (type(c.settle_s) ~= "number" or c.settle_s < 0) then
       return nil, "central.settle_s must be a non-negative number"
     end
@@ -284,6 +299,25 @@ function Config.validate(cfg)
   end
   if cfg.settle_s ~= nil and (type(cfg.settle_s) ~= "number" or cfg.settle_s < 0) then
     return nil, "settle_s must be a non-negative number"
+  end
+  if cfg.scheduler ~= nil then
+    if type(cfg.scheduler) ~= "table" then return nil, "scheduler must be a table" end
+    if cfg.scheduler.max_parallel_lanes ~= nil
+      and (type(cfg.scheduler.max_parallel_lanes) ~= "number" or cfg.scheduler.max_parallel_lanes < 1) then
+      return nil, "scheduler.max_parallel_lanes must be a positive integer"
+    end
+    if cfg.scheduler.max_job_attempts ~= nil
+      and (type(cfg.scheduler.max_job_attempts) ~= "number" or cfg.scheduler.max_job_attempts < 1) then
+      return nil, "scheduler.max_job_attempts must be a positive integer"
+    end
+    if cfg.scheduler.watchdog_grace_s ~= nil
+      and (type(cfg.scheduler.watchdog_grace_s) ~= "number" or cfg.scheduler.watchdog_grace_s < 0) then
+      return nil, "scheduler.watchdog_grace_s must be non-negative"
+    end
+    local persist = cfg.scheduler.persist_jobs or "startup_sweep"
+    if persist ~= "startup_sweep" and persist ~= "file" then
+      return nil, "scheduler.persist_jobs must be 'startup_sweep' or 'file'"
+    end
   end
 
   return true

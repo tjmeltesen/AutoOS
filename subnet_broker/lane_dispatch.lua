@@ -19,6 +19,7 @@ local STATE_TRANSFER = "transfer"
 local STATE_WAIT_COMPLETE = "wait_complete"
 local STATE_EXTRACT = "extract"
 local STATE_WAIT_IMPORT = "wait_import"
+local STATE_FAULTED = "faulted"
 
 local FLUID_CHUNK = 1000000
 local TRANSFER_RETRIES = 3
@@ -51,6 +52,7 @@ function LaneDispatch.new(deps)
     or 5
   self._lanes = {}
   self._rr_index = 1
+  self._locks = {}
   return self
 end
 
@@ -84,6 +86,13 @@ local function lane_default(now, deadline_s)
     transfer_moved_fluids = false,
     wait_quiet_since = nil,
     wait_last_signal = nil,
+    job = nil,
+    job_id = nil,
+    attempt = 1,
+    state_entered_at = now,
+    locked_resources = {},
+    last_traceback = nil,
+    faulted = false,
   }
 end
 
@@ -153,6 +162,11 @@ function LaneDispatch:get_lane_debug(machine_id)
     fluid_idx = lane.fluid_idx,
     item_phase = lane.item_phase,
     fluid_phase = lane.fluid_phase,
+    job_id = lane.job_id,
+    state_entered_at = lane.state_entered_at,
+    locked_resources = lane.locked_resources,
+    attempt = lane.attempt,
+    last_traceback = lane.last_traceback,
   }
 end
 
@@ -166,6 +180,8 @@ function LaneDispatch:handoff_complete(machine_id)
 end
 
 function LaneDispatch:reset_lane(machine_id)
+  local lane = self._lanes[machine_id]
+  if lane then self:_cleanup_lane(machine_id, lane, "reset") end
   self._lanes[machine_id] = lane_default(self.now(), self.staging_timeout_s)
 end
 
@@ -179,6 +195,41 @@ end
 function LaneDispatch:is_lane_busy(machine_id)
   local lane = self._lanes[machine_id]
   return lane and lane.state ~= STATE_IDLE
+end
+
+function LaneDispatch:is_lane_faulted(machine_id)
+  local lane = self._lanes[machine_id]
+  return lane and lane.state == STATE_FAULTED
+end
+
+function LaneDispatch:consume_finished_job(machine_id)
+  local lane = self._lanes[machine_id]
+  if not lane or not lane.job then return nil end
+  local status = lane.job.status
+  if status ~= "done" and status ~= "failed" then return nil end
+  local job = lane.job
+  lane.job = nil
+  lane.job_id = nil
+  lane.batch_outcome = nil
+  return job
+end
+
+function LaneDispatch:watchdog_fault(machine_id, detail)
+  local lane = self:_lane(machine_id)
+  if lane.state == STATE_IDLE or lane.state == STATE_FAULTED then return false end
+  lane.last_error = detail or "watchdog timeout"
+  lane.batch_outcome = "failed"
+  if lane.job then
+    lane.job.status = "failed"
+    lane.job.finished_at = self.now()
+    lane.job.last_error = lane.last_error
+  end
+  self:_cleanup_lane(machine_id, lane, "watchdog")
+  lane.state = STATE_FAULTED
+  lane.faulted = true
+  lane.fast_tick = false
+  lane.state_entered_at = self.now()
+  return true
 end
 
 function LaneDispatch:_item_pull_side(machine)
@@ -200,6 +251,63 @@ function LaneDispatch:_require_interface_staging()
   local c = self.config.central
   if c and c.require_interface_staging == true then return true end
   return false
+end
+
+function LaneDispatch:_interface_address(machine)
+  local addr = machine and machine.interface_address
+  if (not addr or addr == "") and self.config.shared_interface_address and self.config.shared_interface_address ~= "" then
+    addr = self.config.shared_interface_address
+  end
+  return addr
+end
+
+function LaneDispatch:_job_resources(machine, job)
+  local resources = {}
+  local iface = self:_interface_address(machine)
+  if iface and iface ~= "" then
+    resources[#resources + 1] = "interface:" .. tostring(iface)
+    resources[#resources + 1] = "fluid_if:" .. tostring(iface) .. ":" .. tostring(machine.interface_fluid_side or self.config.interface_fluid_side or 0)
+  end
+  if self.config.database_address and self.config.database_address ~= "" then
+    resources[#resources + 1] = "db:" .. tostring(self.config.database_address)
+  end
+  if machine.item_transposer_address then
+    resources[#resources + 1] = "tp:" .. tostring(machine.item_transposer_address)
+  end
+  if machine.fluid_transposer_address then
+    resources[#resources + 1] = "tp:" .. tostring(machine.fluid_transposer_address)
+  end
+  return resources
+end
+
+function LaneDispatch:_acquire_locks(machine_id, resources)
+  for _, res in ipairs(resources or {}) do
+    local owner = self._locks[res]
+    if owner and owner ~= machine_id then
+      return false, "locked:" .. tostring(res)
+    end
+  end
+  for _, res in ipairs(resources or {}) do
+    self._locks[res] = machine_id
+  end
+  return true
+end
+
+function LaneDispatch:_release_locks(machine_id, lane)
+  for _, res in ipairs((lane and lane.locked_resources) or {}) do
+    if self._locks[res] == machine_id then self._locks[res] = nil end
+  end
+  if lane then lane.locked_resources = {} end
+end
+
+function LaneDispatch:_cleanup_lane(machine_id, lane, reason)
+  if not lane then return end
+  self:_release_active_stock(nil, lane)
+  self:_release_step_stock(lane.item_active_stock)
+  self:_release_step_stock(lane.fluid_active_stock)
+  lane.item_active_stock = nil
+  lane.fluid_active_stock = nil
+  self:_release_locks(machine_id, lane)
 end
 
 --- Central mode: items visible on dual interface face (side_buffer).
@@ -259,6 +367,34 @@ function LaneDispatch:handoff_from_central(machine, manifest)
   return true
 end
 
+function LaneDispatch:assign_job(machine, job)
+  if not machine or not machine.id then return false, "machine required" end
+  if not job or type(job.manifest) ~= "table" then return false, "job manifest required" end
+  local lane = self:_lane(machine.id)
+  if lane.state ~= STATE_IDLE then return false, "lane busy" end
+  if lane.faulted or lane.state == STATE_FAULTED then return false, "lane faulted" end
+
+  local resources = self:_job_resources(machine, job)
+  local ok_lock, lock_err = self:_acquire_locks(machine.id, resources)
+  if not ok_lock then return false, lock_err end
+  lane.locked_resources = resources
+  lane.job = job
+  lane.job_id = job.id
+  lane.attempt = job.attempt or 1
+
+  local ok, err = self:handoff_from_central(machine, job.manifest)
+  if not ok then
+    self:_cleanup_lane(machine.id, lane, "assign failed")
+    lane.job = nil
+    lane.job_id = nil
+    return false, err
+  end
+  job.status = "running"
+  job.machine_id = machine.id
+  job.started_at = self.now()
+  return true
+end
+
 ---@deprecated use handoff_from_central
 function LaneDispatch:bind_from_central(machine)
   return self:handoff_from_central(machine)
@@ -271,7 +407,16 @@ end
 function LaneDispatch:_transition(machine_id, lane, next_state, reason)
   if lane.state ~= next_state then
     self.log(string.format("[LaneDispatch] %s %s -> %s (%s)", machine_id, lane.state, next_state, reason or ""))
+    if next_state == STATE_IDLE and lane.state ~= STATE_IDLE then
+      if lane.job then
+        lane.job.finished_at = self.now()
+        lane.job.status = lane.batch_outcome == "ok" and "done" or "failed"
+        lane.job.last_error = lane.last_error
+      end
+      self:_cleanup_lane(machine_id, lane, reason)
+    end
     lane.state = next_state
+    lane.state_entered_at = self.now()
   end
   lane.fast_tick = next_state ~= STATE_IDLE
 end
@@ -655,7 +800,7 @@ function LaneDispatch:_completion_ready(lane, poll_status, item_tp, fluid_tp, ma
   return false
 end
 
-function LaneDispatch:tick_lane(machine, poll_status)
+function LaneDispatch:_tick_lane_impl(machine, poll_status)
   local machine_id = machine.id
   local lane = self:_lane(machine_id)
   local events = {}
@@ -674,6 +819,11 @@ function LaneDispatch:tick_lane(machine, poll_status)
     if fluid_tp then return fluid_tp end
     fluid_tp, fluid_err = self:_fluid_tp(machine)
     return fluid_tp
+  end
+
+  if lane.state == STATE_FAULTED then
+    lane.fast_tick = false
+    return false, events
   end
 
   if lane.state == STATE_IDLE then
@@ -1069,6 +1219,31 @@ function LaneDispatch:tick_lane(machine, poll_status)
   end
 
   return true, events
+end
+
+function LaneDispatch:tick_lane(machine, poll_status)
+  local ok, wants_fast, events = xpcall(function()
+    return self:_tick_lane_impl(machine, poll_status)
+  end, debug.traceback)
+  if ok then return wants_fast, events end
+
+  local machine_id = machine and machine.id or "unknown"
+  local lane = self:_lane(machine_id)
+  lane.last_traceback = tostring(wants_fast)
+  lane.last_error = "lane crash"
+  lane.batch_outcome = "failed"
+  if lane.job then
+    lane.job.status = "failed"
+    lane.job.finished_at = self.now()
+    lane.job.last_error = lane.last_error
+  end
+  lane.faulted = true
+  self:_cleanup_lane(machine_id, lane, "crash")
+  lane.state = STATE_FAULTED
+  lane.fast_tick = false
+  lane.state_entered_at = self.now()
+  self.log(string.format("[LaneDispatch] %s crashed:\n%s", machine_id, tostring(wants_fast)))
+  return false, { { type = "recover_failed", detail = "lane crash: " .. tostring(wants_fast) } }
 end
 
 --- Round-robin: return machine ids in rotated order (for callers that batch lanes).

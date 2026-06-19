@@ -79,6 +79,39 @@ do
   check("item transfer eventually clears cursor", (moved2 or moved3) and pending2 == true and pending3 == false and lane.transfer_item_slot == nil)
 end
 
+do
+  local cfg = {
+    input_mode = "central",
+    database_address = "db-1",
+    interface_fluid_side = 0,
+    machines = {},
+  }
+  local component = { proxy = function() return {} end, list = function() return {} end }
+  local dispatch = LaneDispatch.new({
+    config = cfg,
+    component = component,
+    circuit_manager = CircuitManager.new({ config = cfg, component = component }),
+    now = function() return 10 end,
+    log = function() end,
+  })
+  local lane = dispatch:_lane("m1")
+  lane.state = "settle"
+  lane.job = { id = "job-crash", status = "running" }
+  lane.job_id = "job-crash"
+  lane.locked_resources = { "interface:if-1", "db:db-1" }
+  dispatch._locks["interface:if-1"] = "m1"
+  dispatch._locks["db:db-1"] = "m1"
+  dispatch._tick_lane_impl = function() error("boom") end
+  local fast, ev = dispatch:tick_lane({ id = "m1" }, { available = true, healthy = true })
+  local dbg = dispatch:get_lane_debug("m1")
+  check("lane crash faults and releases locks",
+    fast == false
+      and ev[1] and ev[1].type == "recover_failed"
+      and dbg.state == "faulted"
+      and dispatch._locks["interface:if-1"] == nil
+      and dispatch._locks["db:db-1"] == nil)
+end
+
 io.write(string.rep("-", 60) .. "\n")
 io.write(string.format("%s   %s passed, %s failed\n",
   bold("Lane coroutine result:"), green(tostring(passed)),

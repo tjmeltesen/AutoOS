@@ -24,6 +24,8 @@ function ArrayWatch.new(deps)
   self.now = deps.now or function() return 0 end
   self.reply_to = deps.reply_to
   self.lane_state = {}
+  self.pending_jobs = deps.pending_jobs or {}
+  self._scheduler_rr = 1
   self._last_heartbeat = 0
   self._fast_tick = false
   self.lane_dispatch = deps.lane_dispatch
@@ -43,9 +45,18 @@ function ArrayWatch.new(deps)
       component = deps.component or error("ArrayWatch.new: component required for central_dispatch"),
       circuit_manager = self.circuit_manager or error("ArrayWatch.new: circuit_manager required"),
       lane_dispatch = self.lane_dispatch,
+      pending_jobs = self.pending_jobs,
       log = self.log,
       now = self.now,
     })
+  end
+  if self.central_dispatch and self.central_dispatch.pending_queue then
+    self.pending_jobs = self.central_dispatch:pending_queue()
+  end
+  if self.config.input_mode == "central"
+    and self.central_dispatch
+    and (self.config.scheduler == nil or (self.config.scheduler.persist_jobs or "startup_sweep") == "startup_sweep") then
+    self.central_dispatch:startup_sweep()
   end
   return self
 end
@@ -129,6 +140,141 @@ function ArrayWatch:_run_lane_dispatch(machine, st)
   self.lane_state[machine_id] = lane
 end
 
+function ArrayWatch:_max_parallel_lanes()
+  local sched = self.config.scheduler or {}
+  return sched.max_parallel_lanes or #(self.config.machines or {})
+end
+
+function ArrayWatch:_max_job_attempts()
+  local sched = self.config.scheduler or {}
+  return sched.max_job_attempts or 2
+end
+
+function ArrayWatch:_active_job_count()
+  local n = 0
+  for _, job in ipairs(self.pending_jobs or {}) do
+    if job.status == "running" then n = n + 1 end
+  end
+  return n
+end
+
+function ArrayWatch:_lane_schedulable(machine, st)
+  if not st or not st.available or not st.healthy then return false, "unhealthy" end
+  if self.lane_dispatch.is_lane_faulted and self.lane_dispatch:is_lane_faulted(machine.id) then
+    return false, "faulted"
+  end
+  if self.lane_dispatch:is_lane_busy(machine.id) then return false, "busy" end
+  if st.active or st.has_work then return false, "machine busy" end
+  return true
+end
+
+function ArrayWatch:_machine_order()
+  local machines = self.config.machines or {}
+  local n = #machines
+  local out = {}
+  if n == 0 then return out end
+  local start = self._scheduler_rr
+  for i = 0, n - 1 do
+    out[#out + 1] = machines[((start - 1 + i) % n) + 1]
+  end
+  return out
+end
+
+function ArrayWatch:_advance_scheduler_rr(machine)
+  local machines = self.config.machines or {}
+  for i, m in ipairs(machines) do
+    if m == machine or m.id == machine.id then
+      self._scheduler_rr = (i % #machines) + 1
+      return
+    end
+  end
+end
+
+function ArrayWatch:_remove_job(job)
+  for i = #self.pending_jobs, 1, -1 do
+    if self.pending_jobs[i] == job then
+      table.remove(self.pending_jobs, i)
+      return
+    end
+  end
+end
+
+function ArrayWatch:_harvest_finished_jobs()
+  if not self.lane_dispatch or not self.lane_dispatch.consume_finished_job then return end
+  for _, machine in ipairs(self.config.machines or {}) do
+    local job = self.lane_dispatch:consume_finished_job(machine.id)
+    if job then
+      if job.status == "done" then
+        self:_remove_job(job)
+        self.log(string.format("[ArrayWatch] job %s complete on %s", tostring(job.id), machine.id))
+      elseif job.status == "failed" then
+        if (job.attempt or 1) < self:_max_job_attempts() then
+          job.attempt = (job.attempt or 1) + 1
+          job.status = "pending"
+          job.machine_id = nil
+          self.log(string.format("[ArrayWatch] job %s requeued attempt %d", tostring(job.id), job.attempt))
+        else
+          job.status = "dead"
+          self.log(string.format("[ArrayWatch] job %s dead after %d attempts: %s",
+            tostring(job.id), job.attempt or 1, tostring(job.last_error)))
+        end
+      end
+    end
+  end
+end
+
+function ArrayWatch:step_watchdog()
+  if not self.lane_dispatch or not self.lane_dispatch.get_lane_debug then return end
+  local sched = self.config.scheduler or {}
+  local grace = sched.watchdog_grace_s or 10
+  local now = self.now()
+  for _, machine in ipairs(self.config.machines or {}) do
+    local dbg = self.lane_dispatch:get_lane_debug(machine.id)
+    if dbg and dbg.state ~= "idle" and dbg.state ~= "faulted" and type(dbg.deadline) == "number" then
+      if now > dbg.deadline + grace then
+        local detail = string.format("watchdog timeout in %s", tostring(dbg.state))
+        if self.lane_dispatch.watchdog_fault and self.lane_dispatch:watchdog_fault(machine.id, detail) then
+          self:_send_event(Protocols.EVENT.CIRCUIT_RECOVER_FAILED, machine.id, detail)
+          self:_send_health(machine.id, "fault", detail)
+          self.log(string.format("[ArrayWatch] %s %s", machine.id, detail))
+        end
+      end
+    end
+  end
+end
+
+function ArrayWatch:step_scheduler(poll_results)
+  if self.config.input_mode ~= "central" then return end
+  poll_results = poll_results or {}
+  self:step_watchdog()
+  self:_harvest_finished_jobs()
+  local budget = self:_max_parallel_lanes() - self:_active_job_count()
+  if budget <= 0 then return end
+  for _, job in ipairs(self.pending_jobs or {}) do
+    if budget <= 0 then break end
+    if job.status == "pending" then
+      for _, machine in ipairs(self:_machine_order()) do
+        local ok_lane = self:_lane_schedulable(machine, poll_results[machine.id])
+        if ok_lane then
+          local ok_assign, reason = self.lane_dispatch:assign_job(machine, job)
+          if ok_assign then
+            budget = budget - 1
+            self:_advance_scheduler_rr(machine)
+            local lane = self.lane_state[machine.id] or {}
+            lane.last_state = "running"
+            self.lane_state[machine.id] = lane
+            self:_send_health(machine.id, "running", "job " .. tostring(job.id))
+            self.log(string.format("[ArrayWatch] dispatched job %s -> %s", tostring(job.id), machine.id))
+            break
+          else
+            job.last_blocked_reason = reason
+          end
+        end
+      end
+    end
+  end
+end
+
 function ArrayWatch:_handle_central_events(events)
   for _, ev in ipairs(events or {}) do
     if ev.type == "central_staged" and ev.machine_id then
@@ -196,6 +342,7 @@ function ArrayWatch:tick()
 
   if is_central and self.central_dispatch then
     self:step_central(results)
+    self:step_scheduler(results)
   end
 
   local order = self.lane_dispatch:lane_order(self.config.machines)

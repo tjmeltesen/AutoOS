@@ -39,9 +39,13 @@ function CentralDispatch.new(deps)
   self._rr_index = 1
   self._state = STATE_IDLE
   self._bound_machine_id = nil
+  self.pending_jobs = deps.pending_jobs or {}
+  self._job_seq = 0
+  self._startup_swept = false
   self._last_wait_log = 0
   self._fast_tick = false
   self._fingerprint = nil
+  self._last_enqueued_fp = nil
   self._stable_since = 0
   self._stabilize_logged = false
   self._last_handoff_log = 0
@@ -53,6 +57,7 @@ function CentralDispatch:get_debug()
   return {
     state = self._state,
     bound_machine = self._bound_machine_id,
+    pending_jobs = #self.pending_jobs,
     rr_index = self._rr_index,
     fast_tick = self._fast_tick,
     stable_for = self._fingerprint and (self.now() - self._stable_since) or 0,
@@ -69,8 +74,83 @@ end
 
 function CentralDispatch:_stabilize_s()
   local c = self:_central_cfg()
+  if type(c.job_stabilize_s) == "number" then return c.job_stabilize_s end
   if type(c.stabilize_s) == "number" then return c.stabilize_s end
   return 3.0
+end
+
+function CentralDispatch:pending_count()
+  return #self.pending_jobs
+end
+
+function CentralDispatch:pending_queue()
+  return self.pending_jobs
+end
+
+function CentralDispatch:_manifest_has_work(manifest)
+  return manifest
+    and ((type(manifest.items) == "table" and #manifest.items > 0)
+      or (type(manifest.fluids) == "table" and #manifest.fluids > 0)
+      or (type(manifest.queue) == "table" and #manifest.queue > 0))
+end
+
+function CentralDispatch:_manifest_leftovers(manifest)
+  local leftovers = {}
+  for _, it in ipairs((manifest and manifest.items) or {}) do
+    if type(it.count) == "number" and it.count ~= math.floor(it.count) then
+      leftovers[#leftovers + 1] = {
+        kind = "item",
+        slot = it.slot,
+        name = it.name,
+        count = it.count,
+        reason = "fractional item count",
+      }
+    end
+  end
+  for _, fl in ipairs((manifest and manifest.fluids) or {}) do
+    if type(fl.fluid_amount_mb) == "number" and fl.fluid_amount_mb ~= math.floor(fl.fluid_amount_mb) then
+      leftovers[#leftovers + 1] = {
+        kind = "fluid",
+        fluid_label = fl.fluid_label,
+        amount = fl.fluid_amount_mb,
+        reason = "fractional fluid amount",
+      }
+    end
+  end
+  return leftovers
+end
+
+function CentralDispatch:_enqueue_manifest(manifest, source)
+  if not self:_manifest_has_work(manifest) then return nil, "empty manifest" end
+  self._job_seq = self._job_seq + 1
+  local job = {
+    id = string.format("central-%06d", self._job_seq),
+    source = source or "central",
+    status = "pending",
+    manifest = manifest,
+    attempt = 1,
+    created_at = self.now(),
+    leftovers = self:_manifest_leftovers(manifest),
+  }
+  self.pending_jobs[#self.pending_jobs + 1] = job
+  self.log(string.format("[CentralDispatch] enqueued job %s steps=%d items=%d fluids=%d",
+    job.id, #(manifest.queue or {}), #(manifest.items or {}), #(manifest.fluids or {})))
+  if #job.leftovers > 0 then
+    self.log(string.format("[CentralDispatch] job %s has %d fractional leftovers", job.id, #job.leftovers))
+  end
+  return job
+end
+
+function CentralDispatch:startup_sweep()
+  if self._startup_swept then return nil, "already swept" end
+  self._startup_swept = true
+  local adapter = self:_item_adapter()
+  local side = self:_adapter_side()
+  if not adapter or type(side) ~= "number" then return nil, "central adapter unavailable" end
+  local manifest = self:_batch_manifest(adapter, side)
+  if not self:_manifest_has_work(manifest) then return nil, "empty" end
+  self._last_enqueued_fp = self:_item_fingerprint(adapter, side)
+  return self:_enqueue_manifest(manifest, "startup_sweep")
 end
 
 function CentralDispatch:_chest_start()
@@ -446,7 +526,8 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
   local has_items = self:_fingerprint_nonempty(fp)
 
   if self._state == STATE_IDLE then
-    if not has_items then return {} end
+    if not has_items then self._last_enqueued_fp = nil; return {} end
+    if fingerprint_equal(fp, self._last_enqueued_fp) then return {} end
     if not self:_central_admission_ok(adapter, side) then return {} end
     self._fingerprint = fp
     self._stable_since = self.now()
@@ -495,6 +576,24 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
       return {}
     end
 
+    do
+    local manifest = self:_batch_manifest(adapter, side)
+    if #manifest.items == 0 and #manifest.fluids == 0 then
+      self._state = STATE_IDLE
+      self:_reset_stabilizing()
+      return { { type = "central_wait_output", detail = "central chest empty after stabilize" } }
+    end
+    local job, enqueue_err = self:_enqueue_manifest(manifest, "live")
+    self._last_enqueued_fp = fp
+    self._state = STATE_IDLE
+    self:_reset_stabilizing()
+    if not job then
+      return { { type = "central_enqueue_failed", detail = tostring(enqueue_err) } }
+    end
+    return { { type = "central_job_enqueued", job_id = job.id, detail = "central batch queued" } }
+    end
+
+    do
     local machine, idx, stage_detail = self:find_handoff_target_rr(
       self.config.machines, poll_results, lane_dispatch)
     if not machine then
@@ -538,6 +637,7 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     return {
       { type = "central_staged", machine_id = machine.id, detail = "handoff → " .. machine.id },
     }
+    end
   end
 
   return {}

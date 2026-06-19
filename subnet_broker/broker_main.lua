@@ -141,6 +141,7 @@ function BrokerMain.attach_tasks(ctx)
 
   local function wake_dispatch()
     scheduler:wake("central_dispatch")
+    scheduler:wake("broker_scheduler")
     scheduler:wake_prefix("lane_")
   end
 
@@ -172,6 +173,20 @@ function BrokerMain.attach_tasks(ctx)
     end
   end)
 
+  scheduler:spawn("central_input_events", function()
+    while true do
+      local id = Scheduler.wait_event(function(ev)
+        return ev == "inventory_changed"
+          or ev == "tank_changed"
+          or ev == "me_interface_changed"
+      end)
+      state.events[#state.events + 1] = { type = id }
+      scheduler:wake("central_dispatch")
+      scheduler:wake("broker_scheduler")
+      Scheduler.yield_now()
+    end
+  end)
+
   scheduler:spawn("machine_poll", function()
     local idx = 1
     while true do
@@ -181,6 +196,7 @@ function BrokerMain.attach_tasks(ctx)
         state.dirty[machine.id] = true
         scheduler:wake("lane_" .. tostring(machine.id))
         scheduler:wake("central_dispatch")
+        scheduler:wake("broker_scheduler")
         idx = (idx % #machines) + 1
       end
       Scheduler.sleep(fast_interval())
@@ -189,7 +205,16 @@ function BrokerMain.attach_tasks(ctx)
 
   scheduler:spawn("central_dispatch", function()
     while true do
-      ctx.watch:step_central(state.poll_results)
+      if ctx.watch.step_central then ctx.watch:step_central(state.poll_results) end
+      scheduler:wake("broker_scheduler")
+      Scheduler.yield_now()
+      Scheduler.sleep(fast_interval())
+    end
+  end)
+
+  scheduler:spawn("broker_scheduler", function()
+    while true do
+      if ctx.watch.step_scheduler then ctx.watch:step_scheduler(state.poll_results) end
       Scheduler.yield_now()
       Scheduler.sleep(fast_interval())
     end

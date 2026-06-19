@@ -265,35 +265,30 @@ do
   check("item change resets timer", fx.central:get_debug().state == "central_stabilizing")
 end
 
--- stable 3s + staged interface -> assign ----------------------------------------
+-- stable input enqueues a broker job without touching lanes -----------------------
 do
   local fx = make_fixture({ stabilize_s = 1.0 })
   fx.lane1_buf[1] = stack(18)
   fx.central:tick(fx.results, fx.lane_dispatch)
   fx.advance(1.1)
   local ev = fx.central:tick(fx.results, fx.lane_dispatch)
-  local staged = false
-  for _, e in ipairs(ev) do if e.type == "central_staged" then staged = true end end
-  check("stable batch assigns lane", staged)
-  check("lane enters settle/transfer path",
-    fx.lane_dispatch:get_lane_debug("machine_01").state ~= "idle")
-  check("central bound", fx.central:get_debug().state == "central_bound")
+  local queued = false
+  for _, e in ipairs(ev) do if e.type == "central_job_enqueued" then queued = true end end
+  check("stable batch enqueues job", queued and fx.central:pending_count() == 1)
+  check("central dispatch does not start lane",
+    fx.lane_dispatch:get_lane_debug("machine_01").state == "idle")
+  check("central returns idle after enqueue", fx.central:get_debug().state == "central_idle")
 end
 
--- assign passes full manifest into handoff ---------------------------------------
+-- queued job preserves full manifest ---------------------------------------------
 do
   local fx = make_fixture({ stabilize_s = 0.5 })
-  local got_manifest = nil
-  local orig = fx.lane_dispatch.handoff_from_central
-  fx.lane_dispatch.handoff_from_central = function(_, machine, manifest)
-    got_manifest = manifest
-    return orig(fx.lane_dispatch, machine, manifest)
-  end
   fx.central:tick(fx.results, fx.lane_dispatch)
   fx.advance(0.6)
   fx.central:tick(fx.results, fx.lane_dispatch)
-  check("manifest passed to handoff",
-    got_manifest and type(got_manifest.items) == "table" and #got_manifest.items >= 1)
+  local job = fx.central:pending_queue()[1]
+  check("manifest stored on job",
+    job and job.manifest and type(job.manifest.items) == "table" and #job.manifest.items >= 1)
 end
 
 -- central fluid adapter contributes fluids + queue steps --------------------------
@@ -307,30 +302,26 @@ do
       },
     },
   })
-  local got_manifest = nil
-  local orig = fx.lane_dispatch.handoff_from_central
-  fx.lane_dispatch.handoff_from_central = function(_, machine, manifest)
-    got_manifest = manifest
-    return orig(fx.lane_dispatch, machine, manifest)
-  end
   fx.central:tick(fx.results, fx.lane_dispatch)
   fx.advance(0.3)
   fx.central:tick(fx.results, fx.lane_dispatch)
+  local job = fx.central:pending_queue()[1]
+  local got_manifest = job and job.manifest
   check("central tank fluids added to manifest",
     got_manifest and type(got_manifest.fluids) == "table" and #got_manifest.fluids >= 2)
   check("manifest queue present",
     got_manifest and type(got_manifest.queue) == "table" and #got_manifest.queue >= 3)
 end
 
--- assign without pre-staged pull face still hands off (default) ---------------
+-- enqueue does not require pre-staged pull face --------------------------------
 do
   local fx = make_fixture({ stabilize_s = 0.5 })
   fx.central:tick(fx.results, fx.lane_dispatch)
   fx.advance(0.6)
   local ev = fx.central:tick(fx.results, fx.lane_dispatch)
-  local staged = false
-  for _, e in ipairs(ev) do if e.type == "central_staged" then staged = true end end
-  check("assign without pre-staged pull face", staged or fx.central:get_debug().state == "central_bound")
+  local queued = false
+  for _, e in ipairs(ev) do if e.type == "central_job_enqueued" then queued = true end end
+  check("enqueue without pre-staged pull face", queued and fx.central:pending_count() == 1)
 end
 
 -- central mode idle lane no buffer pickup ---------------------------------------
@@ -389,52 +380,25 @@ do
   check("non-empty bus skips machine_01", m and m.id == "machine_02")
 end
 
--- failed transfer does not count as batch complete ------------------------------
+-- startup sweep repopulates pending queue ---------------------------------------
 do
-  local fx = make_fixture({ stabilize_s = 0.5 })
-  fx.cfg.staging_timeout_s = 0.3
-  fx.cfg.central.interface_wait_s = 0.3
+  local fx = make_fixture({})
+  local job = fx.central:startup_sweep()
+  check("startup sweep enqueues orphaned buffer", job and fx.central:pending_count() == 1)
   fx.central:tick(fx.results, fx.lane_dispatch)
-  fx.advance(0.6)
-  fx.central:tick(fx.results, fx.lane_dispatch)
-  check("bound after assign", fx.central:get_debug().state == "central_bound")
-  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
-  fx.advance(0.35)
-  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
-  fx.advance(0.35)
-  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
-  fx.advance(0.35)
-  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
-  local dbg = fx.lane_dispatch:get_lane_debug("machine_01")
-  check("dual IF empty -> failed outcome",
-    dbg.batch_outcome == "failed" or dbg.state == "idle")
-  fx.central:tick(fx.results, fx.lane_dispatch)
-  check("failed handoff retries assign not idle",
-    fx.central:get_debug().state == "central_assign" or fx.central:get_debug().state == "central_bound")
-  if fx.central:get_debug().bound_machine ~= nil then
-    fx.advance(0.4)
-    fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
-    fx.central:tick(fx.results, fx.lane_dispatch)
-  end
-  check("not batch complete on failed transfer",
-    fx.central:get_debug().bound_machine == nil or fx.central:get_debug().state ~= "central_idle")
+  check("startup sweep suppresses duplicate live enqueue", fx.central:pending_count() == 1)
 end
 
--- central releases bound lane once handoff leaves per-lane interface -------------
+-- fractional leftovers are reported, not dispatched by central -------------------
 do
-  local fx = make_fixture({ stabilize_s = 0.1, central_settle_s = 0 })
-  fx.lane1_buf[1] = stack(18)
+  local fx = make_fixture({ stabilize_s = 0.1 })
+  fx.chest_inv[fx.adapter_side].slots[1].size = 1.5
   fx.central:tick(fx.results, fx.lane_dispatch)
   fx.advance(0.2)
   fx.central:tick(fx.results, fx.lane_dispatch)
-  check("early-release setup bound", fx.central:get_debug().state == "central_bound")
-  for _ = 1, 8 do
-    fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
-  end
-  local lane_dbg = fx.lane_dispatch:get_lane_debug("machine_01")
-  fx.central:tick(fx.results, fx.lane_dispatch)
-  check("lane reached wait_complete before recovery", lane_dbg.state == "wait_complete")
-  check("central unbound after handoff complete", fx.central:get_debug().state == "central_idle")
+  local job = fx.central:pending_queue()[1]
+  check("fractional leftover recorded", job and job.leftovers and #job.leftovers == 1)
+  check("fractional job remains queued for scheduler review", job and job.status == "pending")
 end
 
 io.write(string.rep("-", 60) .. "\n")

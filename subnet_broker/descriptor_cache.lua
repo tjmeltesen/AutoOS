@@ -30,6 +30,7 @@ function DescriptorCache.new(deps)
   self.component = deps.component or error("DescriptorCache.new: component required")
   self._entries = {}     -- cache_key -> { slot = n, last_used = t }
   self._slot_owner = {}  -- slot -> cache_key
+  self._slot_refs = {}   -- slot -> active interface config reference count
   self._clock = 0
   return self
 end
@@ -73,6 +74,7 @@ end
 function DescriptorCache:reset()
   self._entries = {}
   self._slot_owner = {}
+  self._slot_refs = {}
 end
 
 function DescriptorCache:debug_dump()
@@ -87,6 +89,7 @@ function DescriptorCache:_forget_slot(slot)
   local key = self._slot_owner[slot]
   if key then self._entries[key] = nil end
   self._slot_owner[slot] = nil
+  self._slot_refs[slot] = nil
 end
 
 function DescriptorCache:_first_empty_slot()
@@ -116,6 +119,12 @@ function DescriptorCache:_register(cache_key, slot)
   end
   self._entries[cache_key] = { slot = slot, last_used = self:_now() }
   self._slot_owner[slot] = cache_key
+  self._slot_refs[slot] = self._slot_refs[slot] or 0
+end
+
+function DescriptorCache:_reserve_slot(slot)
+  if type(slot) ~= "number" then return end
+  self._slot_refs[slot] = (self._slot_refs[slot] or 0) + 1
 end
 
 function DescriptorCache:_find_matching_slot(verify_fn)
@@ -130,6 +139,7 @@ function DescriptorCache:_resolve_slot(cache_key, write_fn, verify_fn)
   if cached then
     if verify_fn(self:_db_get(cached.slot)) then
       cached.last_used = self:_now()
+      self:_reserve_slot(cached.slot)
       return true, cached.slot
     end
     self:_forget_slot(cached.slot)
@@ -138,6 +148,7 @@ function DescriptorCache:_resolve_slot(cache_key, write_fn, verify_fn)
   local existing = self:_find_matching_slot(verify_fn)
   if existing then
     self:_register(cache_key, existing)
+    self:_reserve_slot(existing)
     return true, existing
   end
 
@@ -171,6 +182,7 @@ function DescriptorCache:_resolve_slot(cache_key, write_fn, verify_fn)
   end
 
   self:_register(cache_key, slot)
+  self:_reserve_slot(slot)
   return true, slot
 end
 
@@ -332,8 +344,13 @@ function DescriptorCache:release_slots(slots)
     if type(slot) == "number" and slot >= 1 and not seen[slot] then
       seen[slot] = true
       if self._slot_owner[slot] ~= nil then
-        self:_db_clear(slot)
-        self:_forget_slot(slot)
+        local refs = (self._slot_refs[slot] or 1) - 1
+        if refs > 0 then
+          self._slot_refs[slot] = refs
+        else
+          self:_db_clear(slot)
+          self:_forget_slot(slot)
+        end
         released = released + 1
       end
     end

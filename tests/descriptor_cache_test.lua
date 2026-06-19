@@ -124,6 +124,17 @@ do
   check("release_slots clears cache maps", entries == 0)
 end
 
+do
+  local fx = new_fixture()
+  local ok1, slot1 = fx.cache:ensure_item(fx.iface, { name = "minecraft:redstone", damage = 0, count = 1 })
+  local ok2, slot2 = fx.cache:ensure_item(fx.iface, { name = "minecraft:redstone", damage = 0, count = 1 })
+  local released1 = fx.cache:release_slots({ slot1 })
+  local still_present = fx.db[slot1] ~= nil
+  local released2 = fx.cache:release_slots({ slot2 })
+  check("descriptor refcount keeps shared slot until final release",
+    ok1 and ok2 and slot1 == slot2 and released1 == 1 and still_present and released2 == 1 and fx.db[slot1] == nil)
+end
+
 io.write(string.rep("-", 60) .. "\n")
 io.write(string.format("%s   %s passed, %s failed\n",
   bold("Descriptor cache result:"), green(tostring(passed)),
