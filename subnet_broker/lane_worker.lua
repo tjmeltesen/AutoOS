@@ -98,8 +98,9 @@ local function stock_item_slot(iface, slot, db_address, db_slot, count)
   return true
 end
 
---- Configure one fluid slot on the ME interface.
-local function stock_fluid_slot(iface, side, db_address, db_slot)
+--- Configure one fluid config slot on the ME interface.
+--- @param slot number  fluid config slot index (1-based), NOT a side
+local function stock_fluid_slot(iface, slot, db_address, db_slot)
   if not db_address or db_address == "" then
     return false, "db_address is nil/empty — fluid not in database"
   end
@@ -109,7 +110,7 @@ local function stock_fluid_slot(iface, side, db_address, db_slot)
   if not iface or not iface.setFluidInterfaceConfiguration then
     return false, "no setFluidInterfaceConfiguration on interface"
   end
-  local ok, err = pcall(iface.setFluidInterfaceConfiguration, side, db_address, db_slot)
+  local ok, err = pcall(iface.setFluidInterfaceConfiguration, slot, db_address, db_slot)
   if not ok then return false, tostring(err) end
   if err == false then return false, "setFluidInterfaceConfiguration returned false" end
   return true
@@ -121,8 +122,8 @@ local function clear_item_slot(iface, slot)
 end
 
 --- Clear one fluid configuration slot.
-local function clear_fluid_slot(iface, side)
-  pcall(iface.setFluidInterfaceConfiguration, side)
+local function clear_fluid_slot(iface, slot)
+  pcall(iface.setFluidInterfaceConfiguration, slot)
 end
 
 ---------------------------------------------------------------------------
@@ -296,8 +297,6 @@ function LaneWorker.execute(registry, job, machine_id, event)
   local staging_timeout_s = config.staging_timeout_s or 60
   local circuit_bus_slot = config.circuit_bus_slot or 1
   local slot_start = machine.interface_item_slot_start or config.interface_item_slot_start or 1
-  local fluid_side = machine.interface_fluid_side or config.interface_fluid_side or 0
-
   -- Build ordered queue from manifest
   local queue = build_queue(job.manifest)
   local cfg_slots = {}  -- track configured slots for cleanup
@@ -307,7 +306,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
     -- Best-effort cleanup
     for _, s in ipairs(cfg_slots) do
       if s.fluid then
-        clear_fluid_slot(iface, s.side)
+        clear_fluid_slot(iface, s.slot)
       else
         clear_item_slot(iface, s.slot)
       end
@@ -321,15 +320,19 @@ function LaneWorker.execute(registry, job, machine_id, event)
   ---------------------------------------------------------------------------
   do
     local item_idx = 0
+    local fluid_idx = 0
+    local fluid_slot_start = config.interface_fluid_slot_start or 1
 
     for _, step in ipairs(queue) do
       if step.kind == "fluid" then
-        -- ponytail: each call adds a fluid type to the same side; dual IF
-        -- holds all of them at once. interface_stock.lua does the same.
+        -- Each fluid type gets its own config slot on the dual IF.
+        -- Using the same slot for all fluids would overwrite previous ones.
+        fluid_idx = fluid_idx + 1
+        local fluid_slot = fluid_slot_start + fluid_idx - 1
         if not iface then return fail("no ME interface for fluid stock") end
-        local ok, err = stock_fluid_slot(iface, fluid_side, step.db_address, step.db_slot)
-        if not ok then return fail("fluid stock: " .. tostring(err)) end
-        cfg_slots[#cfg_slots + 1] = { fluid = true, side = fluid_side }
+        local ok, err = stock_fluid_slot(iface, fluid_slot, step.db_address, step.db_slot)
+        if not ok then return fail("fluid stock slot " .. fluid_slot .. ": " .. tostring(err)) end
+        cfg_slots[#cfg_slots + 1] = { fluid = true, slot = fluid_slot }
       else
         item_idx = item_idx + 1
         local iface_slot = slot_start + item_idx - 1
@@ -524,7 +527,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
   ---------------------------------------------------------------------------
   for _, s in ipairs(cfg_slots) do
     if s.fluid then
-      clear_fluid_slot(iface, s.side)
+      clear_fluid_slot(iface, s.slot)
     else
       clear_item_slot(iface, s.slot)
     end
