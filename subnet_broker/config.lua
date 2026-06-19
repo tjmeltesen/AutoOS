@@ -38,6 +38,7 @@ Config.broker_modem_port = 106
 -- monitor: "adapter" (default) or "inventory_controller" on broker OC
 -- require_interface_staging: true = reject handoff until dual IF side_buffer shows items
 -- interface_wait_s: max wait after handoff for subnet items to appear on dual IF (default staging_timeout_s)
+-- settle_s: central handoff settle before item/fluid tracks start polling per-lane dual IF
 Config.central = {
   monitor = "inventory_controller",
   inventory_controller_side = 0,
@@ -48,6 +49,7 @@ Config.central = {
   chest_slot_start = 1,
   max_circuits_in_buffer = 1,
   stabilize_s = 1.0,
+  settle_s = 0.0,
   interface_wait_s = 5.0,
   require_interface_staging = false,
 }
@@ -197,6 +199,9 @@ function Config.validate(cfg)
     end
     if c.stabilize_s ~= nil and (type(c.stabilize_s) ~= "number" or c.stabilize_s < 0) then
       return nil, "central.stabilize_s must be a non-negative number"
+    end
+    if c.settle_s ~= nil and (type(c.settle_s) ~= "number" or c.settle_s < 0) then
+      return nil, "central.settle_s must be a non-negative number"
     end
   end
 

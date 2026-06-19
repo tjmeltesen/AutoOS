@@ -404,7 +404,15 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
       return {}
     end
     local dbg = lane_dispatch and lane_dispatch:get_lane_debug(self._bound_machine_id)
-    if dbg and dbg.state == "idle" then
+    local handoff_done = lane_dispatch
+      and lane_dispatch.handoff_complete
+      and lane_dispatch:handoff_complete(self._bound_machine_id)
+    if handoff_done then
+      self.log(string.format("[CentralDispatch] handoff complete on %s", self._bound_machine_id))
+      self._bound_machine_id = nil
+      self._state = STATE_IDLE
+      self:_reset_stabilizing()
+    elseif dbg and dbg.state == "idle" then
       if dbg.batch_outcome == "ok" then
         self.log(string.format("[CentralDispatch] batch complete on %s", self._bound_machine_id))
         self._bound_machine_id = nil

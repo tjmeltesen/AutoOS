@@ -39,6 +39,10 @@ function LaneDispatch.new(deps)
   self.monitor_poll_s = deps.monitor_poll_s or self.config.monitor_poll_s or 0.15
   self.staging_timeout_s = deps.staging_timeout_s or self.config.staging_timeout_s or 60
   self.settle_s = deps.settle_s or self.config.settle_s or 0.1
+  self.central_settle_s = deps.central_settle_s
+    or (self.config.central and self.config.central.settle_s)
+    or self.config.central_settle_s
+    or 0
   self.completion_mode = deps.completion_mode or self.config.completion_mode or "both"
   self.circuit_bus_slot = self.config.circuit_bus_slot or 1
   self.transfer_scan_budget = deps.transfer_scan_budget or self.config.transfer_scan_budget or 64
@@ -152,6 +156,15 @@ function LaneDispatch:get_lane_debug(machine_id)
   }
 end
 
+function LaneDispatch:handoff_complete(machine_id)
+  local lane = self._lanes[machine_id]
+  if not lane then return false end
+  return lane.state == STATE_WAIT_COMPLETE
+    or lane.state == STATE_EXTRACT
+    or lane.state == STATE_WAIT_IMPORT
+    or (lane.state == STATE_IDLE and lane.batch_outcome == "ok")
+end
+
 function LaneDispatch:reset_lane(machine_id)
   self._lanes[machine_id] = lane_default(self.now(), self.staging_timeout_s)
 end
@@ -216,7 +229,7 @@ function LaneDispatch:handoff_from_central(machine, manifest)
   end
   local lane = self:_lane(machine_id)
   local now = self.now()
-  lane.settle_at = now + self.settle_s
+  lane.settle_at = now + self.central_settle_s
   lane.saw_active = false
   lane.staged_ok = false
   lane.last_error = nil

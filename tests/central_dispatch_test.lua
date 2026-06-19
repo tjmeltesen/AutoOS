@@ -175,6 +175,7 @@ local function make_fixture(opts)
       chest_slot_start = 1,
       max_circuits_in_buffer = 1,
       stabilize_s = opts.stabilize_s or 3.0,
+      settle_s = opts.central_settle_s,
     },
     machines = {
       {
@@ -347,6 +348,24 @@ do
   check("handoff -> settle", ok and fx.lane_dispatch:get_lane_debug("machine_01").state == "settle")
 end
 
+-- central handoff can skip settle for item/fluid tracks --------------------------
+do
+  local fx = make_fixture({ central_settle_s = 0 })
+  fx.lane1_buf[1] = stack(18)
+  local ok = fx.lane_dispatch:handoff_from_central(fx.cfg.machines[1], {
+    queue = {
+      { kind = "item", name = "gregtech:gt.integrated_circuit", damage = 18, count = 1 },
+      { kind = "fluid", fluid_label = "fluid" },
+    },
+    items = { { name = "gregtech:gt.integrated_circuit", damage = 18, count = 1 } },
+    fluids = { { fluid_label = "fluid" } },
+  })
+  local before = fx.lane_dispatch:get_lane_debug("machine_01").state
+  fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
+  local dbg = fx.lane_dispatch:get_lane_debug("machine_01")
+  check("central zero-settle starts queue immediately", ok and before == "settle" and dbg.state == "queue")
+end
+
 -- handoff rejected when staging required and pull face empty --------------------
 do
   local fx = make_fixture({})
@@ -399,6 +418,23 @@ do
   end
   check("not batch complete on failed transfer",
     fx.central:get_debug().bound_machine == nil or fx.central:get_debug().state ~= "central_idle")
+end
+
+-- central releases bound lane once handoff leaves per-lane interface -------------
+do
+  local fx = make_fixture({ stabilize_s = 0.1, central_settle_s = 0 })
+  fx.lane1_buf[1] = stack(18)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(0.2)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("early-release setup bound", fx.central:get_debug().state == "central_bound")
+  for _ = 1, 8 do
+    fx.lane_dispatch:tick_lane(fx.cfg.machines[1], fx.poll_idle)
+  end
+  local lane_dbg = fx.lane_dispatch:get_lane_debug("machine_01")
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("lane reached wait_complete before recovery", lane_dbg.state == "wait_complete")
+  check("central unbound after handoff complete", fx.central:get_debug().state == "central_idle")
 end
 
 io.write(string.rep("-", 60) .. "\n")
