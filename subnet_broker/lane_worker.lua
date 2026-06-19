@@ -321,17 +321,15 @@ function LaneWorker.execute(registry, job, machine_id, event)
   ---------------------------------------------------------------------------
   do
     local item_idx = 0
-    local fluid_stocked = false
 
     for _, step in ipairs(queue) do
       if step.kind == "fluid" then
-        if not fluid_stocked then
-          if not iface then return fail("no ME interface for fluid stock") end
-          local ok, err = stock_fluid_slot(iface, fluid_side, step.db_address, step.db_slot)
-          if not ok then return fail("fluid stock: " .. tostring(err)) end
-          cfg_slots[#cfg_slots + 1] = { fluid = true, side = fluid_side }
-          fluid_stocked = true
-        end
+        -- ponytail: each call adds a fluid type to the same side; dual IF
+        -- holds all of them at once. interface_stock.lua does the same.
+        if not iface then return fail("no ME interface for fluid stock") end
+        local ok, err = stock_fluid_slot(iface, fluid_side, step.db_address, step.db_slot)
+        if not ok then return fail("fluid stock: " .. tostring(err)) end
+        cfg_slots[#cfg_slots + 1] = { fluid = true, side = fluid_side }
       else
         item_idx = item_idx + 1
         local iface_slot = slot_start + item_idx - 1
@@ -376,50 +374,51 @@ function LaneWorker.execute(registry, job, machine_id, event)
   -- Phase 3: Transfer items + fluids through the machine
   ---------------------------------------------------------------------------
   do
+    -- Items: transfer in queue order
     for _, step in ipairs(queue) do
-      if step.kind == "fluid" then
-        -- Wait for THIS fluid type to appear on pull face before transferring.
-        -- Without this, after fluid_A drains, fluid_B hasn't arrived yet and
-        -- transfer_fluid_chunk immediately returns false, skipping it.
-        local fluid_wait_start = now_fn()
-        local function this_fluid_ready()
-          return step_visible(item_tp, fluid_tp, machine, step)
+      if step.kind ~= "item" then goto continue_item end
+      local item_deadline = now_fn() + staging_timeout_s
+      local moved_total = 0
+      while moved_total < (step.count or 1) do
+        local moved, _ = transfer_item_step(item_tp, machine, step)
+        if moved and moved >= 1 then
+          moved_total = moved_total + moved
+          coroutine.yield({ type = "yield" })
+        else
+          if not step_visible(item_tp, fluid_tp, machine, step) then break end
+          coroutine.yield({ type = "yield" })
         end
-        local ok_wait, wait_err = await_delivery(registry, machine, item_tp, fluid_tp,
-          this_fluid_ready, interface_wait_s, fluid_wait_start, "fluid_delivery")
-        if not ok_wait then return fail(wait_err) end
+        if now_fn() >= item_deadline then
+          return fail("item transfer timeout for " .. tostring(step.name or "?"))
+        end
+      end
+      ::continue_item::
+    end
 
-        -- Fluids: push in chunks until pull face is dry
-        local fluid_deadline = now_fn() + staging_timeout_s
-        while true do
-          local moved, pending = transfer_fluid_chunk(fluid_tp, machine)
-          if not moved and not pending then break end
-          if pending then
-            coroutine.yield({ type = "yield" })
-          end
-          if now_fn() >= fluid_deadline then
-            return fail("fluid transfer timeout for " .. tostring(step.fluid_label or step.fluid_registry or "?"))
-          end
-          if not pending then break end
-        end
+    -- Fluids: drain ALL tanks from the dual interface pull face.
+    -- Dual IF stocks all fluids at once (Phase 1), but each slot holds
+    -- only 16 kB. A >16 kB fluid needs AE2 to refill the slot after the
+    -- first batch transfers, so we loop until tanks stay dry for settle_s.
+    local fluid_pull_side = LaneSides.central_fluid_pull_side(machine)
+    local fluid_hatch_side = LaneSides.fluid_hatch_side(machine)
+    local fluid_deadline = now_fn() + staging_timeout_s
+    local fluid_dry_since = nil
+    local settle_s = (config.central and config.central.settle_s) or config.settle_s or 2.0
+    while true do
+      local tanks = FluidTanks.non_empty_tanks(fluid_tp, fluid_pull_side)
+      if #tanks == 0 then
+        fluid_dry_since = fluid_dry_since or now_fn()
+        if now_fn() - fluid_dry_since >= settle_s then break end
+        coroutine.yield({ type = "yield" })
       else
-        -- Items: transfer each matching stack
-        local item_deadline = now_fn() + staging_timeout_s
-        local moved_total = 0
-        while moved_total < (step.count or 1) do
-          local moved, _ = transfer_item_step(item_tp, machine, step)
-          if moved and moved >= 1 then
-            moved_total = moved_total + moved
-            coroutine.yield({ type = "yield" })
-          else
-            -- Check if step is still visible; if not it may have all moved
-            if not step_visible(item_tp, fluid_tp, machine, step) then break end
-            coroutine.yield({ type = "yield" })
-          end
-          if now_fn() >= item_deadline then
-            return fail("item transfer timeout for " .. tostring(step.name or "?"))
-          end
+        fluid_dry_since = nil
+        for _, tank in ipairs(tanks) do
+          pcall(fluid_tp.transferFluid, fluid_pull_side, fluid_hatch_side, tank.amount)
+          coroutine.yield({ type = "yield" })
         end
+      end
+      if now_fn() >= fluid_deadline then
+        return fail("fluid transfer timeout")
       end
     end
   end
