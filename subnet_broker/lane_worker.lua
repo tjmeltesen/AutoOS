@@ -378,6 +378,17 @@ function LaneWorker.execute(registry, job, machine_id, event)
   do
     for _, step in ipairs(queue) do
       if step.kind == "fluid" then
+        -- Wait for THIS fluid type to appear on pull face before transferring.
+        -- Without this, after fluid_A drains, fluid_B hasn't arrived yet and
+        -- transfer_fluid_chunk immediately returns false, skipping it.
+        local fluid_wait_start = now_fn()
+        local function this_fluid_ready()
+          return step_visible(item_tp, fluid_tp, machine, step)
+        end
+        local ok_wait, wait_err = await_delivery(registry, machine, item_tp, fluid_tp,
+          this_fluid_ready, interface_wait_s, fluid_wait_start, "fluid_delivery")
+        if not ok_wait then return fail(wait_err) end
+
         -- Fluids: push in chunks until pull face is dry
         local fluid_deadline = now_fn() + staging_timeout_s
         while true do
@@ -421,21 +432,42 @@ function LaneWorker.execute(registry, job, machine_id, event)
   do
     local complete_start = now_fn()
     local saw_active = false
+    local quiet_drained_since = nil  -- ponytail: quiet-drain failsafe for fast recipes
     local completion_mode = config.completion_mode or "both"
+    local quiet_failsafe_s = config.completion_quiet_failsafe_s or 5
 
     local function completion_ready()
-      -- Check machine active state via poll result cached in registry
       local poll = registry.get_poll_result(machine_id)
-      if poll and poll.active then saw_active = true end
+      if poll and poll.active then
+        saw_active = true
+        quiet_drained_since = nil
+      end
       local drained = drain_complete(item_tp, fluid_tp, machine, circuit_bus_slot)
-      if not drained then return false end
-      -- Completion logic
+      if not drained then
+        quiet_drained_since = nil
+        return false
+      end
       if completion_mode == "drain" then return true end
-      if not saw_active then return false end
+
+      -- Quiet-drain failsafe: if machine was never seen active but
+      -- drain is complete and poll consistently shows idle for N seconds,
+      -- declare done (handles fast recipes that finish between polls).
+      if not saw_active then
+        if poll and not poll.active and not poll.has_work then
+          quiet_drained_since = quiet_drained_since or now_fn()
+          if now_fn() - quiet_drained_since >= quiet_failsafe_s then
+            return true
+          end
+        else
+          quiet_drained_since = nil
+        end
+        return false
+      end
+
       if completion_mode == "adapter" then
         return poll and not poll.active
       end
-      -- "both": adapter done OR drained with saw_active
+      -- "both": adapter done OR saw_active and now idle
       if poll and not poll.active then return true end
       return false
     end
