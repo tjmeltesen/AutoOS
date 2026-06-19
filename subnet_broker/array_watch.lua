@@ -146,49 +146,68 @@ function ArrayWatch:any_fast_tick()
   return self.lane_dispatch and self.lane_dispatch:any_fast_tick() or false
 end
 
+function ArrayWatch:handle_poll_result(machine, st)
+  local is_central = self.config.input_mode == "central"
+  if not st or not st.available then
+    self:_send_health(machine.id, "fault", "gt_machine proxy unavailable")
+    self.lane_state[machine.id] = { last_state = "fault" }
+    if self.lane_dispatch.reset_lane then
+      self.lane_dispatch:reset_lane(machine.id)
+    end
+  elseif st.maintenance_fault then
+    self:_handle_fault(machine.id, st)
+  else
+    if is_central then
+      local dbg = self.lane_dispatch:get_lane_debug(machine.id)
+      if dbg and dbg.state ~= "idle" then
+        self:_run_lane_dispatch(machine, st)
+      end
+    else
+      self:_run_lane_dispatch(machine, st)
+    end
+  end
+end
+
+function ArrayWatch:step_central(poll_results)
+  if self.config.input_mode ~= "central" or not self.central_dispatch then return end
+  local cev = self.central_dispatch:tick(poll_results or {}, self.lane_dispatch)
+  if self.central_dispatch:any_fast_tick() then self._fast_tick = true end
+  self:_handle_central_events(cev)
+end
+
+function ArrayWatch:step_lane(machine, poll_results)
+  poll_results = poll_results or {}
+  local st = poll_results[machine.id] or { available = false, healthy = false }
+  self:handle_poll_result(machine, st)
+end
+
+function ArrayWatch:step_heartbeat()
+  local now = self.now()
+  if now - self._last_heartbeat >= HEARTBEAT_S then
+    self._last_heartbeat = now
+    self:_send_health("all", "healthy", "heartbeat")
+  end
+end
+
 function ArrayWatch:tick()
   self._fast_tick = false
   local results = self.poll:poll_all()
   local is_central = self.config.input_mode == "central"
 
   if is_central and self.central_dispatch then
-    local cev = self.central_dispatch:tick(results, self.lane_dispatch)
-    if self.central_dispatch:any_fast_tick() then self._fast_tick = true end
-    self:_handle_central_events(cev)
+    self:step_central(results)
   end
 
   local order = self.lane_dispatch:lane_order(self.config.machines)
   for _, machine in ipairs(order) do
-    local st = results[machine.id] or { available = false, healthy = false }
-    if not st.available then
-      self:_send_health(machine.id, "fault", "gt_machine proxy unavailable")
-      self.lane_state[machine.id] = { last_state = "fault" }
-      if self.lane_dispatch.reset_lane then
-        self.lane_dispatch:reset_lane(machine.id)
-      end
-    elseif st.maintenance_fault then
-      self:_handle_fault(machine.id, st)
-    else
-      if is_central then
-        local dbg = self.lane_dispatch:get_lane_debug(machine.id)
-        if dbg and dbg.state ~= "idle" then
-          self:_run_lane_dispatch(machine, st)
-        end
-      else
-        self:_run_lane_dispatch(machine, st)
-      end
-    end
+    self:step_lane(machine, results)
   end
 
   if not is_central then
     self.lane_dispatch:advance_round_robin(self.config.machines)
   end
 
-  local now = self.now()
-  if now - self._last_heartbeat >= HEARTBEAT_S then
-    self._last_heartbeat = now
-    self:_send_health("all", "healthy", "heartbeat")
-  end
+  self:step_heartbeat()
 end
 
 return ArrayWatch

@@ -34,12 +34,14 @@ function LaneDispatch.new(deps)
   self.interface_stock = deps.interface_stock
   self.log = deps.log or function() end
   self.now = deps.now or function() return 0 end
-  self.sleep = deps.sleep or HW.sleep
+  self.yield_now = deps.yield_now or function() end
+  self.yield_sleep = deps.yield_sleep or deps.sleep or function() end
   self.monitor_poll_s = deps.monitor_poll_s or self.config.monitor_poll_s or 0.15
   self.staging_timeout_s = deps.staging_timeout_s or self.config.staging_timeout_s or 60
   self.settle_s = deps.settle_s or self.config.settle_s or 0.1
   self.completion_mode = deps.completion_mode or self.config.completion_mode or "both"
   self.circuit_bus_slot = self.config.circuit_bus_slot or 1
+  self.transfer_scan_budget = deps.transfer_scan_budget or self.config.transfer_scan_budget or 64
   self._lanes = {}
   self._rr_index = 1
   return self
@@ -69,6 +71,10 @@ local function lane_default(now, deadline_s)
     fluid_active_stock = nil,
     item_deadline = now + deadline_s,
     fluid_deadline = now + deadline_s,
+    transfer_item_slot = nil,
+    transfer_item_retry = 1,
+    transfer_moved_items = false,
+    transfer_moved_fluids = false,
   }
 end
 
@@ -478,42 +484,65 @@ end
 
 function LaneDispatch:_transfer_fluids(fluid_tp, machine)
   local from_side = self:_fluid_pull_side(machine)
-  if self:_fluid_level(fluid_tp, from_side) <= 0 then return false end
+  if self:_fluid_level(fluid_tp, from_side) <= 0 then return false, false end
   local to_side = LaneSides.fluid_hatch_side(machine)
-  local moved_any = false
-  for _ = 1, 32 do
-    local ok, result = pcall(fluid_tp.transferFluid, from_side, to_side, FLUID_CHUNK)
-    if not ok or result == false or result == 0 then break end
-    moved_any = true
-  end
-  return moved_any
+  local ok, result = pcall(fluid_tp.transferFluid, from_side, to_side, FLUID_CHUNK)
+  if not ok or result == false or result == 0 then return false, false end
+  local pending = self:_fluid_level(fluid_tp, from_side) > 0
+  if pending then self.yield_now() end
+  return true, pending
 end
 
-function LaneDispatch:_transfer_items(item_tp, machine)
+function LaneDispatch:_transfer_items(item_tp, machine, lane)
   local from_side = self:_item_pull_side(machine)
   local to_side = LaneSides.bus_side(machine)
   local start = self:_chest_start(machine)
   local size = self:_pull_scan_max(item_tp, from_side)
+  lane = lane or {}
+  local slot = lane.transfer_item_slot or start
+  local retry = lane.transfer_item_retry or 1
   local moved_any = false
-  for slot = start, size do
+  local scanned = 0
+
+  while slot <= size and scanned < self.transfer_scan_budget do
     local count = self:_slot_size(item_tp, from_side, slot)
     if count > 0 then
-      for _ = 1, TRANSFER_RETRIES do
-        local ok, moved = pcall(item_tp.transferItem, from_side, to_side, count, slot)
-        if ok and moved and moved >= 1 then
-          moved_any = true
-          break
-        end
+      local ok, moved = pcall(item_tp.transferItem, from_side, to_side, count, slot)
+      if ok and moved and moved >= 1 then
+        moved_any = true
+        retry = 1
+      else
         ok, moved = pcall(item_tp.transferItem, from_side, to_side, 1, slot)
         if ok and moved and moved >= 1 then
           moved_any = true
-          break
+          retry = 1
+        else
+          retry = retry + 1
+          if retry <= TRANSFER_RETRIES then
+            lane.transfer_item_slot = slot
+            lane.transfer_item_retry = retry
+            self.yield_sleep(0.05)
+            return moved_any, true
+          end
+          retry = 1
         end
-        self.sleep(0.05)
       end
+      self.yield_now()
     end
+    slot = slot + 1
+    scanned = scanned + 1
   end
-  return moved_any
+
+  if slot <= size then
+    lane.transfer_item_slot = slot
+    lane.transfer_item_retry = retry
+    self.yield_now()
+    return moved_any, true
+  end
+
+  lane.transfer_item_slot = nil
+  lane.transfer_item_retry = 1
+  return moved_any, false
 end
 
 function LaneDispatch:_fluid_drained(fluid_tp, machine)
@@ -597,6 +626,10 @@ function LaneDispatch:tick_lane(machine, poll_status)
     lane.fluid_phase = "idle"
     lane.item_active_stock = nil
     lane.fluid_active_stock = nil
+    lane.transfer_item_slot = nil
+    lane.transfer_item_retry = 1
+    lane.transfer_moved_items = false
+    lane.transfer_moved_fluids = false
 
     if self:_is_central_mode() then
       return false, events
@@ -626,6 +659,10 @@ function LaneDispatch:tick_lane(machine, poll_status)
     lane.staging_manifest = self:_manifest_from_pull(itp, ftp, machine)
     lane.stocked = false
     lane.active_interface_configs = nil
+    lane.transfer_item_slot = nil
+    lane.transfer_item_retry = 1
+    lane.transfer_moved_items = false
+    lane.transfer_moved_fluids = false
     self:_transition(machine_id, lane, STATE_SETTLE, "buffer ready")
     events[#events + 1] = { type = "buffer_ready", detail = "inputs detected" }
     return true, events
@@ -759,9 +796,12 @@ function LaneDispatch:tick_lane(machine, poll_status)
           return false, events
         end
       elseif lane.fluid_phase == "transfer" then
-        local moved = self:_transfer_fluids(ftp, machine)
+        local moved, pending = self:_transfer_fluids(ftp, machine)
         if moved then
-          lane.fluid_deadline = now + self.staging_timeout_s
+          if pending then
+            return true, events
+          end
+          lane.fluid_deadline = self.now() + self.staging_timeout_s
           lane.fluid_phase = "drain"
         elseif now >= lane.fluid_deadline then
           lane.last_error = string.format("fluid track step %d (%s) transfer failed",
@@ -810,13 +850,22 @@ function LaneDispatch:tick_lane(machine, poll_status)
       return true, { { type = "recover_failed", detail = "transposer unavailable" } }
     end
 
-    local moved_items = self:_transfer_items(itp, machine)
-    local moved_fluids = self:_transfer_fluids(ftp, machine)
+    local moved_items, pending_items = self:_transfer_items(itp, machine, lane)
+    lane.transfer_moved_items = lane.transfer_moved_items or moved_items
+    local moved_fluids, pending_fluids = false, false
+    if not pending_items then
+      moved_fluids, pending_fluids = self:_transfer_fluids(ftp, machine)
+      lane.transfer_moved_fluids = lane.transfer_moved_fluids or moved_fluids
+    end
     local needs_fluids = lane.staging_manifest
       and type(lane.staging_manifest.fluids) == "table"
       and #lane.staging_manifest.fluids > 0
 
-    if self:_is_central_mode() and not moved_items and not moved_fluids then
+    if pending_items or pending_fluids then
+      return true, events
+    end
+
+    if self:_is_central_mode() and not lane.transfer_moved_items and not lane.transfer_moved_fluids then
       local pull = self:_item_pull_side(machine)
       local detail = self.circuit_manager:describe_face(itp, pull)
       lane.last_error = string.format("no items moved from dual IF side %d (%s)", pull, detail)
@@ -826,7 +875,7 @@ function LaneDispatch:tick_lane(machine, poll_status)
       events[#events + 1] = { type = "recover_failed", detail = lane.last_error }
       return false, events
     end
-    if self:_is_central_mode() and needs_fluids and not moved_fluids then
+    if self:_is_central_mode() and needs_fluids and not lane.transfer_moved_fluids then
       local from_side = self:_fluid_pull_side(machine)
       lane.last_error = string.format(
         "fluid expected but none moved from side %d (check interface_fluid_side / side_fluid_buffer)",
@@ -839,6 +888,8 @@ function LaneDispatch:tick_lane(machine, poll_status)
       return false, events
     end
     self:_release_active_stock(machine, lane)
+    lane.transfer_moved_items = false
+    lane.transfer_moved_fluids = false
     lane.saw_active = false
     lane.deadline = now + self.staging_timeout_s
     self:_transition(machine_id, lane, STATE_WAIT_COMPLETE, "transfer done")

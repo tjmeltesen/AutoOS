@@ -47,8 +47,8 @@ Config.central = {
   fluid_adapter_side = 0,
   chest_slot_start = 1,
   max_circuits_in_buffer = 1,
-  stabilize_s = 3.0,
-  interface_wait_s = 15.0,
+  stabilize_s = 1.0,
+  interface_wait_s = 5.0,
   require_interface_staging = false,
 }
 

@@ -19,7 +19,16 @@ function MachinePoll.new(deps)
   self.component = deps.component
   self.proxies = {}
   self.proxy_errors = {}
+  self.proxy_cache_stale = false
 
+  self:refresh_proxies()
+
+  return self
+end
+
+function MachinePoll:refresh_proxies()
+  self.proxies = {}
+  self.proxy_errors = {}
   if self.component and self.component.proxy then
     for _, machine in ipairs(self.config.machines) do
       local proxy, err = HW.require_proxy(
@@ -31,15 +40,20 @@ function MachinePoll.new(deps)
       end
     end
   end
+  self.proxy_cache_stale = false
+end
 
-  return self
+function MachinePoll:mark_proxy_cache_stale()
+  self.proxy_cache_stale = true
 end
 
 function MachinePoll:get_proxy(machine_id)
+  if self.proxy_cache_stale then self:refresh_proxies() end
   return self.proxies[machine_id]
 end
 
 function MachinePoll:poll_machine(machine_row)
+  if self.proxy_cache_stale then self:refresh_proxies() end
   local status = {
     id = machine_row.id,
     available = false,

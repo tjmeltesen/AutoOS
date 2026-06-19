@@ -514,3 +514,11 @@ Split the brain (orchestrator) from the muscle (broker) across two OpenComputers
 - Changed `subnet_broker/lane_dispatch.lua`: central mode now runs a dual-track queue state (`STATE_QUEUE`) where item and fluid tracks progress in parallel, but consecutive same-kind steps are gated by that track's buffer-empty condition.
 - Changed `subnet_broker/probe_fluid.lua`, `subnet_broker/start.lua`, `subnet_broker/config.lua`, `references/gtceu-lcr-gtnh-port-map.md`: wired shared helpers, required-file checks, central fluid adapter validation/comments, and updated topology docs.
 - Added `tests/fluid_tanks_test.lua`; changed `tests/central_dispatch_test.lua` and `tests/lane_dispatch_test.lua`: coverage for central fluid-adapter manifest merge/queue and dual-track queue behavior.
+
+## 2026-06-18 - Subnet broker coroutine runtime
+
+- Added `subnet_broker/coroutine_scheduler.lua`: deterministic cooperative scheduler with task spawn, timer sleeps, event waits, yield-now, and isolated task errors.
+- Changed `subnet_broker/broker_main.lua`: runtime now registers modem, component, machine poll, central dispatch, per-lane, and heartbeat scheduler tasks; `event.pull` is unfiltered so modem/component events are handled while lane work is active.
+- Changed `subnet_broker/array_watch.lua`, `machine_poll.lua`: added cache-oriented task steps and proxy-cache invalidation while keeping `tick()` compatibility for desktop tests.
+- Changed `subnet_broker/lane_dispatch.lua`, `circuit_manager.lua`, `interface_stock.lua`: transfer retries, fluid chunks, and circuit recovery now yield through cooperative callbacks instead of blocking sleeps; lane transfer cursors preserve retry state across resumes.
+- Added `tests/coroutine_scheduler_test.lua`, `tests/broker_scheduler_test.lua`, `tests/lane_coroutine_test.lua`: coverage for scheduler timers/events/errors, broker event interleaving, and lane retry state across yields.

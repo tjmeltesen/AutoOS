@@ -26,6 +26,7 @@ function CircuitManager.new(deps)
   self.component = deps.component or error("CircuitManager.new: component required")
   self.descriptor_cache = deps.descriptor_cache
   self.circuit_item = self.config.circuit_item_name or "gregtech:gt.integrated_circuit"
+  self.yield_sleep = deps.yield_sleep or function() end
   return self
 end
 
@@ -131,7 +132,7 @@ function CircuitManager:_transfer_with_retries(tp, from_side, to_side, from_slot
         if moved >= 1 then return moved, nil end
       end
     end
-    if attempt < TRANSFER_ATTEMPTS then HW.sleep(0.25) end
+    if attempt < TRANSFER_ATTEMPTS then self.yield_sleep(0.25) end
   end
   return 0, last_err
 end

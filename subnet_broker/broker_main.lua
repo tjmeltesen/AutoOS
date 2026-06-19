@@ -7,7 +7,7 @@
     loadfile("/home/subnet_broker/broker_main.lua")("test")  -- one tick, then exit
 ]]
 
-local BROKER_BUILD = "2026-06-16c"
+local BROKER_BUILD = "2026-06-18-coroutine"
 
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
@@ -37,7 +37,9 @@ end
 function BrokerMain.build()
   local component = require("component")
   local computer = require("computer")
+  local event = require("event")
   local Config = require("config")
+  local Scheduler = require("coroutine_scheduler")
   local MachinePoll = require("machine_poll")
   local DescriptorCache = require("descriptor_cache")
   local CircuitManager = require("circuit_manager")
@@ -63,12 +65,25 @@ function BrokerMain.build()
     broadcast = function(_, msg) modem.broadcast(listen_port, msg) end,
   }
 
+  local scheduler = Scheduler.new({ event = event, computer = computer, log = print })
+  local function in_task()
+    local co, is_main = coroutine.running()
+    return co ~= nil and not is_main
+  end
+  local function yield_now()
+    if in_task() then return Scheduler.yield_now() end
+  end
+  local function yield_sleep(seconds)
+    if in_task() then return Scheduler.sleep(seconds) end
+  end
+
   local poll = MachinePoll.new({ config = Config, component = component })
   local descriptor_cache = DescriptorCache.new({ config = Config, component = component })
   local circuit_manager = CircuitManager.new({
     config = Config,
     component = component,
     descriptor_cache = descriptor_cache,
+    yield_sleep = yield_sleep,
   })
   local interface_stock = InterfaceStock.new({
     config = Config,
@@ -82,6 +97,8 @@ function BrokerMain.build()
     interface_stock = interface_stock,
     log = print,
     now = computer.uptime,
+    yield_now = yield_now,
+    yield_sleep = yield_sleep,
   })
 
   local watch = ArrayWatch.new({
@@ -101,9 +118,88 @@ function BrokerMain.build()
     poll = poll,
     watch = watch,
     lane_dispatch = lane_dispatch,
+    scheduler = scheduler,
+    state = { poll_results = {}, dirty = {}, events = {} },
     listen_port = listen_port,
     orch_port = orch_port,
   }
+end
+
+function BrokerMain.attach_tasks(ctx)
+  local Scheduler = require("coroutine_scheduler")
+  local Protocols = require("network_protocols")
+  local scheduler = ctx.scheduler
+  local state = ctx.state
+  local cfg = ctx.config
+  local machines = cfg.machines or {}
+
+  local function fast_interval()
+    if ctx.watch:any_fast_tick() then return cfg.monitor_poll_s or 0.15 end
+    return cfg.tick_interval or 1.0
+  end
+
+  scheduler:spawn("modem_rx", function()
+    while true do
+      local _, _, from, _, _, message = Scheduler.wait_event("modem_message")
+      local pkt = Protocols.parse(message)
+      if pkt and pkt.kind == Protocols.KIND.TRIGGER_CRAFT then
+        print(string.format("[Broker] ignoring TRIGGER_CRAFT from %s (AE handles dispatch)",
+          tostring(from)))
+      end
+      state.events[#state.events + 1] = { type = "modem_message", from = from, packet = pkt }
+      Scheduler.yield_now()
+    end
+  end)
+
+  scheduler:spawn("component_events", function()
+    while true do
+      local id = Scheduler.wait_event(function(ev)
+        return ev == "component_available" or ev == "component_unavailable"
+      end)
+      if ctx.poll.mark_proxy_cache_stale then ctx.poll:mark_proxy_cache_stale() end
+      state.dirty.components = true
+      state.events[#state.events + 1] = { type = id }
+      Scheduler.yield_now()
+    end
+  end)
+
+  scheduler:spawn("machine_poll", function()
+    local idx = 1
+    while true do
+      if #machines > 0 then
+        local machine = machines[idx]
+        state.poll_results[machine.id] = ctx.poll:poll_machine(machine)
+        state.dirty[machine.id] = true
+        idx = (idx % #machines) + 1
+      end
+      Scheduler.sleep(fast_interval())
+    end
+  end)
+
+  scheduler:spawn("central_dispatch", function()
+    while true do
+      ctx.watch:step_central(state.poll_results)
+      Scheduler.yield_now()
+      Scheduler.sleep(fast_interval())
+    end
+  end)
+
+  for _, machine in ipairs(machines) do
+    scheduler:spawn("lane_" .. tostring(machine.id), function()
+      while true do
+        ctx.watch:step_lane(machine, state.poll_results)
+        Scheduler.yield_now()
+        Scheduler.sleep(fast_interval())
+      end
+    end)
+  end
+
+  scheduler:spawn("heartbeat", function()
+    while true do
+      ctx.watch:step_heartbeat()
+      Scheduler.sleep(10)
+    end
+  end)
 end
 
 function BrokerMain.run_once()
@@ -154,27 +250,12 @@ function BrokerMain.run()
   print("[Broker] headless — no GPU UI; Ctrl+C to stop; use loadfile(...)(\"test\") for one tick")
   print_lane_status(ctx.poll, ctx.config.machines)
 
-  while true do
-    local interval = ctx.watch:any_fast_tick()
-      and (ctx.config.monitor_poll_s or 0.15)
-      or (ctx.config.tick_interval or 1.0)
-    local id, _, from, _, _, message = event.pull(interval, "modem_message")
-    if id == "modem_message" then
-      local pkt = Protocols.parse(message)
-      if pkt and pkt.kind == Protocols.KIND.TRIGGER_CRAFT then
-        print(string.format("[Broker] ignoring TRIGGER_CRAFT from %s (AE handles dispatch)",
-          tostring(from)))
-      end
-    else
-      local ok_tick, err_tick = xpcall(function() ctx.watch:tick() end, debug.traceback)
-      if not ok_tick then
-        print("[Broker] tick error:\n" .. tostring(err_tick))
-      end
-    end
-  end
+  BrokerMain.attach_tasks(ctx)
+  ctx.scheduler:run()
 end
 
 local function should_autostart()
+  if mode == "broker_main" then return false end
   if mode == "test" or mode == "once" then return true end
   -- ponytail: OpenOS has no arg[]; lua broker_main.lua runs under /bin/lua — skip require() only
   local info = debug.getinfo(2, "S")

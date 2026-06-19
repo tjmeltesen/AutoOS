@@ -31,7 +31,6 @@ function InterfaceStock.new(deps)
   self.config = deps.config or error("InterfaceStock.new: config required")
   self.component = deps.component or error("InterfaceStock.new: component required")
   self.descriptor_cache = deps.descriptor_cache or error("InterfaceStock.new: descriptor_cache required")
-  self.sleep = deps.sleep or HW.sleep
   return self
 end
 
@@ -270,8 +269,6 @@ end
 
 function InterfaceStock:wait_pull_ready(item_tp, fluid_tp, machine, manifest, timeout_s)
   manifest = manifest or {}
-  local start_ms = os.clock and os.clock() or 0
-  local deadline = start_ms + (timeout_s or 0)
   local item_side = machine.side_buffer
   local fluid_side = machine.side_fluid_buffer or machine.side_buffer
 
@@ -300,13 +297,7 @@ function InterfaceStock:wait_pull_ready(item_tp, fluid_tp, machine, manifest, ti
     return fluid_level(fluid_tp, fluid_side) > 0
   end
 
-  repeat
-    if has_items() and has_fluids() then return true end
-    self.sleep(0.1)
-    start_ms = os.clock and os.clock() or (start_ms + 0.1)
-  until start_ms >= deadline
-
-  return false
+  return has_items() and has_fluids()
 end
 
 return InterfaceStock
