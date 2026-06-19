@@ -35,22 +35,28 @@ local function print_lane_status(poll, machines)
 end
 
 function BrokerMain.build()
+  local ok_build, ctx_or_err = pcall(BrokerMain._build_impl)
+  if ok_build then return ctx_or_err end
+  return nil, tostring(ctx_or_err)
+end
+
+function BrokerMain._build_impl()
   local component = require("component")
   local computer = require("computer")
   local event = require("event")
   local Config = require("config")
   local Scheduler = require("coroutine_scheduler")
   local MachinePoll = require("machine_poll")
+  local BrokerBoot = require("broker_boot")
 
   -- Phase 1 (MMU): Static hardware registry
-  local ok_boot, BrokerBoot = pcall(require, "broker_boot")
-  if not ok_boot then return nil, "broker_boot load failed: " .. tostring(BrokerBoot) end
-
-  local registry, boot_err = BrokerBoot.boot()
-  if not registry then return nil, "boot failed: " .. tostring(boot_err) end
+  local ok_boot, registry_or_err = pcall(BrokerBoot.boot)
+  if not ok_boot then error("boot() crashed: " .. tostring(registry_or_err), 0) end
+  local registry = registry_or_err
+  if not registry then error("boot returned nil: " .. tostring(registry), 0) end
 
   if not component.isAvailable("modem") then
-    return nil, "no modem — needs a network card"
+    error("no modem — needs a network card", 0)
   end
 
   local modem = component.modem
@@ -62,14 +68,12 @@ function BrokerMain.build()
   local scheduler = Scheduler.new({ event = event, computer = computer, log = print })
 
   -- Seed runtime deps
-  registry:seed(computer.uptime, print, registry.get_circuit_manager())
+  pcall(registry.seed, registry, computer.uptime, print, registry.get_circuit_manager())
 
   local poll = MachinePoll.new({ config = Config, component = component })
 
   -- Phase 3 (ROB): Central dispatcher
-  local ok_rob, ROBDispatcher = pcall(require, "rob_dispatcher")
-  if not ok_rob then return nil, "rob_dispatcher load failed: " .. tostring(ROBDispatcher) end
-
+  local ROBDispatcher = require("rob_dispatcher")
   local rob = ROBDispatcher.new(registry, Config, {
     now = computer.uptime,
     log = print,
