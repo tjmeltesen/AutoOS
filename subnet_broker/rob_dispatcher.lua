@@ -974,6 +974,21 @@ function ROBDispatcher:pending_queue()
   return self._pending_jobs
 end
 
+--- Get the job currently assigned to a lane (if any).
+--- Lane workers call this to pull their work after being woken.
+--- @param machine_id string
+--- @return table|nil job
+function ROBDispatcher:get_assigned_job(machine_id)
+  local lane = self._lanes[machine_id]
+  if not lane or lane.state ~= LANE_WORKING or not lane.current_job_id then
+    return nil
+  end
+  for _, job in ipairs(self._pending_jobs) do
+    if job.id == lane.current_job_id then return job end
+  end
+  return nil
+end
+
 --- Check if a specific lane is busy (WORKING or FAULTED).
 --- @param machine_id string
 --- @return boolean

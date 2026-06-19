@@ -7,7 +7,7 @@
     loadfile("/home/subnet_broker/broker_main.lua")("test")  -- one tick, then exit
 ]]
 
-local BROKER_BUILD = "2026-06-18-coroutine"
+local BROKER_BUILD = "2026-06-19-me-only"
 
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
@@ -41,15 +41,12 @@ function BrokerMain.build()
   local Config = require("config")
   local Scheduler = require("coroutine_scheduler")
   local MachinePoll = require("machine_poll")
-  local DescriptorCache = require("descriptor_cache")
-  local CircuitManager = require("circuit_manager")
-  local InterfaceStock = require("interface_stock")
-  local LaneDispatch = require("lane_dispatch")
-  local ArrayWatch = require("array_watch")
-  local HW = require("hw")
+  local BrokerBoot = require("broker_boot")
+  local ROBDispatcher = require("rob_dispatcher")
 
-  local ok, err = Config.validate(Config)
-  if not ok then return nil, "config invalid: " .. tostring(err) end
+  -- Phase 1 (MMU): Static hardware registry — one scan, all proxies + DB slots cached
+  local registry, boot_err = BrokerBoot.boot()
+  if not registry then return nil, "boot failed: " .. tostring(boot_err) end
 
   if not component.isAvailable("modem") then
     return nil, "no modem — needs a network card"
@@ -60,11 +57,6 @@ function BrokerMain.build()
   local orch_port = Config.main_net_channel or Protocols.PORT_DEFAULT
   modem.open(listen_port)
   if orch_port ~= listen_port then modem.open(orch_port) end
-
-  local link = {
-    send = function(_, addr, msg) modem.send(addr, orch_port, msg) end,
-    broadcast = function(_, msg) modem.broadcast(listen_port, msg) end,
-  }
 
   local scheduler = Scheduler.new({ event = event, computer = computer, log = print })
   local function in_task()
@@ -78,48 +70,23 @@ function BrokerMain.build()
     if in_task() then return Scheduler.sleep(seconds) end
   end
 
-  local poll = MachinePoll.new({ config = Config, component = component })
-  local descriptor_cache = DescriptorCache.new({ config = Config, component = component })
-  local circuit_manager = CircuitManager.new({
-    config = Config,
-    component = component,
-    descriptor_cache = descriptor_cache,
-    yield_sleep = yield_sleep,
-  })
-  local interface_stock = InterfaceStock.new({
-    config = Config,
-    component = component,
-    descriptor_cache = descriptor_cache,
-  })
-  local lane_dispatch = LaneDispatch.new({
-    config = Config,
-    component = component,
-    circuit_manager = circuit_manager,
-    interface_stock = interface_stock,
-    log = print,
-    now = computer.uptime,
-    yield_now = yield_now,
-    yield_sleep = yield_sleep,
-  })
+  -- Seed runtime deps that broker_boot couldn't set (needs computer.uptime)
+  registry:seed(computer.uptime, print, registry.get_circuit_manager())
 
-  local watch = ArrayWatch.new({
-    config = Config,
-    component = component,
-    poll = poll,
-    circuit_manager = circuit_manager,
-    descriptor_cache = descriptor_cache,
-    lane_dispatch = lane_dispatch,
-    link = link,
-    reply_to = Config.orchestrator_address ~= "" and Config.orchestrator_address or nil,
-    log = print,
+  local poll = MachinePoll.new({ config = Config, component = component })
+
+  -- Phase 3 (ROB): Central dispatcher — buffer monitor, job creation, lane assignment, mutex
+  local rob = ROBDispatcher.new(registry, Config, {
     now = computer.uptime,
+    log = print,
+    circuit_manager = registry.get_circuit_manager(),
   })
 
   return {
     config = Config,
+    registry = registry,
     poll = poll,
-    watch = watch,
-    lane_dispatch = lane_dispatch,
+    rob = rob,
     scheduler = scheduler,
     state = { poll_results = {}, dirty = {}, events = {} },
     listen_port = listen_port,
@@ -130,25 +97,25 @@ end
 function BrokerMain.attach_tasks(ctx)
   local Scheduler = require("coroutine_scheduler")
   local Protocols = require("network_protocols")
+  local LaneWorker = require("lane_worker")
   local scheduler = ctx.scheduler
   local state = ctx.state
   local cfg = ctx.config
   local machines = cfg.machines or {}
-  local active_lane_budget = cfg.active_lane_budget
-    or (cfg.scheduler and cfg.scheduler.active_lane_budget)
-    or 32
+  local registry = ctx.registry
+  local rob = ctx.rob
 
   local function fast_interval()
-    if ctx.watch:any_fast_tick() then return cfg.monitor_poll_s or 0.15 end
+    if rob:any_fast_tick() then return cfg.monitor_poll_s or 0.15 end
     return cfg.tick_interval or 1.0
   end
 
   local function wake_dispatch()
     scheduler:wake("central_dispatch")
-    scheduler:wake("broker_scheduler")
     scheduler:wake_prefix("lane_")
   end
 
+  -- modem_rx: unchanged — relay modem messages to state.events
   scheduler:spawn("modem_rx", function()
     while true do
       local _, _, from, _, _, message = Scheduler.wait_event("modem_message")
@@ -163,13 +130,13 @@ function BrokerMain.attach_tasks(ctx)
     end
   end)
 
+  -- component_events: unchanged
   scheduler:spawn("component_events", function()
     while true do
       local id = Scheduler.wait_event(function(ev)
         return ev == "component_available" or ev == "component_unavailable"
       end)
       if ctx.poll.mark_proxy_cache_stale then ctx.poll:mark_proxy_cache_stale() end
-      if HW.clear_proxy_cache then HW.clear_proxy_cache() end
       state.dirty.components = true
       state.events[#state.events + 1] = { type = id }
       scheduler:wake("machine_poll")
@@ -178,6 +145,7 @@ function BrokerMain.attach_tasks(ctx)
     end
   end)
 
+  -- central_input_events: unchanged — inventory/tank/interface changes wake dispatch
   scheduler:spawn("central_input_events", function()
     while true do
       local id = Scheduler.wait_event(function(ev)
@@ -187,71 +155,69 @@ function BrokerMain.attach_tasks(ctx)
       end)
       state.events[#state.events + 1] = { type = id }
       scheduler:wake("central_dispatch")
-      scheduler:wake("broker_scheduler")
       Scheduler.yield_now()
     end
   end)
 
+  -- machine_poll: poll one machine per tick, share results with registry + dispatcher
   scheduler:spawn("machine_poll", function()
     local idx = 1
     while true do
       if #machines > 0 then
         local machine = machines[idx]
-        state.poll_results[machine.id] = ctx.poll:poll_machine(machine)
+        local result = ctx.poll:poll_machine(machine)
+        state.poll_results[machine.id] = result
+        registry._poll_results[machine.id] = result
         state.dirty[machine.id] = true
         scheduler:wake("lane_" .. tostring(machine.id))
         scheduler:wake("central_dispatch")
-        scheduler:wake("broker_scheduler")
         idx = (idx % #machines) + 1
       end
       Scheduler.sleep(fast_interval())
     end
   end)
 
+  -- central_dispatch: ROB does buffer monitor + job creation + lane assignment in one tick
   scheduler:spawn("central_dispatch", function()
     while true do
-      if ctx.watch.step_central then ctx.watch:step_central(state.poll_results) end
-      scheduler:wake("broker_scheduler")
-      Scheduler.yield_now()
-      Scheduler.sleep(fast_interval())
-    end
-  end)
-
-  scheduler:spawn("broker_scheduler", function()
-    while true do
-      if ctx.watch.step_scheduler then
-        local assigned = ctx.watch:step_scheduler(state.poll_results) or {}
-        for _, machine_id in ipairs(assigned) do
-          scheduler:wake("lane_" .. tostring(machine_id))
-        end
+      local result = rob:tick(state.poll_results)
+      -- Wake lanes that got jobs assigned
+      for _, machine_id in ipairs(result.jobs_assigned or {}) do
+        scheduler:wake("lane_" .. tostring(machine_id))
+      end
+      -- Emit central events for health/logging
+      for _, ev in ipairs(result.events or {}) do
+        state.events[#state.events + 1] = ev
       end
       Scheduler.yield_now()
       Scheduler.sleep(fast_interval())
     end
   end)
 
+  -- lane_* coroutines: pull assigned job from ROB, execute via LaneWorker, post result
   for _, machine in ipairs(machines) do
     scheduler:spawn("lane_" .. tostring(machine.id), function()
       while true do
-        for _ = 1, active_lane_budget do
-          ctx.watch:step_lane(machine, state.poll_results)
-          Scheduler.yield_now()
-          local dbg = ctx.lane_dispatch and ctx.lane_dispatch:get_lane_debug(machine.id)
-          if not dbg or dbg.state == "idle" then break end
+        local job = rob:get_assigned_job(machine.id)
+        if job then
+          local result = LaneWorker.execute(registry, job, machine.id)
+          local results_table = rob:get_results_table()
+          results_table[machine.id] = result
+          -- Immediately release faulted state so next tick can recover
+          if result.status == "failed" then
+            rob:fault_lane(machine.id, result.error or "lane worker failed")
+          end
+          scheduler:wake("central_dispatch")
         end
-        local dbg = ctx.lane_dispatch and ctx.lane_dispatch:get_lane_debug(machine.id)
-        if dbg and dbg.state ~= "idle" then
-          Scheduler.sleep(cfg.monitor_poll_s or 0.15)
-        else
-          Scheduler.sleep(cfg.tick_interval or 1.0)
-        end
+        Scheduler.yield_now()
+        Scheduler.sleep(fast_interval())
       end
     end)
   end
 
+  -- heartbeat: periodic health ping
   scheduler:spawn("heartbeat", function()
     while true do
-      ctx.watch:step_heartbeat()
       Scheduler.sleep(10)
     end
   end)
@@ -269,22 +235,27 @@ function BrokerMain.run_once()
     ctx.config.subnet_id, ctx.listen_port, ctx.config.orchestrator_address or "(none)"))
   print_lane_status(ctx.poll, ctx.config.machines)
 
-  local ok_tick, err_tick = xpcall(function() ctx.watch:tick() end, debug.traceback)
-  if not ok_tick then
-    print("[Broker] tick error:\n" .. tostring(err_tick))
-    return false
+  -- Poll all machines once so dispatcher has data
+  local results = ctx.poll:poll_all()
+  for mid, r in pairs(results) do
+    ctx.state.poll_results[mid] = r
+    ctx.registry._poll_results[mid] = r
   end
 
-  for _, m in ipairs(ctx.config.machines) do
-    local dbg = ctx.lane_dispatch:get_lane_debug(m.id)
-    print(string.format("[Broker] %s dispatch=%s%s",
-      m.id, dbg.state,
-      dbg.last_error and (" err=" .. dbg.last_error) or ""))
+  -- Single dispatcher tick: buffer monitor + job creation + lane assignment
+  local tick_result = ctx.rob:tick(ctx.state.poll_results)
+  for _, ev in ipairs(tick_result.events or {}) do
+    print(string.format("[Broker] event: %s %s", ev.type, tostring(ev.detail or ev.machine_id or "")))
   end
-  if ctx.config.input_mode == "central" and ctx.watch.central_dispatch then
-    local cd = ctx.watch.central_dispatch:get_debug()
-    print(string.format("[Broker] central state=%s bound=%s rr=%s",
-      cd.state, tostring(cd.bound_machine or "none"), tostring(cd.rr_index)))
+
+  -- Show lane state
+  local dbg = ctx.rob:get_debug()
+  print(string.format("[Broker] central state=%s pending=%d batch_claimed=%s",
+    dbg.buffer_state, dbg.pending_jobs, tostring(dbg.batch_claimed)))
+  for mid, lane in pairs(dbg.lanes) do
+    print(string.format("[Broker] %s state=%s job=%s err=%s",
+      mid, lane.state, tostring(lane.current_job_id or "none"),
+      tostring(lane.last_error or "")))
   end
   print("[Broker] test tick done")
   return true
@@ -298,7 +269,6 @@ function BrokerMain.run()
     return false
   end
 
-  local event = require("event")
   print(string.format("[Broker] online — %s dispatch, subnet=%s, listen %d → %d, orch=%s",
     ctx.config.input_mode or "per_lane", ctx.config.subnet_id, ctx.listen_port, ctx.orch_port,
     ctx.config.orchestrator_address or "(none)"))
