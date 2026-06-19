@@ -91,6 +91,9 @@ local function run(args)
 
   if out_file then log_open(out_file) end
 
+  local function do_run()
+  -- ── begin do_run (return on early exit, cleanup always runs) ──
+
   log("=== pull_through %s | machine=%s ===", BUILD, machine_id)
 
   -- Resolve machine
@@ -98,7 +101,7 @@ local function run(args)
   for _, mc in ipairs(Config.machines or {}) do
     if mc.id == machine_id then m = mc; break end
   end
-  if not m then log("ERROR: machine '%s' not found", machine_id); goto done end
+  if not m then log("ERROR: machine '%s' not found", machine_id); return end
 
   -- ── Proxies ──
   local iface   = proxy(m.interface_address, "me_interface")
@@ -162,7 +165,7 @@ local function run(args)
     dump_tanks(fluid_tp, hatch_side, "hatch")
   else
     log("  no fluid transposer")
-    goto done
+    return
   end
 
   -- ── Step 4: Find or create a fluid DB entry ──
@@ -170,7 +173,7 @@ local function run(args)
   local db_addr = Config.database_address
   if not db_addr or db_addr == "" or db_addr:find("SET_", 1, true) then
     log("  database_address is placeholder — set in config.lua")
-    goto done
+    return
   end
 
   local stock_slot = manual_slot
@@ -265,13 +268,13 @@ local function run(args)
       end
     end
     log("  re-run with db_slot as 3rd arg: pull_through(\"machine_01\", \"pull.txt\", N)")
-    goto done
+    return
   end
 
   ::got_slot::
   if not stock_slot then
     log("  no DB slot found — pass db_slot as 3rd argument")
-    goto done
+    return
   end
   log("  using db_slot=%s label=%s", tostring(stock_slot), stock_label)
 
@@ -279,7 +282,7 @@ local function run(args)
   log("── Step 5: stock fluid on pull side %d ──", fluid_pull)
   if not iface or not iface.setFluidInterfaceConfiguration then
     log("  ERROR: no setFluidInterfaceConfiguration")
-    goto done
+    return
   end
 
   -- Clear existing config on pull side first
@@ -290,7 +293,7 @@ local function run(args)
   local ok_stock, stock_err = pcall(iface.setFluidInterfaceConfiguration, fluid_pull, db_addr, stock_slot)
   if not ok_stock or stock_err == false then
     log("  stock FAILED: ok=%s err=%s", tostring(ok_stock), tostring(stock_err))
-    goto done
+    return
   end
   log("  stock OK: side=%d addr=%s slot=%s", fluid_pull, db_addr, tostring(stock_slot))
 
@@ -318,7 +321,7 @@ local function run(args)
     log("    - fluid_pull_side (%d) doesn't match the dual IF side the transposer sees", fluid_pull)
     log("    - setFluidInterfaceConfiguration needs a DIFFERENT first arg")
     log("  Try running again with items (they work) as a control test")
-    goto done
+    return
   end
 
   -- ── Step 7: Transfer to hatch ──
@@ -356,7 +359,13 @@ local function run(args)
   pcall(iface.setFluidInterfaceConfiguration, fluid_pull)
   log("  cleared fluid config on side %d", fluid_pull)
 
-  ::done::
+  -- ── end do_run ──
+  end  -- do_run
+
+  local ok_do, do_err = pcall(do_run)
+  if not ok_do then
+    log("ERROR: %s", tostring(do_err))
+  end
   log("=== done ===")
   if out_file then log_close() end
 end
