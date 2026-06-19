@@ -296,17 +296,30 @@ function LaneWorker.execute(registry, job, machine_id, event)
   ---------------------------------------------------------------------------
   do
     local item_idx = 0
-    local fluid_side = LaneSides.central_fluid_pull_side(machine)
+    local fluid_idx = 0
+    -- One fluid per side: setFluidInterfaceConfiguration(side, ...)
+    -- overwrites previous configs on the same side. Use distinct sides.
+    -- The dual IF's internal tank is accessible from all sides, so the
+    -- transposer sees all fluids on fluid_pull_side regardless.
+    local used_sides = {}
+    local function next_fluid_side()
+      -- Prefer sides 0,1,3,5 (skip 2=item_pull, 4=fluid_pull transposer
+      -- sides — they still work but avoid potential conflicts)
+      local candidates = {0, 1, 3, 5, 2, 4}
+      for _, s in ipairs(candidates) do
+        if not used_sides[s] then used_sides[s] = true; return s end
+      end
+      return nil
+    end
 
     for _, step in ipairs(queue) do
       if step.kind == "fluid" then
-        -- All fluids configured on the same side (the side the transposer
-        -- pulls from).  The dual IF stocks multiple fluids on one side;
-        -- setFluidInterfaceConfiguration's first param is a side, not a slot.
+        local side = next_fluid_side()
+        if not side then return fail("no free interface sides for fluid: " .. tostring(step.fluid_label or "?")) end
         if not iface then return fail("no ME interface for fluid stock") end
-        local ok, err = stock_fluid_slot(iface, fluid_side, step.db_address, step.db_slot)
-        if not ok then return fail("fluid stock side " .. fluid_side .. ": " .. tostring(err)) end
-        cfg_slots[#cfg_slots + 1] = { fluid = true, side = fluid_side }
+        local ok, err = stock_fluid_slot(iface, side, step.db_address, step.db_slot)
+        if not ok then return fail("fluid stock side " .. side .. ": " .. tostring(err)) end
+        cfg_slots[#cfg_slots + 1] = { fluid = true, side = side }
       else
         item_idx = item_idx + 1
         local iface_slot = slot_start + item_idx - 1
