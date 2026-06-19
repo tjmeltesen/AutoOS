@@ -18,6 +18,14 @@ local Registry = {}
 -- cache-key helpers (must match descriptor_cache.lua format)
 -- ---------------------------------------------------------------------------
 
+local function item_cache_key(name, damage, label)
+  return "item:" .. tostring(name) .. ":" .. tostring(damage or 0) .. ":" .. tostring(label or "")
+end
+
+local function fluid_cache_key(fluid_label)
+  return "fluid:" .. tostring(fluid_label)
+end
+
 -- Build method closures bound to a specific instance (called at end of build()).
 local function bind_methods(inst)
   inst.lookup_db = function(item_name, damage, label)
@@ -58,13 +66,6 @@ local function bind_methods(inst)
   return inst
 end
 
-local function item_cache_key(name, damage, label)
-  return "item:" .. tostring(name) .. ":" .. tostring(damage or 0) .. ":" .. tostring(label or "")
-end
-
-local function fluid_cache_key(fluid_label)
-  return "fluid:" .. tostring(fluid_label)
-end
 
 -- ---------------------------------------------------------------------------
 -- build-phase helpers (private, not exported)
