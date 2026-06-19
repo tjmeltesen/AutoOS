@@ -33,6 +33,7 @@ Config.scheduler = {
   max_job_attempts = 2,
   watchdog_grace_s = 10,
   persist_jobs = "startup_sweep",
+  active_lane_budget = 32,
 }
 
 Config.orchestrator_address = "3bd12f6b-b5d6-4d0d-ad56-e1d372fdb4ac"
@@ -313,6 +314,10 @@ function Config.validate(cfg)
     if cfg.scheduler.watchdog_grace_s ~= nil
       and (type(cfg.scheduler.watchdog_grace_s) ~= "number" or cfg.scheduler.watchdog_grace_s < 0) then
       return nil, "scheduler.watchdog_grace_s must be non-negative"
+    end
+    if cfg.scheduler.active_lane_budget ~= nil
+      and (type(cfg.scheduler.active_lane_budget) ~= "number" or cfg.scheduler.active_lane_budget < 1) then
+      return nil, "scheduler.active_lane_budget must be a positive integer"
     end
     local persist = cfg.scheduler.persist_jobs or "startup_sweep"
     if persist ~= "startup_sweep" and persist ~= "file" then

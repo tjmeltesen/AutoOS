@@ -244,12 +244,13 @@ function ArrayWatch:step_watchdog()
 end
 
 function ArrayWatch:step_scheduler(poll_results)
-  if self.config.input_mode ~= "central" then return end
+  if self.config.input_mode ~= "central" then return {} end
   poll_results = poll_results or {}
+  local assigned = {}
   self:step_watchdog()
   self:_harvest_finished_jobs()
   local budget = self:_max_parallel_lanes() - self:_active_job_count()
-  if budget <= 0 then return end
+  if budget <= 0 then return assigned end
   for _, job in ipairs(self.pending_jobs or {}) do
     if budget <= 0 then break end
     if job.status == "pending" then
@@ -260,6 +261,7 @@ function ArrayWatch:step_scheduler(poll_results)
           if ok_assign then
             budget = budget - 1
             self:_advance_scheduler_rr(machine)
+            assigned[#assigned + 1] = machine.id
             local lane = self.lane_state[machine.id] or {}
             lane.last_state = "running"
             self.lane_state[machine.id] = lane
@@ -273,6 +275,7 @@ function ArrayWatch:step_scheduler(poll_results)
       end
     end
   end
+  return assigned
 end
 
 function ArrayWatch:_handle_central_events(events)

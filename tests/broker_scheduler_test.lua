@@ -174,6 +174,64 @@ do
 end
 
 do
+  local now = 0
+  local event = {
+    pull = function(timeout)
+      if timeout then now = now + timeout end
+      return nil
+    end,
+  }
+  local scheduler = Scheduler.new({
+    event = event,
+    computer = { uptime = function() return now end },
+    log = function() end,
+  })
+  local lane_steps = 0
+  local ctx = {
+    scheduler = scheduler,
+    state = {
+      poll_results = {
+        machine_01 = { available = true, healthy = true, active = false, has_work = false },
+      },
+      dirty = {},
+      events = {},
+    },
+    config = {
+      subnet_id = "sub",
+      tick_interval = 1.0,
+      monitor_poll_s = 0.01,
+      scheduler = { active_lane_budget = 8 },
+      machines = { { id = "machine_01" } },
+    },
+    poll = {
+      poll_machine = function(_, machine)
+        return { id = machine.id, available = true, healthy = true, active = false, has_work = false }
+      end,
+      mark_proxy_cache_stale = function() end,
+    },
+    watch = {
+      any_fast_tick = function() return false end,
+      step_central = function() end,
+      step_heartbeat = function() end,
+      step_scheduler = function()
+        return { "machine_01" }
+      end,
+      step_lane = function()
+        lane_steps = lane_steps + 1
+      end,
+    },
+    lane_dispatch = {
+      get_lane_debug = function()
+        return { state = lane_steps < 1 and "settle" or "idle" }
+      end,
+    },
+  }
+  BrokerMain.attach_tasks(ctx)
+  scheduler:run(4)
+  check("scheduler assignment wakes sleeping lane immediately", lane_steps >= 1)
+end
+
+do
   local job = { id = "job-timeout", status = "running", attempt = 1, manifest = { items = {} } }
   local faulted = false
   local consumed = false

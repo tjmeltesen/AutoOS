@@ -324,6 +324,26 @@ do
   check("enqueue without pre-staged pull face", queued and fx.central:pending_count() == 1)
 end
 
+-- partial drain of claimed batch must not create a second job --------------------
+do
+  local fx = make_fixture({ stabilize_s = 0.1 })
+  fx.cfg.central.max_circuits_in_buffer = 2
+  fx.set_chest_slot(2, stack(19))
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(0.2)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.set_chest_slot(1, nil)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("claimed non-empty batch suppresses partial requeue", fx.central:pending_count() == 1)
+  fx.set_chest_slot(2, nil)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.set_chest_slot(3, stack(20))
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  fx.advance(0.2)
+  fx.central:tick(fx.results, fx.lane_dispatch)
+  check("claim clears after buffer empty", fx.central:pending_count() == 2)
+end
+
 -- central mode idle lane no buffer pickup ---------------------------------------
 do
   local fx = make_fixture({})

@@ -46,6 +46,7 @@ function CentralDispatch.new(deps)
   self._fast_tick = false
   self._fingerprint = nil
   self._last_enqueued_fp = nil
+  self._batch_claimed = false
   self._stable_since = 0
   self._stabilize_logged = false
   self._last_handoff_log = 0
@@ -150,6 +151,7 @@ function CentralDispatch:startup_sweep()
   local manifest = self:_batch_manifest(adapter, side)
   if not self:_manifest_has_work(manifest) then return nil, "empty" end
   self._last_enqueued_fp = self:_item_fingerprint(adapter, side)
+  self._batch_claimed = true
   return self:_enqueue_manifest(manifest, "startup_sweep")
 end
 
@@ -526,7 +528,12 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
   local has_items = self:_fingerprint_nonempty(fp)
 
   if self._state == STATE_IDLE then
-    if not has_items then self._last_enqueued_fp = nil; return {} end
+    if not has_items then
+      self._last_enqueued_fp = nil
+      self._batch_claimed = false
+      return {}
+    end
+    if self._batch_claimed then return {} end
     if fingerprint_equal(fp, self._last_enqueued_fp) then return {} end
     if not self:_central_admission_ok(adapter, side) then return {} end
     self._fingerprint = fp
@@ -542,6 +549,7 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     self._fast_tick = true
     if not has_items then
       self._state = STATE_IDLE
+      self._batch_claimed = false
       self:_reset_stabilizing()
       return {}
     end
@@ -572,6 +580,7 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     self._fast_tick = true
     if not has_items then
       self._state = STATE_IDLE
+      self._batch_claimed = false
       self:_reset_stabilizing()
       return {}
     end
@@ -585,6 +594,7 @@ function CentralDispatch:tick(poll_results, lane_dispatch)
     end
     local job, enqueue_err = self:_enqueue_manifest(manifest, "live")
     self._last_enqueued_fp = fp
+    self._batch_claimed = true
     self._state = STATE_IDLE
     self:_reset_stabilizing()
     if not job then

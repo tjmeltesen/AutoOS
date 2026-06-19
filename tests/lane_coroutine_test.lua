@@ -112,6 +112,60 @@ do
       and dispatch._locks["db:db-1"] == nil)
 end
 
+do
+  local cfg = {
+    input_mode = "central",
+    database_address = "db-1",
+    interface_fluid_side = 0,
+    machines = {},
+  }
+  local component = { proxy = function() return {} end, list = function() return {} end }
+  local dispatch = LaneDispatch.new({
+    config = cfg,
+    component = component,
+    circuit_manager = CircuitManager.new({ config = cfg, component = component }),
+    now = function() return 0 end,
+    log = function() end,
+  })
+  local resources = dispatch:_job_resources({
+    id = "m1",
+    interface_address = "if-1",
+    item_transposer_address = "item-1",
+    fluid_transposer_address = "fluid-1",
+  }, { id = "job-1" })
+  local has_db = false
+  for _, res in ipairs(resources) do
+    if res == "db:db-1" then has_db = true end
+  end
+  check("database is not held as lane-long job lock", has_db == false)
+end
+
+do
+  local cfg = {
+    input_mode = "central",
+    database_address = "db-1",
+    interface_fluid_side = 0,
+    machines = {},
+  }
+  local component = { proxy = function() return {} end, list = function() return {} end }
+  local dispatch = LaneDispatch.new({
+    config = cfg,
+    component = component,
+    circuit_manager = CircuitManager.new({ config = cfg, component = component }),
+    now = function() return 0 end,
+    log = function() end,
+  })
+  local lane = dispatch:_lane("m1")
+  lane.state = "queue"
+  lane.locked_resources = { "interface:if-1" }
+  dispatch._locks["interface:if-1"] = "m1"
+  dispatch:_transition("m1", lane, "wait_complete", "queue done")
+  check("staging locks release while machine keeps running",
+    lane.state == "wait_complete"
+      and #lane.locked_resources == 0
+      and dispatch._locks["interface:if-1"] == nil)
+end
+
 io.write(string.rep("-", 60) .. "\n")
 io.write(string.format("%s   %s passed, %s failed\n",
   bold("Lane coroutine result:"), green(tostring(passed)),

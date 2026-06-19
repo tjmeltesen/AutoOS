@@ -132,7 +132,9 @@ function BrokerMain.attach_tasks(ctx)
   local state = ctx.state
   local cfg = ctx.config
   local machines = cfg.machines or {}
-  local active_lane_budget = cfg.active_lane_budget or 4
+  local active_lane_budget = cfg.active_lane_budget
+    or (cfg.scheduler and cfg.scheduler.active_lane_budget)
+    or 32
 
   local function fast_interval()
     if ctx.watch:any_fast_tick() then return cfg.monitor_poll_s or 0.15 end
@@ -214,7 +216,12 @@ function BrokerMain.attach_tasks(ctx)
 
   scheduler:spawn("broker_scheduler", function()
     while true do
-      if ctx.watch.step_scheduler then ctx.watch:step_scheduler(state.poll_results) end
+      if ctx.watch.step_scheduler then
+        local assigned = ctx.watch:step_scheduler(state.poll_results) or {}
+        for _, machine_id in ipairs(assigned) do
+          scheduler:wake("lane_" .. tostring(machine_id))
+        end
+      end
       Scheduler.yield_now()
       Scheduler.sleep(fast_interval())
     end

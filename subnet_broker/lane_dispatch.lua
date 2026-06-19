@@ -268,9 +268,6 @@ function LaneDispatch:_job_resources(machine, job)
     resources[#resources + 1] = "interface:" .. tostring(iface)
     resources[#resources + 1] = "fluid_if:" .. tostring(iface) .. ":" .. tostring(machine.interface_fluid_side or self.config.interface_fluid_side or 0)
   end
-  if self.config.database_address and self.config.database_address ~= "" then
-    resources[#resources + 1] = "db:" .. tostring(self.config.database_address)
-  end
   if machine.item_transposer_address then
     resources[#resources + 1] = "tp:" .. tostring(machine.item_transposer_address)
   end
@@ -414,6 +411,8 @@ function LaneDispatch:_transition(machine_id, lane, next_state, reason)
         lane.job.last_error = lane.last_error
       end
       self:_cleanup_lane(machine_id, lane, reason)
+    elseif next_state == STATE_WAIT_COMPLETE and lane.state ~= STATE_WAIT_COMPLETE then
+      self:_release_locks(machine_id, lane)
     end
     lane.state = next_state
     lane.state_entered_at = self.now()
