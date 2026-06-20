@@ -332,6 +332,29 @@ function LaneWorker.execute(registry, job, machine_id, event)
       end
       coroutine.yield({ type = "yield" })
     end
+
+    -- Second pass: fill remaining free sides with duplicate fluid configs.
+    -- One fluid on 4 sides → 4×16kB = 64kB throughput instead of 16kB.
+    local fluid_steps = {}
+    for _, step in ipairs(queue) do
+      if step.kind == "fluid" then fluid_steps[#fluid_steps + 1] = step end
+    end
+    if #fluid_steps > 0 then
+      local dup_idx = 0
+      local side = next_fluid_side()
+      while side do
+        dup_idx = dup_idx + 1
+        local step = fluid_steps[(dup_idx - 1) % #fluid_steps + 1]
+        local ok, err = stock_fluid_slot(iface, side, step.db_address, step.db_slot)
+        if not ok then
+          log("[LaneWorker] " .. machine_id .. " duplicate fluid stock side " .. side .. " failed: " .. tostring(err))
+        else
+          cfg_slots[#cfg_slots + 1] = { fluid = true, side = side }
+        end
+        coroutine.yield({ type = "yield" })
+        side = next_fluid_side()
+      end
+    end
   end
 
   log("[LaneWorker] " .. machine_id .. " stocked " .. #cfg_slots .. " interface slot(s)")
@@ -339,8 +362,8 @@ function LaneWorker.execute(registry, job, machine_id, event)
   ---------------------------------------------------------------------------
   -- Phase 2: Wait for AE2 delivery
   ---------------------------------------------------------------------------
-  if not item_tp or not fluid_tp then
-    return fail("transposer proxies unavailable")
+  if not item_tp then
+    return fail("item transposer proxy unavailable")
   end
 
   do
@@ -352,7 +375,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
         if step.kind == "fluid" then has_fluids = true else has_items = true end
       end
       if has_items and not pull_face_has_items(item_tp, machine) then return false end
-      if has_fluids and not pull_face_has_fluid(fluid_tp, machine) then return false end
+      if has_fluids and fluid_tp and not pull_face_has_fluid(fluid_tp, machine) then return false end
       return true
     end
 
@@ -390,26 +413,28 @@ function LaneWorker.execute(registry, job, machine_id, event)
     -- Dual IF stocks all fluids at once (Phase 1), but each slot holds
     -- only 16 kB. A >16 kB fluid needs AE2 to refill the slot after the
     -- first batch transfers, so we loop until tanks stay dry for settle_s.
-    local fluid_pull_side = LaneSides.central_fluid_pull_side(machine)
-    local fluid_hatch_side = LaneSides.fluid_hatch_side(machine)
-    local fluid_deadline = now_fn() + staging_timeout_s
-    local fluid_dry_since = nil
-    local settle_s = (config.central and config.central.settle_s) or config.settle_s or 2.0
-    -- ponytail: single-shot FLUID_CHUNK drain, matches lane_dispatch:_transfer_fluids.
-    -- One transferFluid call drains the entire pull face; no per-tank iteration needed.
-    while true do
-      local total = FluidTanks.tank_level(fluid_tp, fluid_pull_side)
-      if total <= 0 then
-        fluid_dry_since = fluid_dry_since or now_fn()
-        if now_fn() - fluid_dry_since >= settle_s then break end
-        coroutine.yield({ type = "yield" })
-      else
-        fluid_dry_since = nil
-        pcall(fluid_tp.transferFluid, fluid_pull_side, fluid_hatch_side, FLUID_CHUNK)
-        coroutine.yield({ type = "yield" })
-      end
-      if now_fn() >= fluid_deadline then
-        return fail("fluid transfer timeout")
+    -- Skipped when fluid_tp is nil (e.g. testing a non-transposer fluid device).
+    if fluid_tp then
+      local fluid_pull_side = LaneSides.central_fluid_pull_side(machine)
+      local fluid_hatch_side = LaneSides.fluid_hatch_side(machine)
+      local fluid_deadline = now_fn() + staging_timeout_s
+      local fluid_dry_since = nil
+      local settle_s = (config.central and config.central.settle_s) or config.settle_s or 2.0
+      -- ponytail: single-shot FLUID_CHUNK drain, matches lane_dispatch:_transfer_fluids.
+      while true do
+        local total = FluidTanks.tank_level(fluid_tp, fluid_pull_side)
+        if total <= 0 then
+          fluid_dry_since = fluid_dry_since or now_fn()
+          if now_fn() - fluid_dry_since >= settle_s then break end
+          coroutine.yield({ type = "yield" })
+        else
+          fluid_dry_since = nil
+          pcall(fluid_tp.transferFluid, fluid_pull_side, fluid_hatch_side, FLUID_CHUNK)
+          coroutine.yield({ type = "yield" })
+        end
+        if now_fn() >= fluid_deadline then
+          return fail("fluid transfer timeout")
+        end
       end
     end
   end
