@@ -683,35 +683,26 @@ end
 function ROBDispatcher:_machine_available(machine, poll_status)
   if not machine or not machine.id then return false end
 
-  -- Must have a poll result with basic health
+  -- Health checks only. Activity is tracked by lane state, not poll flags —
+  -- polls are up to N ticks stale (round-robin, one per tick).
   if not poll_status then return false end
   if not poll_status.available then return false end
   if not poll_status.healthy then return false end
 
   local lane = self._lanes[machine.id]
   if lane then
-    -- Auto-recover faulted lanes when poll confirms machine is healthy
-    if lane.state == LANE_FAULTED
-      and poll_status.available
-      and poll_status.healthy then
-      self:recover_lane(machine.id)
-      -- After recovery, lane is now IDLE — fall through to check below
-    end
     if lane.state == LANE_WORKING then return false end
-  end
-
-  -- If lane is IDLE (or nil = never used), trust lane state over poll activity
-  -- flags. Polls are up to N ticks stale (round-robin, one per tick); a lane
-  -- that just finished will show IDLE but the poll may still show active=true.
-  if lane and lane.state == LANE_IDLE then
-    -- ponytail: lane is the source of truth for activity; poll.active/has_work lags
+    if lane.state == LANE_FAULTED then
+      -- Auto-recover: poll confirms healthy, lane state was stale
+      self:recover_lane(machine.id)
+      -- falls through → IDLE after recovery
+    end
+    -- IDLE or just-recovered → available
     return true
   end
 
-  -- No lane record yet (nil) — must check poll activity since we've never
-  -- dispatched to this machine and have no lane state to trust.
-  if poll_status.active or poll_status.has_work then return false end
-
+  -- No lane record → ROB has never dispatched to this machine.
+  -- Poll confirms healthy + proxy up → available.
   return true
 end
 
@@ -919,6 +910,8 @@ function ROBDispatcher:_assign_jobs(poll_results)
         local ok_lock, lock_err = self:_acquire_locks(machine.id, resources)
         if not ok_lock then
           job.last_blocked_reason = lock_err
+          self._log(string.format("[ROBDispatcher] lock failed: job %s -> %s (%s)",
+            job.id, machine.id, lock_err))
           -- ponytail: don't advance RR on lock failure.  A different job
           -- may not need the same resources and could still use this machine.
         else
