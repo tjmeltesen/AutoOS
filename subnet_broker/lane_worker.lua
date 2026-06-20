@@ -433,12 +433,12 @@ function LaneWorker.execute(registry, job, machine_id, event)
   local redstone_addr = config.redstone_address
   if redstone_addr and redstone_addr ~= "" then
     local rs = registry.get_redstone(redstone_addr)
-    if rs and rs.setRedstoneOutput then
+    if rs and rs.setOutput then
       local rs_side = config.redstone_side or 0
       local pulse_s = config.redstone_pulse_s or 0.1
-      pcall(rs.setRedstoneOutput, rs_side, 15)
+      pcall(rs.setOutput, rs_side, 15)
       coroutine.yield({ type = "sleep", seconds = pulse_s })
-      pcall(rs.setRedstoneOutput, rs_side, 0)
+      pcall(rs.setOutput, rs_side, 0)
     end
   end
 
