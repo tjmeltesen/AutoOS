@@ -1253,6 +1253,12 @@ function ROBDispatcher:pending_queue()
   return self._pending_jobs
 end
 
+--- Get the active lock table for display.
+--- @return table  { [resource_key] = owner_machine_id }
+function ROBDispatcher:get_locks()
+  return self._locks
+end
+
 --- Get the job currently assigned to a lane (if any).
 --- Lane workers call this to pull their work after being woken.
 --- @param machine_id string
