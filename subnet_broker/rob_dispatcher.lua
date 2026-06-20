@@ -672,6 +672,36 @@ function ROBDispatcher:_release_locks(machine_id, lane)
   end
 end
 
+--- Release only transport (tp:*) locks early, after stocking completes.
+--- Called by LaneWorker between Phase 4 (cleanup) and Phase 5 (craft wait).
+--- Keeps interface locks and lane state intact — the machine stays WORKING,
+--- but the transposer is freed for other lanes to stock concurrently.
+function ROBDispatcher:release_transport_locks(machine_id)
+  local lane = self._lanes[machine_id]
+  if not lane then return end
+
+  -- Remove tp:* entries from the global lock table
+  for res, owner in pairs(self._locks) do
+    if owner == machine_id and res:match("^tp:") then
+      self._locks[res] = nil
+    end
+  end
+
+  -- Trim tp:* entries from lane.locked_resources so _release_locks
+  -- on completion doesn't double-release
+  if lane.locked_resources then
+    local kept = {}
+    for _, res in ipairs(lane.locked_resources) do
+      if not res:match("^tp:") then
+        kept[#kept + 1] = res
+      end
+    end
+    lane.locked_resources = kept
+  end
+
+  self._log(string.format("[ROBDispatcher] %s released transport locks (stocking complete)", machine_id))
+end
+
 ---------------------------------------------------------------------------
 -- Machine availability checks
 ---------------------------------------------------------------------------

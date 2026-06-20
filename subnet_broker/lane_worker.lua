@@ -499,6 +499,13 @@ function LaneWorker.execute(registry, job, machine_id, event)
     log("[LaneWorker] " .. machine_id .. " Phase4: cleanup+pulse done")
   end
 
+  -- Release transport locks before entering the long craft-wait phase.
+  -- Other lanes can now acquire the transposer to stock their own machines
+  -- while this one crafts.
+  if registry.release_transport_locks then
+    registry.release_transport_locks(machine_id)
+  end
+
   ---------------------------------------------------------------------------
   -- Phase 5: Wait for machine to finish processing
   ---------------------------------------------------------------------------

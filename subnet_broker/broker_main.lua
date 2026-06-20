@@ -79,6 +79,12 @@ function BrokerMain._build_impl()
     log = print,
     circuit_manager = registry.get_circuit_manager(),
   })
+  -- Expose transport lock release so LaneWorker can free the transposer
+  -- after stocking completes (Phase 4) instead of holding it through
+  -- the entire craft wait (Phase 5).
+  registry.release_transport_locks = function(machine_id)
+    rob:release_transport_locks(machine_id)
+  end
 
   return {
     config = Config,
