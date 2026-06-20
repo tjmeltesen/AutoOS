@@ -683,28 +683,34 @@ end
 function ROBDispatcher:_machine_available(machine, poll_status)
   if not machine or not machine.id then return false end
 
-  -- Must have a poll result
+  -- Must have a poll result with basic health
   if not poll_status then return false end
   if not poll_status.available then return false end
   if not poll_status.healthy then return false end
 
-  -- Machine must be idle (not actively crafting)
-  if poll_status.active or poll_status.has_work then return false end
-
-  -- Lane must be IDLE — auto-recover if machine is healthy but lane is faulted.
-  -- FAULTED lanes are never manually recovered (recover_lane has zero callers),
-  -- so we recover here when the poll confirms the machine is ready for work.
   local lane = self._lanes[machine.id]
   if lane then
+    -- Auto-recover faulted lanes when poll confirms machine is healthy
     if lane.state == LANE_FAULTED
       and poll_status.available
-      and poll_status.healthy
-      and not poll_status.active
-      and not poll_status.has_work then
+      and poll_status.healthy then
       self:recover_lane(machine.id)
+      -- After recovery, lane is now IDLE — fall through to check below
     end
-    if lane.state ~= LANE_IDLE then return false end
+    if lane.state == LANE_WORKING then return false end
   end
+
+  -- If lane is IDLE (or nil = never used), trust lane state over poll activity
+  -- flags. Polls are up to N ticks stale (round-robin, one per tick); a lane
+  -- that just finished will show IDLE but the poll may still show active=true.
+  if lane and lane.state == LANE_IDLE then
+    -- ponytail: lane is the source of truth for activity; poll.active/has_work lags
+    return true
+  end
+
+  -- No lane record yet (nil) — must check poll activity since we've never
+  -- dispatched to this machine and have no lane state to trust.
+  if poll_status.active or poll_status.has_work then return false end
 
   return true
 end
@@ -728,6 +734,32 @@ function ROBDispatcher:_find_available_machine_rr(poll_results)
       return m, idx
     end
   end
+
+  -- Diagnostic: log why every machine was rejected
+  local reasons = {}
+  for _, m in ipairs(machines) do
+    local st = poll_results and poll_results[m.id]
+    local lane = self._lanes[m.id]
+    local why = "?"
+    if not st then
+      why = "no_poll"
+    elseif not st.available then
+      why = "!available"
+    elseif not st.healthy then
+      why = "!healthy"
+    elseif lane and lane.state == LANE_WORKING then
+      why = "lane=WORKING"
+    elseif not lane and (st.active or st.has_work) then
+      why = st.active and "active" or "has_work"
+    elseif lane and lane.state == LANE_FAULTED then
+      why = "lane=FAULTED"
+    else
+      why = "ok?" -- shouldn't happen if scan returned nil
+    end
+    reasons[#reasons + 1] = string.format("%s:%s", m.id, why)
+  end
+  self._log(string.format("[ROBDispatcher] no available machine — rejected: %s",
+    table.concat(reasons, " ")))
 
   return nil, nil
 end
@@ -912,8 +944,9 @@ function ROBDispatcher:_assign_jobs(poll_results)
             job.id, machine.id, job.attempt or 1))
         end
       else
-        -- No machine available for this job; try next job
-        -- (different jobs might be assignable to different machines)
+        -- No machine available; no per-job filtering exists yet, so no
+        -- subsequent job will find one either. Break to avoid redundant scans.
+        break
       end
     end
   end
