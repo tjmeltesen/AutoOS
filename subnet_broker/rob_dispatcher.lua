@@ -682,9 +682,20 @@ function ROBDispatcher:_machine_available(machine, poll_status)
   -- Machine must be idle (not actively crafting)
   if poll_status.active or poll_status.has_work then return false end
 
-  -- Lane must be IDLE
+  -- Lane must be IDLE — auto-recover if machine is healthy but lane is faulted.
+  -- FAULTED lanes are never manually recovered (recover_lane has zero callers),
+  -- so we recover here when the poll confirms the machine is ready for work.
   local lane = self._lanes[machine.id]
-  if lane and lane.state ~= LANE_IDLE then return false end
+  if lane then
+    if lane.state == LANE_FAULTED
+      and poll_status.available
+      and poll_status.healthy
+      and not poll_status.active
+      and not poll_status.has_work then
+      self:recover_lane(machine.id)
+    end
+    if lane.state ~= LANE_IDLE then return false end
+  end
 
   return true
 end
@@ -856,7 +867,8 @@ function ROBDispatcher:_assign_jobs(poll_results)
           lane.state = LANE_WORKING
           lane.current_job_id = job.id
           lane.locked_resources = resources
-          lane.deadline = self._now() + (self._config.staging_timeout_s or 60)
+          lane.deadline = self._now() + (self._config.completion_timeout_s
+            or self._config.staging_timeout_s or 60)
           lane.state_entered_at = self._now()
           lane.last_error = nil
 
@@ -921,8 +933,16 @@ function ROBDispatcher:_step_buffer_monitor()
       return events
     end
 
-    -- Suppress: a batch was already claimed and hasn't changed
-    if self._batch_claimed then return events end
+    -- Suppress: a batch was already claimed.  If the fingerprint differs
+    -- from what we last enqueued, AE2 has already started pulling items —
+    -- release the claim so we can enqueue the next batch.
+    if self._batch_claimed then
+      if not fingerprint_equal(fp, self._last_enqueued_fp) then
+        self._batch_claimed = false
+      else
+        return events
+      end
+    end
 
     -- Suppress: the fingerprint matches what we last enqueued
     if fingerprint_equal(fp, self._last_enqueued_fp) then return events end

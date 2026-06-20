@@ -27,6 +27,7 @@ Config.settle_s = 0.1
 Config.tick_interval = 1.0
 Config.monitor_poll_s = 0.15
 Config.staging_timeout_s = 60.0
+Config.completion_timeout_s = 300.0   -- how long to wait for machine to finish processing
 Config.require_empty_return = true
 Config.scheduler = {
   max_parallel_lanes = nil, -- nil defaults to #machines after Config.machines is loaded

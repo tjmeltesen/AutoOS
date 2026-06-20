@@ -438,8 +438,9 @@ function LaneWorker.execute(registry, job, machine_id, event)
       return false
     end
 
+    local completion_timeout = config.completion_timeout_s or staging_timeout_s
     local ok_comp, comp_err = await_delivery(registry, item_tp,
-      completion_ready, staging_timeout_s, complete_start, "completion")
+      completion_ready, completion_timeout, complete_start, "completion")
     if not ok_comp then return fail(comp_err) end
   end
 
