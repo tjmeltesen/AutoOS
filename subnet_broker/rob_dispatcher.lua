@@ -392,8 +392,12 @@ function ROBDispatcher:_allocate_db_slots(manifest)
   local n = #queue
   if n == 0 then return true end  -- nothing to allocate, not an error
 
-  -- Clear scratchpad range
-  for slot = 1, n do pcall(db.clear, slot) end
+  -- Job-scoped DB slot range: each job gets unique slots from monotonic _job_seq.
+  -- Shared scratchpad (slots 1..N) caused cross-machine contamination when
+  -- parallel lanes had DB entries overwritten mid-flight.
+  local BASE = 64
+  local base_slot = self._job_seq * BASE + 1
+  for i = 0, n - 1 do pcall(db.clear, base_slot + i) end
 
   -- Pre-fetch fluid drops once for all fluid steps.
   -- Also snapshot getFluidsInNetwork() so we can cross-reference fluid names
@@ -475,7 +479,7 @@ function ROBDispatcher:_allocate_db_slots(manifest)
     return nil
   end
 
-  local slot = 1
+  local slot = base_slot
   for _, step in ipairs(queue) do
     local written = false
     if step.kind == "item" then
@@ -859,8 +863,8 @@ function ROBDispatcher:_assign_jobs(poll_results)
         local ok_lock, lock_err = self:_acquire_locks(machine.id, resources)
         if not ok_lock then
           job.last_blocked_reason = lock_err
-          -- Rotate RR past this machine so others get a chance
-          self:_advance_rr(idx)
+          -- ponytail: don't advance RR on lock failure.  A different job
+          -- may not need the same resources and could still use this machine.
         else
           -- Assign job to lane
           local lane = self:_lane(machine.id)

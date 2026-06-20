@@ -19,6 +19,7 @@
 ]]
 
 local LaneSides = require("lane_sides")
+local FluidTanks = require("fluid_tanks")
 
 local LaneWorker = {}
 
@@ -284,10 +285,18 @@ function LaneWorker.execute(registry, job, machine_id, event)
       coroutine.yield({ type = "yield" })
     end
 
-    -- Fill remaining free sides with duplicate fluid configs
+    -- Fill remaining free sides with duplicate fluid configs.
+    -- Only duplicate fluids that need it: >16000mb (central tank) or
+    -- nil amount (chest drops — unknown size, assume large).
+    -- Low-volume fluids get one side only.
     local fluid_steps = {}
     for _, step in ipairs(queue) do
-      if step.kind == "fluid" then fluid_steps[#fluid_steps + 1] = step end
+      if step.kind == "fluid" then
+        local amount = step.fluid_amount_mb
+        if amount == nil or amount > 16000 then
+          fluid_steps[#fluid_steps + 1] = step
+        end
+      end
     end
     if #fluid_steps > 0 then
       local dup_idx = 0
@@ -371,14 +380,38 @@ function LaneWorker.execute(registry, job, machine_id, event)
       pull_face_empty, staging_timeout_s, drain_start, "dual_if_drain")
     if not ok_drain then return fail(drain_err) end
 
-    -- Clear interface configs
+    -- Clear item configs first (items are done when pull face is empty)
+    local has_fluid_cfgs = false
     for _, s in ipairs(cfg_slots) do
       if s.fluid then
-        clear_fluid_slot(iface, s.side)
+        has_fluid_cfgs = true
       else
         clear_item_slot(iface, s.slot)
       end
       coroutine.yield({ type = "yield" })
+    end
+
+    -- Wait for fluid buffer to drain before clearing fluid configs.
+    -- Fluids export asynchronously via AE2 — clearing the config
+    -- mid-export kills delivery.
+    if has_fluid_cfgs then
+      local fluid_tp = registry.get_transposer(machine.fluid_transposer_address)
+      local fluid_buffer_side = LaneSides.central_fluid_pull_side(machine)
+      local fluid_drain_start = now_fn()
+      local function fluid_buffer_empty()
+        return FluidTanks.buffer_empty(fluid_tp or item_tp, fluid_buffer_side)
+      end
+      local ok_fluid, fluid_err = await_delivery(registry, fluid_tp or item_tp,
+        fluid_buffer_empty, staging_timeout_s, fluid_drain_start, "fluid_drain")
+      if not ok_fluid then return fail(fluid_err) end
+
+      -- Now clear fluid configs
+      for _, s in ipairs(cfg_slots) do
+        if s.fluid then
+          clear_fluid_slot(iface, s.side)
+        end
+        coroutine.yield({ type = "yield" })
+      end
     end
 
     -- Pulse redstone to ungate central buffer
