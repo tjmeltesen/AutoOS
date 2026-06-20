@@ -365,28 +365,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
     end
   end
 
-  log("[LaneWorker] " .. machine_id .. " item transfer complete")
-
-  ---------------------------------------------------------------------------
-  -- Phase 3b: Transfer fluids through fluid transposer (buffer → hatch)
-  ---------------------------------------------------------------------------
-  do
-    local fluid_tp = machine.fluid_tp  -- pre-cached in registry entry
-    if fluid_tp then
-      local from_side = LaneSides.central_fluid_pull_side(machine)
-      local to_side = LaneSides.fluid_hatch_side(machine)
-      local FLUID_CHUNK = 1000000  -- 1 bucket per call
-      local fluid_deadline = now_fn() + staging_timeout_s
-      while FluidTanks.tank_level(fluid_tp, from_side) > 0 do
-        pcall(fluid_tp.transferFluid, from_side, to_side, FLUID_CHUNK)
-        coroutine.yield({ type = "yield" })
-        if now_fn() >= fluid_deadline then
-          return fail("fluid transfer timeout")
-        end
-      end
-      log("[LaneWorker] " .. machine_id .. " fluid transfer complete")
-    end
-  end
+  log("[LaneWorker] " .. machine_id .. " transfer complete")
 
   ---------------------------------------------------------------------------
   -- Phase 4: Wait for dual IF pull face to empty, then cleanup + pulse
@@ -416,13 +395,15 @@ function LaneWorker.execute(registry, job, machine_id, event)
     -- Fluids export asynchronously via AE2 — clearing the config
     -- mid-export kills delivery.
     if has_fluid_cfgs then
-      local fluid_tp = machine.fluid_tp  -- pre-cached in registry entry
+      -- ponytail: no fluid transposer in this topology.  The item transposer
+      -- exposes getTankLevel on all sides; use it to watch the fluid buffer
+      -- drain (external mechanism handles the actual fluid transfer).
       local fluid_buffer_side = LaneSides.central_fluid_pull_side(machine)
       local fluid_drain_start = now_fn()
       local function fluid_buffer_empty()
-        return FluidTanks.buffer_empty(fluid_tp, fluid_buffer_side)
+        return FluidTanks.buffer_empty(item_tp, fluid_buffer_side)
       end
-      local ok_fluid, fluid_err = await_delivery(registry, fluid_tp,
+      local ok_fluid, fluid_err = await_delivery(registry, item_tp,
         fluid_buffer_empty, staging_timeout_s, fluid_drain_start, "fluid_drain")
       if not ok_fluid then return fail(fluid_err) end
 
