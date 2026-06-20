@@ -376,64 +376,91 @@ end
 -- Job creation
 ---------------------------------------------------------------------------
 
---- Resolve DB pointers for every item/fluid in the manifest via registry.
+--- JIT scratchpad allocation: clear DB slots 1..N, write each input fresh.
 --- Mutates manifest entries in-place, filling in db_slot and db_address.
-function ROBDispatcher:_resolve_db_pointers(manifest)
-  local lookup_item = self._registry.lookup_db
-  local lookup_fluid = self._registry.lookup_fluid_db
+--- One recipe at a time = no caching needed; slots are working memory only.
+function ROBDispatcher:_allocate_db_slots(manifest)
+  local db = self._registry.get_db()
+  local iface = self._registry.get_stock_iface()
+  local db_addr = self._config.database_address
+  if not db or not iface then
+    self._log("[ROBDispatcher] _allocate_db_slots: db or iface missing, skipping")
+    return
+  end
 
-  local missing = {}
-  for _, spec in ipairs(manifest.items or {}) do
-    if type(spec.db_slot) ~= "number" and lookup_item then
-      local entry = lookup_item(spec.name, spec.damage, spec.label)
-      if entry then
-        spec.db_slot = entry.slot
-        spec.db_address = entry.address
-      else
-        missing[#missing + 1] = "item:" .. tostring(spec.label or spec.name) .. " dmg=" .. tostring(spec.damage or 0)
-      end
-    end
-  end
-  for _, spec in ipairs(manifest.fluids or {}) do
-    if type(spec.db_slot) ~= "number" and lookup_fluid then
-      local entry = lookup_fluid(spec.fluid_label, spec.fluid_registry)
-      if entry then
-        spec.db_slot = entry.slot
-        spec.db_address = entry.address
-      else
-        missing[#missing + 1] = "fluid:" .. tostring(spec.fluid_label)
-      end
-    end
-  end
-  for _, step in ipairs(manifest.queue or {}) do
-    if type(step.db_slot) ~= "number" then
-      if step.kind == "fluid" and step.fluid_label and lookup_fluid then
-        local entry = lookup_fluid(step.fluid_label, step.fluid_registry)
-        if entry then
-          step.db_slot = entry.slot
-          step.db_address = entry.address
-        else
-          missing[#missing + 1] = "queue-fluid:" .. tostring(step.fluid_label)
-        end
-      elseif step.kind == "item" and step.name and lookup_item then
-        local entry = lookup_item(step.name, step.damage, step.label)
-        if entry then
-          step.db_slot = entry.slot
-          step.db_address = entry.address
-        else
-          missing[#missing + 1] = "queue-item:" .. tostring(step.label or step.name) .. " dmg=" .. tostring(step.damage or 0)
+  local queue = manifest.queue or {}
+  local n = #queue
+  if n == 0 then return end
+
+  -- Clear scratchpad range
+  for slot = 1, n do pcall(db.clear, slot) end
+
+  -- Pre-fetch fluid drops once for all fluid steps
+  local fluid_drops = nil
+  for _, step in ipairs(queue) do
+    if step.kind == "fluid" then
+      if not fluid_drops and iface.getItemsInNetwork then
+        fluid_drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop" })
+        if type(fluid_drops) ~= "table" or #fluid_drops == 0 then
+          fluid_drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop1" })
         end
       end
+      break
     end
   end
-  -- DB is dynamic — entries are created lazily at runtime.  Missing DB
-  -- slots are logged but never block dispatch.  The lane worker will skip
-  -- unresolvable steps with a warning.
-  if #missing > 0 then
-    self._log(string.format("[ROBDispatcher] DB MISS (non-fatal): %s",
-      table.concat(missing, ", ")))
+
+  local function match_fluid_drop(step)
+    if type(fluid_drops) ~= "table" then return nil end
+    local want = (step.fluid_label or step.fluid_registry or ""):lower()
+    want = want:gsub("^drop of ", ""):gsub("^molten ", "")
+    if want == "" then return nil end
+    for _, drop in ipairs(fluid_drops) do
+      local dl = (drop.label or ""):lower():gsub("^drop of ", ""):gsub("^molten ", "")
+      if dl == want or dl:find(want, 1, true) or want:find(dl, 1, true) then
+        return drop
+      end
+    end
+    return nil
   end
-  return true  -- never block
+
+  local slot = 1
+  for _, step in ipairs(queue) do
+    local written = false
+    if step.kind == "item" then
+      local filter = { name = step.name, damage = step.damage or 0 }
+      if step.label then filter.label = step.label end
+      if iface.store then
+        local ok_s = pcall(iface.store, filter, db_addr, slot, step.count or 1)
+        written = ok_s
+      end
+      if not written then
+        local desc = { name = step.name, damage = step.damage or 0, size = step.count or 1 }
+        if step.label then desc.label = step.label end
+        pcall(db.set, slot, desc)
+      end
+    elseif step.kind == "fluid" then
+      local drop = match_fluid_drop(step)
+      if drop then
+        local filter = { name = drop.name, damage = drop.damage or 0 }
+        if drop.label then filter.label = drop.label end
+        if iface.store then
+          local ok_s = pcall(iface.store, filter, db_addr, slot, 1)
+          written = ok_s
+        end
+        if not written then
+          pcall(db.set, slot, filter)
+        end
+      else
+        self._log(string.format("[ROBDispatcher] no fluid drop for %s — skipping DB slot %d",
+          tostring(step.fluid_label or "?"), slot))
+        goto continue_slot  -- don't consume a slot for unmatched fluids
+      end
+    end
+    step.db_slot = slot
+    step.db_address = db_addr
+    slot = slot + 1
+    ::continue_slot::
+  end
 end
 
 --- Build a job object from a manifest and enqueue it.
@@ -444,7 +471,7 @@ function ROBDispatcher:_enqueue_job(manifest, source)
     return nil, "empty manifest"
   end
 
-  self:_resolve_db_pointers(manifest)  -- logs misses, never blocks
+  self:_allocate_db_slots(manifest)  -- JIT scratchpad: clear + write fresh entries
 
   self._job_seq = self._job_seq + 1
   local job = {

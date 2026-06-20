@@ -101,6 +101,12 @@ local function bind_methods(inst)
   inst.get_circuit_manager = function()
     return inst._circuit_manager
   end
+  inst.get_db = function()
+    return inst._db_proxy
+  end
+  inst.get_stock_iface = function()
+    return inst._stock_iface
+  end
   inst.get_poll_result = function(machine_id)
     return inst._poll_results[machine_id]
   end
@@ -322,6 +328,7 @@ function Registry.build(config, component)
     central_fluid_side = central_fluid_side,
     _descriptor_cache = nil,  -- set below
     _stock_iface = nil,       -- set below
+    _db_proxy = nil,          -- set below
   }
 
   -- Lazy-fill setup: DescriptorCache for write-once DB allocation + first
@@ -335,6 +342,10 @@ function Registry.build(config, component)
   end
   if stock_addr and stock_addr ~= "" then
     self._stock_iface = HW.proxy(component, stock_addr, "me_interface")
+  end
+  local db_addr = config.database_address
+  if db_addr and db_addr ~= "" and not db_addr:find("SET_", 1, true) then
+    self._db_proxy = HW.proxy(component, db_addr, "database")
   end
 
   bind_methods(self)
