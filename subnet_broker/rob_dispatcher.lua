@@ -395,8 +395,12 @@ function ROBDispatcher:_allocate_db_slots(manifest)
   -- Clear scratchpad range
   for slot = 1, n do pcall(db.clear, slot) end
 
-  -- Pre-fetch fluid drops once for all fluid steps
+  -- Pre-fetch fluid drops once for all fluid steps.
+  -- Also snapshot getFluidsInNetwork() so we can cross-reference fluid names
+  -- against drop labels — GTNH internal names (carbonmonoxide) may differ
+  -- from display labels (Carbon Monoxide).
   local fluid_drops = nil
+  local fluid_network = nil  -- raw getFluidsInNetwork() result
   for _, step in ipairs(queue) do
     if step.kind == "fluid" then
       if not fluid_drops and iface.getItemsInNetwork then
@@ -405,21 +409,69 @@ function ROBDispatcher:_allocate_db_slots(manifest)
           fluid_drops = iface.getItemsInNetwork({ name = "ae2fc:fluid_drop1" })
         end
       end
+      if not fluid_network and iface.getFluidsInNetwork then
+        fluid_network = iface.getFluidsInNetwork()
+      end
       break
     end
   end
 
+  -- Fuzzy-normalize a fluid name for comparison: lowercase, strip
+  -- "drop of "/"molten " prefixes, GTNH/Forge namespace prefixes,
+  -- and all non-alphanumeric characters so that "Carbon Monoxide",
+  -- "carbon_monoxide", and "gt.fluid.carbonmonoxide" all collide.
+  local function fuzzy_key(s)
+    if type(s) ~= "string" then return nil end
+    s = s:lower()
+    s = s:gsub("^drop of ", "")
+    s = s:gsub("^molten ", "")
+    s = s:gsub("^gt%.fluid%.", "")
+    s = s:gsub("^[%w]+:[%w]+[%.%-]", "")  -- modid:prefix. or modid:prefix-
+    s = s:gsub("^[%w]+:", "")              -- bare modid: (ic2:, gregtech:, etc.)
+    s = s:gsub("[^%w]", "")  -- strip spaces, underscores, dots, hyphens
+    return s
+  end
+
   local function match_fluid_drop(step)
     if type(fluid_drops) ~= "table" then return nil end
-    local want = (step.fluid_label or step.fluid_registry or ""):lower()
-    want = want:gsub("^drop of ", ""):gsub("^molten ", "")
-    if want == "" then return nil end
+    local want_raw = (step.fluid_label or step.fluid_registry or ""):lower()
+    if want_raw == "" then return nil end
+    local want_fuzzy = fuzzy_key(want_raw)
+
     for _, drop in ipairs(fluid_drops) do
-      local dl = (drop.label or ""):lower():gsub("^drop of ", ""):gsub("^molten ", "")
-      if dl == want or dl:find(want, 1, true) or want:find(dl, 1, true) then
+      local dl_raw = (drop.label or ""):lower()
+      -- Exact/substring on cleaned originals (existing behavior)
+      local dl_clean = dl_raw:gsub("^drop of ", ""):gsub("^molten ", "")
+      if dl_clean == want_raw
+        or dl_clean:find(want_raw, 1, true)
+        or want_raw:find(dl_clean, 1, true) then
+        return drop
+      end
+      -- Fuzzy match on stripped forms (handles space/underscore/dot mismatches)
+      local dl_fuzzy = fuzzy_key(dl_raw)
+      if dl_fuzzy and want_fuzzy and dl_fuzzy == want_fuzzy then
         return drop
       end
     end
+
+    -- Cross-reference getFluidsInNetwork names against drop labels.
+    -- If a raw fluid name fuzzy-matches our target, we can try to find
+    -- the corresponding drop by cross-referencing the fluid's label.
+    if type(fluid_network) == "table" and want_fuzzy then
+      for _, f in ipairs(fluid_network) do
+        local f_name = f.name or f.label or ""
+        local f_label = f.label or ""
+        if fuzzy_key(f_name) == want_fuzzy or fuzzy_key(f_label) == want_fuzzy then
+          -- Fluid exists in network — try matching its label against drops
+          for _, drop in ipairs(fluid_drops) do
+            if fuzzy_key(drop.label or "") == fuzzy_key(f_label) then
+              return drop
+            end
+          end
+        end
+      end
+    end
+
     return nil
   end
 
@@ -482,8 +534,13 @@ function ROBDispatcher:_allocate_db_slots(manifest)
             end
           end
           if not written then
-            self._log(string.format("[ROBDispatcher] no fluid drop for %s — skipping (unresolved operand)",
-              tostring(step.fluid_label or "?")))
+            local want_raw = tostring(step.fluid_label or step.fluid_registry or "?")
+            local want_fuzzy = fuzzy_key(want_raw)
+            local ndrops = type(fluid_drops) == "table" and #fluid_drops or 0
+            local nfluids = type(fluid_network) == "table" and #fluid_network or 0
+            self._log(string.format(
+              "[ROBDispatcher] no fluid drop for %q (fuzzy=%q) — %d drops / %d fluids checked",
+              want_raw, want_fuzzy or "nil", ndrops, nfluids))
             goto continue_slot
           end
         end

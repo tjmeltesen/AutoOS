@@ -282,7 +282,21 @@ function DescriptorCache:_find_fluid_drop(iface, rules)
     if type(stacks) ~= "table" then return nil end
   end
 
-  -- Normalize: strip "drop of " / "molten " prefixes for comparison
+  -- Fuzzy-normalize: lowercase, strip prefixes and non-alphanumeric chars
+  -- so "Carbon Monoxide", "carbon_monoxide", and "gt.fluid.carbonmonoxide"
+  -- all collide. Keeps the existing exact/substring path as first attempt.
+  local function fuzzy_key(s)
+    if type(s) ~= "string" then return nil end
+    s = lower(s)
+    s = s:gsub("^drop of ", "")
+    s = s:gsub("^molten ", "")
+    s = s:gsub("^gt%.fluid%.", "")
+    s = s:gsub("^[%w]+:[%w]+[%.%-]", "")  -- modid:prefix. or modid:prefix-
+    s = s:gsub("^[%w]+:", "")              -- bare modid: (ic2:, gregtech:, etc.)
+    s = s:gsub("[^%w]", "")  -- strip spaces, underscores, dots, hyphens
+    return s
+  end
+
   local function strip_prefix(s)
     s = lower(s)
     if not s then return nil end
@@ -292,14 +306,45 @@ function DescriptorCache:_find_fluid_drop(iface, rules)
 
   local want = strip_prefix(rules.fluid_label)
   local want_reg = strip_prefix(rules.fluid_registry)
+  local want_fuzzy = fuzzy_key(rules.fluid_label)
+  local want_reg_fuzzy = fuzzy_key(rules.fluid_registry)
+
+  -- Also snapshot getFluidsInNetwork for cross-referencing
+  local fluid_network = nil
+  if iface.getFluidsInNetwork then
+    fluid_network = iface.getFluidsInNetwork()
+  end
 
   for _, it in ipairs(stacks) do
     local l = strip_prefix(it.label or it.name or "")
+    -- Exact/substring on originals (existing behavior)
     if l and want and (l == want or l:find(want, 1, true) or want:find(l, 1, true)) then
       return it
     end
     if l and want_reg and (l == want_reg or l:find(want_reg, 1, true) or want_reg:find(l, 1, true)) then
       return it
+    end
+    -- Fuzzy match on stripped forms
+    local l_fuzzy = fuzzy_key(it.label or it.name or "")
+    if l_fuzzy then
+      if want_fuzzy and l_fuzzy == want_fuzzy then return it end
+      if want_reg_fuzzy and l_fuzzy == want_reg_fuzzy then return it end
+    end
+  end
+
+  -- Cross-reference getFluidsInNetwork: if a raw fluid name fuzzy-matches
+  -- our target, try to find the corresponding drop by label.
+  if type(fluid_network) == "table" then
+    for _, f in ipairs(fluid_network) do
+      local fn_fuzzy = fuzzy_key(f.name or f.label or "")
+      if fn_fuzzy and ((want_fuzzy and fn_fuzzy == want_fuzzy)
+        or (want_reg_fuzzy and fn_fuzzy == want_reg_fuzzy)) then
+        for _, it in ipairs(stacks) do
+          if fuzzy_key(it.label or "") == fuzzy_key(f.label or "") then
+            return it
+          end
+        end
+      end
     end
   end
 
