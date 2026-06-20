@@ -238,6 +238,12 @@ function LaneWorker.execute(registry, job, machine_id, event)
   local queue = build_queue(job.manifest)
   local cfg_slots = {}
 
+  log(string.format("[LaneWorker] %s START job=%s  items=%d fluids=%d steps=%d",
+    machine_id, tostring(job.id),
+    type(job.manifest.items) == "table" and #job.manifest.items or 0,
+    type(job.manifest.fluids) == "table" and #job.manifest.fluids or 0,
+    #queue))
+
   local function fail(err)
     log("[LaneWorker] " .. machine_id .. " FAILED: " .. tostring(err))
     for _, s in ipairs(cfg_slots) do
@@ -265,7 +271,8 @@ function LaneWorker.execute(registry, job, machine_id, event)
       return nil
     end
 
-    for _, step in ipairs(queue) do
+    log(string.format("[LaneWorker] %s Phase1: stocking %d step(s)", machine_id, #queue))
+    for i, step in ipairs(queue) do
       if step.kind == "fluid" then
         local side = next_fluid_side()
         if not side then return fail("no free interface sides for fluid: " .. tostring(step.fluid_label or "?")) end
@@ -273,6 +280,9 @@ function LaneWorker.execute(registry, job, machine_id, event)
         local ok, err = stock_fluid_slot(iface, side, step.db_address, step.db_slot)
         if not ok then return fail("fluid stock side " .. side .. ": " .. tostring(err)) end
         cfg_slots[#cfg_slots + 1] = { fluid = true, side = side }
+        log(string.format("[LaneWorker] %s Phase1: fluid[%d/%d] %q -> side %d  DB[%s:%d]",
+          machine_id, i, #queue, tostring(step.fluid_label or "?"),
+          side, tostring(step.db_address), step.db_slot or -1))
       else
         item_idx = item_idx + 1
         local iface_slot = slot_start + item_idx - 1
@@ -281,6 +291,10 @@ function LaneWorker.execute(registry, job, machine_id, event)
           step.db_slot, step.count or 1)
         if not ok then return fail("item stock slot " .. iface_slot .. ": " .. tostring(err)) end
         cfg_slots[#cfg_slots + 1] = { slot = iface_slot }
+        log(string.format("[LaneWorker] %s Phase1: item[%d/%d] %q x%d -> slot %d  DB[%s:%d]",
+          machine_id, i, #queue, tostring(step.name or "?"),
+          step.count or 1, iface_slot,
+          tostring(step.db_address), step.db_slot or -1))
       end
       coroutine.yield({ type = "yield" })
     end
@@ -299,6 +313,8 @@ function LaneWorker.execute(registry, job, machine_id, event)
       end
     end
     if #fluid_steps > 0 then
+      log(string.format("[LaneWorker] %s Phase1: filling %d remaining side(s) with duplicates of %d large fluid(s)",
+        machine_id, 6 - #queue, #fluid_steps))
       local dup_idx = 0
       local side = next_fluid_side()
       while side do
@@ -309,6 +325,8 @@ function LaneWorker.execute(registry, job, machine_id, event)
           log("[LaneWorker] " .. machine_id .. " duplicate fluid stock side " .. side .. " failed: " .. tostring(err))
         else
           cfg_slots[#cfg_slots + 1] = { fluid = true, side = side }
+          log(string.format("[LaneWorker] %s Phase1: dup fluid %q -> side %d",
+            machine_id, tostring(step.fluid_label or "?"), side))
         end
         coroutine.yield({ type = "yield" })
         side = next_fluid_side()
@@ -326,6 +344,8 @@ function LaneWorker.execute(registry, job, machine_id, event)
   end
 
   do
+    log(string.format("[LaneWorker] %s Phase2: waiting for AE2 delivery (%.0fs timeout)",
+      machine_id, interface_wait_s))
     local delivery_start = now_fn()
     local function delivery_ready()
       for _, step in ipairs(queue) do
@@ -339,20 +359,27 @@ function LaneWorker.execute(registry, job, machine_id, event)
     local ok_del, del_err = await_delivery(registry, item_tp,
       delivery_ready, interface_wait_s, delivery_start, "delivery")
     if not ok_del then return fail(del_err) end
+    log(string.format("[LaneWorker] %s Phase2: all %d item(s) visible on pull face (%.1fs)",
+      machine_id, #queue, now_fn() - delivery_start))
   end
 
   ---------------------------------------------------------------------------
   -- Phase 3: Transfer items through transposer to machine input bus
   ---------------------------------------------------------------------------
   do
-    for _, step in ipairs(queue) do
+    local total_moved = 0
+    for i, step in ipairs(queue) do
       if step.kind ~= "item" then goto continue_item end
       local item_deadline = now_fn() + staging_timeout_s
       local moved_total = 0
+      log(string.format("[LaneWorker] %s Phase3: xfer item[%d/%d] %q x%d  (bus side %d)",
+        machine_id, i, #queue, tostring(step.name or "?"),
+        step.count or 1, LaneSides.bus_side(machine)))
       while moved_total < (step.count or 1) do
-        local moved, _ = transfer_item_step(item_tp, machine, step)
+        local moved, slot = transfer_item_step(item_tp, machine, step)
         if moved and moved >= 1 then
           moved_total = moved_total + moved
+          total_moved = total_moved + moved
         else
           if not step_visible(item_tp, machine, step) then break end
           coroutine.yield({ type = "yield" })
@@ -361,8 +388,12 @@ function LaneWorker.execute(registry, job, machine_id, event)
           return fail("item transfer timeout for " .. tostring(step.name or "?"))
         end
       end
+      log(string.format("[LaneWorker] %s Phase3: item[%d/%d] moved %d/%d",
+        machine_id, i, #queue, moved_total, step.count or 1))
       ::continue_item::
     end
+    log(string.format("[LaneWorker] %s Phase3: transfer done — %d item(s) total moved=%d",
+      machine_id, #queue, total_moved))
   end
 
   log("[LaneWorker] " .. machine_id .. " transfer complete")
@@ -376,20 +407,28 @@ function LaneWorker.execute(registry, job, machine_id, event)
       return not pull_face_has_items(item_tp, machine)
     end
 
+    log(string.format("[LaneWorker] %s Phase4a: waiting for pull face empty (%.0fs timeout)",
+      machine_id, staging_timeout_s))
     local ok_drain, drain_err = await_delivery(registry, item_tp,
       pull_face_empty, staging_timeout_s, drain_start, "dual_if_drain")
     if not ok_drain then return fail(drain_err) end
+    log(string.format("[LaneWorker] %s Phase4a: pull face empty (%.1fs)",
+      machine_id, now_fn() - drain_start))
 
     -- Clear item configs first (items are done when pull face is empty)
     local has_fluid_cfgs = false
+    local items_cleared = 0
     for _, s in ipairs(cfg_slots) do
       if s.fluid then
         has_fluid_cfgs = true
       else
         clear_item_slot(iface, s.slot)
+        items_cleared = items_cleared + 1
       end
       coroutine.yield({ type = "yield" })
     end
+    log(string.format("[LaneWorker] %s Phase4a: cleared %d item config(s), has_fluid=%s",
+      machine_id, items_cleared, tostring(has_fluid_cfgs)))
 
     -- Wait for fluid buffer to drain before clearing fluid configs.
     -- Fluids export asynchronously via AE2 — clearing the config
@@ -399,26 +438,37 @@ function LaneWorker.execute(registry, job, machine_id, event)
       -- exposes getTankLevel on all sides; use it to watch the fluid buffer
       -- drain (external mechanism handles the actual fluid transfer).
       local fluid_buffer_side = LaneSides.central_fluid_pull_side(machine)
+      log(string.format("[LaneWorker] %s Phase4b: waiting for fluid buffer side %d to drain",
+        machine_id, fluid_buffer_side))
       local fluid_drain_start = now_fn()
+      local prev_level = FluidTanks.tank_level(item_tp, fluid_buffer_side)
+      log(string.format("[LaneWorker] %s Phase4b: initial fluid level=%d", machine_id, prev_level))
       local function fluid_buffer_empty()
         return FluidTanks.buffer_empty(item_tp, fluid_buffer_side)
       end
       local ok_fluid, fluid_err = await_delivery(registry, item_tp,
         fluid_buffer_empty, staging_timeout_s, fluid_drain_start, "fluid_drain")
       if not ok_fluid then return fail(fluid_err) end
+      log(string.format("[LaneWorker] %s Phase4b: fluid buffer drained (%.1fs)",
+        machine_id, now_fn() - fluid_drain_start))
 
       -- Now clear fluid configs
+      local fluids_cleared = 0
       for _, s in ipairs(cfg_slots) do
         if s.fluid then
           clear_fluid_slot(iface, s.side)
+          fluids_cleared = fluids_cleared + 1
         end
         coroutine.yield({ type = "yield" })
       end
+      log(string.format("[LaneWorker] %s Phase4b: cleared %d fluid config(s)", machine_id, fluids_cleared))
     end
 
     -- Pulse redstone to ungate central buffer
     local redstone_addr = config.redstone_address
     if redstone_addr and redstone_addr ~= "" then
+      log(string.format("[LaneWorker] %s Phase4c: pulse redstone %s side %d",
+        machine_id, redstone_addr, config.redstone_side or 0))
       local rs = registry.get_redstone(redstone_addr)
       if rs and rs.setOutput then
         local rs_side = config.redstone_side or 0
@@ -428,13 +478,16 @@ function LaneWorker.execute(registry, job, machine_id, event)
         pcall(rs.setOutput, rs_side, 0)
       end
     end
-    log("[LaneWorker] " .. machine_id .. " cleanup+pulse done")
+    log("[LaneWorker] " .. machine_id .. " Phase4: cleanup+pulse done")
   end
 
   ---------------------------------------------------------------------------
   -- Phase 5: Wait for machine to finish processing
   ---------------------------------------------------------------------------
   do
+    log(string.format("[LaneWorker] %s Phase5: waiting for machine completion (mode=%s timeout=%.0fs)",
+      machine_id, config.completion_mode or "both",
+      config.completion_timeout_s or staging_timeout_s))
     local complete_start = now_fn()
     local saw_active = false
     local quiet_drained_since = nil
@@ -444,7 +497,10 @@ function LaneWorker.execute(registry, job, machine_id, event)
     local function completion_ready()
       local poll = registry.get_poll_result(machine_id)
       if poll and poll.active then
-        saw_active = true
+        if not saw_active then
+          saw_active = true
+          log(string.format("[LaneWorker] %s Phase5: machine became active", machine_id))
+        end
         quiet_drained_since = nil
       end
       local drained = bus_drained(item_tp, machine, circuit_bus_slot)
@@ -452,12 +508,16 @@ function LaneWorker.execute(registry, job, machine_id, event)
         quiet_drained_since = nil
         return false
       end
-      if completion_mode == "drain" then return true end
+      if completion_mode == "drain" then
+        log(string.format("[LaneWorker] %s Phase5: bus drained -> complete", machine_id))
+        return true
+      end
 
       if not saw_active then
         if poll and not poll.active and not poll.has_work then
           quiet_drained_since = quiet_drained_since or now_fn()
           if now_fn() - quiet_drained_since >= quiet_failsafe_s then
+            log(string.format("[LaneWorker] %s Phase5: quiet-drain failsafe (%.1fs)", machine_id, now_fn() - quiet_drained_since))
             return true
           end
         else
@@ -467,9 +527,14 @@ function LaneWorker.execute(registry, job, machine_id, event)
       end
 
       if completion_mode == "adapter" then
-        return poll and not poll.active
+        local done = poll and not poll.active
+        if done then log(string.format("[LaneWorker] %s Phase5: adapter went inactive -> complete", machine_id)) end
+        return done
       end
-      if poll and not poll.active then return true end
+      if poll and not poll.active then
+        log(string.format("[LaneWorker] %s Phase5: machine finished -> complete", machine_id))
+        return true
+      end
       return false
     end
 
@@ -477,6 +542,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
     local ok_comp, comp_err = await_delivery(registry, item_tp,
       completion_ready, completion_timeout, complete_start, "completion")
     if not ok_comp then return fail(comp_err) end
+    log(string.format("[LaneWorker] %s Phase5: complete (%.1fs)", machine_id, now_fn() - complete_start))
   end
 
   ---------------------------------------------------------------------------
@@ -491,19 +557,24 @@ function LaneWorker.execute(registry, job, machine_id, event)
 
     local size = safe_slot_size(item_tp, bus_side, circuit_bus_slot)
     if size <= 0 then
-      log("[LaneWorker] " .. machine_id .. " no circuit on bus, skipping extract")
+      log("[LaneWorker] " .. machine_id .. " Phase6: no circuit on bus (slot " .. circuit_bus_slot .. "), skipping extract")
     else
+      log(string.format("[LaneWorker] %s Phase6: extracting circuit bus[%d]:%d -> return[%d]:%s",
+        machine_id, bus_side, circuit_bus_slot, return_side, tostring(return_slot or "auto")))
       local moved, err = circuit_mgr:transfer_one(item_tp, bus_side, return_side,
         circuit_bus_slot, return_slot)
       if not moved or moved < 1 then
         return fail("circuit extract: " .. tostring(err or "transfer failed"))
       end
+      log(string.format("[LaneWorker] %s Phase6: circuit extracted (%d moved)", machine_id, moved))
       coroutine.yield({ type = "yield" })
     end
 
     -------------------------------------------------------------------------
     -- Phase 7: Wait for circuit import (return slot empties)
     -------------------------------------------------------------------------
+    log(string.format("[LaneWorker] %s Phase7: waiting for circuit import (return[%d]:%s)",
+      machine_id, return_side, tostring(return_slot or "auto")))
     local import_start = now_fn()
     local function import_ready()
       if return_slot then
@@ -519,9 +590,10 @@ function LaneWorker.execute(registry, job, machine_id, event)
     local ok_imp, imp_err = await_delivery(registry, item_tp,
       import_ready, staging_timeout_s, import_start, "import")
     if not ok_imp then return fail(imp_err) end
+    log(string.format("[LaneWorker] %s Phase7: circuit imported (%.1fs)", machine_id, now_fn() - import_start))
   end
 
-  log("[LaneWorker] " .. machine_id .. " job " .. tostring(job.id) .. " done")
+  log("[LaneWorker] " .. machine_id .. " job " .. tostring(job.id) .. " DONE")
   return { status = "done" }
 end
 
