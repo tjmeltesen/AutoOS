@@ -432,8 +432,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
   -- Pulse redstone to ungate central buffer for next batch
   local redstone_addr = config.redstone_address
   if redstone_addr and redstone_addr ~= "" then
-    local rs = registry.get_transposer(redstone_addr)
-    if not rs then rs = machine.redstone_proxy end
+    local rs = registry.get_redstone(redstone_addr)
     if rs and rs.setRedstoneOutput then
       local rs_side = config.redstone_side or 0
       local pulse_s = config.redstone_pulse_s or 0.1

@@ -88,6 +88,10 @@ local function bind_methods(inst)
     if not address then return nil end
     return HW.proxy(inst._component, address, "transposer")
   end
+  inst.get_redstone = function(address)
+    if not address then return nil end
+    return HW.proxy(inst._component, address, "redstone")
+  end
   inst.get_config = function()
     return inst._config
   end

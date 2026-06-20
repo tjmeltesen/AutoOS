@@ -40,9 +40,9 @@ Config.orchestrator_address = "3bd12f6b-b5d6-4d0d-ad56-e1d372fdb4ac"
 Config.broker_modem_port = 106
 
 -- Locking card: redstone pulse after lane completes to ungate central buffer
-Config.redstone_address = "0189acee-7d33-42ad-bdfc-01f1d62d4c9f"        -- set to your redstone I/O UUID
-Config.redstone_side = 4            -- side the locking card is on
-Config.redstone_pulse_s = 0.1       -- pulse duration
+Config.redstone_address = "01c49b4a-5dd5-455d-8bac-8f0391272ff5"        -- set to your redstone I/O UUID
+Config.redstone_side = 0            -- side the locking card is on
+Config.redstone_pulse_s = 0.5       -- pulse duration
 
 -- Shared AE deposit (input_mode = "central" only)
 -- buffer_adapter = OC adapter on item chest (storage bus side)
