@@ -23,6 +23,19 @@ local FluidTanks = require("fluid_tanks")
 
 local LaneWorker = {}
 
+local LOG_PATH = "/var/log/autoos/lane_worker.log"
+
+-- ponytail: open/append/close each write — cooperative scheduling means
+-- no interleaving within a single write call, and the filesystem handles
+-- concurrent appends from different coroutines.
+local function file_log(msg)
+  local f = io.open(LOG_PATH, "a")
+  if f then
+    f:write(string.format("[%s] %s\n", os.date("%Y-%m-%d %H:%M:%S"), msg))
+    f:close()
+  end
+end
+
 local PULL_SCAN_MAX = 54
 
 ---------------------------------------------------------------------------
@@ -224,7 +237,12 @@ function LaneWorker.execute(registry, job, machine_id, event)
 
   local config = registry.get_config()
   local now_fn = registry.get_now()
-  local log = registry._log or function() end
+  local parent_log = registry._log or function() end
+  -- Combined logger: console + persistent file (open/append/close per line)
+  local log = function(msg)
+    parent_log(msg)
+    file_log(string.format("[%s] %s", machine_id, msg))
+  end
 
   local item_tp = machine.item_tp or registry.get_transposer(machine.item_transposer_address)
   local iface = machine.iface
