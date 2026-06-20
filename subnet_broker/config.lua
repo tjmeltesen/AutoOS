@@ -74,7 +74,7 @@ Config.machines = {
     gt_address = "ed859452-2cd0-48bf-85cc-7bc3bca4f29d",
     interface_address = "74e982ba-35e4-4b94-900e-0919f76e7098",
     item_transposer_address = "c531d5a8-c65d-471d-9057-00bf235404cf",
-    fluid_transposer_address = "ba0b4eb2-4e17-4c2f-a0b7-4a57abd0b03d",
+    fluid_transposer_address = "",
     side_buffer = 2,
     side_bus_b = 0,
     side_return = 4,
@@ -124,12 +124,12 @@ Config.machines = {
 }
 
 local PER_LANE_REQUIRED = {
-  "id", "gt_address", "item_transposer_address", "fluid_transposer_address",
+  "id", "gt_address", "item_transposer_address",
   "side_buffer", "side_bus_b", "side_fluid_hatch",
 }
 
 local CENTRAL_MACHINE_REQUIRED = {
-  "id", "gt_address", "item_transposer_address", "fluid_transposer_address",
+  "id", "gt_address", "item_transposer_address",
   "side_buffer", "side_bus_b", "side_fluid_hatch", "side_return",
 }
 
@@ -265,7 +265,8 @@ function Config.validate(cfg)
         return nil, "machines[" .. i .. "] missing required field: " .. field
       end
     end
-    if m.fluid_transposer_address:find("SET_FLUID", 1, true) then
+    if m.fluid_transposer_address and m.fluid_transposer_address ~= ""
+      and m.fluid_transposer_address:find("SET_FLUID", 1, true) then
       return nil, "machines[" .. i .. "] fluid_transposer_address is placeholder — set real UUID"
     end
     if input_mode == "per_lane" then
