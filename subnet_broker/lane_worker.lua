@@ -22,6 +22,7 @@ local FluidTanks = require("fluid_tanks")
 local LaneWorker = {}
 
 local PULL_SCAN_MAX = 54
+local FLUID_CHUNK = 1000000  -- ponytail: single-shot drain, matches lane_dispatch.lua:24
 
 ---------------------------------------------------------------------------
 -- Internal helpers
@@ -373,7 +374,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
         local moved, _ = transfer_item_step(item_tp, machine, step)
         if moved and moved >= 1 then
           moved_total = moved_total + moved
-          coroutine.yield({ type = "yield" })
+          -- ponytail: no yield here — batch all item moves, yield only on retry
         else
           if not step_visible(item_tp, fluid_tp, machine, step) then break end
           coroutine.yield({ type = "yield" })
@@ -394,18 +395,18 @@ function LaneWorker.execute(registry, job, machine_id, event)
     local fluid_deadline = now_fn() + staging_timeout_s
     local fluid_dry_since = nil
     local settle_s = (config.central and config.central.settle_s) or config.settle_s or 2.0
+    -- ponytail: single-shot FLUID_CHUNK drain, matches lane_dispatch:_transfer_fluids.
+    -- One transferFluid call drains the entire pull face; no per-tank iteration needed.
     while true do
-      local tanks = FluidTanks.non_empty_tanks(fluid_tp, fluid_pull_side)
-      if #tanks == 0 then
+      local total = FluidTanks.tank_level(fluid_tp, fluid_pull_side)
+      if total <= 0 then
         fluid_dry_since = fluid_dry_since or now_fn()
         if now_fn() - fluid_dry_since >= settle_s then break end
         coroutine.yield({ type = "yield" })
       else
         fluid_dry_since = nil
-        for _, tank in ipairs(tanks) do
-          pcall(fluid_tp.transferFluid, fluid_pull_side, fluid_hatch_side, tank.amount)
-          coroutine.yield({ type = "yield" })
-        end
+        pcall(fluid_tp.transferFluid, fluid_pull_side, fluid_hatch_side, FLUID_CHUNK)
+        coroutine.yield({ type = "yield" })
       end
       if now_fn() >= fluid_deadline then
         return fail("fluid transfer timeout")
