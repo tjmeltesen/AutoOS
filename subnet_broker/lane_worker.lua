@@ -6,7 +6,7 @@
   It consumes a pre-built Job Object from the Dispatcher (Phase 3) and
   executes it end-to-end.
 
-  Phase: stock → wait_delivery → transfer → wait_complete → extract → wait_import → cleanup
+  Phase: stock → wait_delivery → transfer → cleanup+pulse → wait_complete → extract → wait_import
 
   Constraints:
     - NEVER call component.proxy() — all proxies come from registry
@@ -416,7 +416,35 @@ function LaneWorker.execute(registry, job, machine_id, event)
   log("[LaneWorker] " .. machine_id .. " transfer complete")
 
   ---------------------------------------------------------------------------
-  -- Phase 4: Wait for machine to finish processing
+  -- Phase 4: Cleanup interface configs + pulse redstone
+  -- Done immediately after transfer so AE2 can start the next job while
+  -- the machine processes.  Items/fluids are already in the input bus/hatch.
+  ---------------------------------------------------------------------------
+  for _, s in ipairs(cfg_slots) do
+    if s.fluid then
+      clear_fluid_slot(iface, s.side)
+    else
+      clear_item_slot(iface, s.slot)
+    end
+    coroutine.yield({ type = "yield" })
+  end
+
+  -- Pulse redstone to ungate central buffer for next batch
+  local redstone_addr = config.redstone_address
+  if redstone_addr and redstone_addr ~= "" then
+    local rs = registry.get_transposer(redstone_addr)
+    if not rs then rs = machine.redstone_proxy end
+    if rs and rs.setRedstoneOutput then
+      local rs_side = config.redstone_side or 0
+      local pulse_s = config.redstone_pulse_s or 0.1
+      pcall(rs.setRedstoneOutput, rs_side, 15)
+      coroutine.yield({ type = "sleep", seconds = pulse_s })
+      pcall(rs.setRedstoneOutput, rs_side, 0)
+    end
+  end
+
+  ---------------------------------------------------------------------------
+  -- Phase 5: Wait for machine to finish processing
   ---------------------------------------------------------------------------
   do
     local complete_start = now_fn()
@@ -467,7 +495,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
   end
 
   ---------------------------------------------------------------------------
-  -- Phase 5: Extract circuit from bus to return slot
+  -- Phase 6: Extract circuit from bus to return slot
   ---------------------------------------------------------------------------
   do
     local bus_side = LaneSides.bus_side(machine)
@@ -490,7 +518,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
     end
 
     -------------------------------------------------------------------------
-    -- Phase 6: Wait for circuit import (return slot empties)
+    -- Phase 7: Wait for circuit import (return slot empties)
     -------------------------------------------------------------------------
     local import_start = now_fn()
     local function import_ready()
@@ -507,18 +535,6 @@ function LaneWorker.execute(registry, job, machine_id, event)
     local ok_imp, imp_err = await_delivery(registry, machine, item_tp, fluid_tp,
       import_ready, staging_timeout_s, import_start, "import")
     if not ok_imp then return fail(imp_err) end
-  end
-
-  ---------------------------------------------------------------------------
-  -- Phase 7: Cleanup — clear interface configs, DO NOT release DB slots
-  ---------------------------------------------------------------------------
-  for _, s in ipairs(cfg_slots) do
-    if s.fluid then
-      clear_fluid_slot(iface, s.side)
-    else
-      clear_item_slot(iface, s.slot)
-    end
-    coroutine.yield({ type = "yield" })
   end
 
   log("[LaneWorker] " .. machine_id .. " job " .. tostring(job.id) .. " done")
