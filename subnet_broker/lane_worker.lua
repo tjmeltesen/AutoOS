@@ -23,7 +23,7 @@ local FluidTanks = require("fluid_tanks")
 
 local LaneWorker = {}
 
-local LOG_PATH = "/var/log/autoos/lane_worker.log"
+local LOG_PATH = "/home/subnet_broker/lane_worker.log"
 
 -- ponytail: open/append/close each write — cooperative scheduling means
 -- no interleaving within a single write call, and the filesystem handles

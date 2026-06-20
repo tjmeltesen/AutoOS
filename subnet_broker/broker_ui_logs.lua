@@ -1,7 +1,7 @@
 -- broker_ui_logs.lua - Log viewer page for AutoOS Broker UI
 -- Lua 5.2, OpenComputers. Self-sufficient: works with any data, even {}.
 
-local LOG_PATH = "/var/log/autoos/lane_worker.log"
+local LOG_PATH = "/home/subnet_broker/lane_worker.log"
 
 local module = { name = "Logs" }
 
