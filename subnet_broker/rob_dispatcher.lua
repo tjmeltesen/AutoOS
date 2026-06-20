@@ -392,12 +392,8 @@ function ROBDispatcher:_allocate_db_slots(manifest)
   local n = #queue
   if n == 0 then return true end  -- nothing to allocate, not an error
 
-  -- Job-scoped DB slot range: each job gets unique slots from monotonic _job_seq.
-  -- Shared scratchpad (slots 1..N) caused cross-machine contamination when
-  -- parallel lanes had DB entries overwritten mid-flight.
-  local BASE = 64
-  local base_slot = self._job_seq * BASE + 1
-  for i = 0, n - 1 do pcall(db.clear, base_slot + i) end
+  -- Clear scratchpad range
+  for slot = 1, n do pcall(db.clear, slot) end
 
   -- Pre-fetch fluid drops once for all fluid steps.
   -- Also snapshot getFluidsInNetwork() so we can cross-reference fluid names
@@ -479,7 +475,7 @@ function ROBDispatcher:_allocate_db_slots(manifest)
     return nil
   end
 
-  local slot = base_slot
+  local slot = 1
   for _, step in ipairs(queue) do
     local written = false
     if step.kind == "item" then
@@ -576,18 +572,14 @@ function ROBDispatcher:_enqueue_job(manifest, source)
     return nil, "empty manifest"
   end
 
-  -- Increment before allocation so base_slot starts at 65 (not 1).
-  -- Slot 1 was the old shared-scratchpad range; avoiding it prevents
-  -- any chance of collision with boot-time DB scan data.
-  self._job_seq = self._job_seq + 1
-
   local alloc_ok, alloc_err = self:_allocate_db_slots(manifest)
   if not alloc_ok then
     self._log(string.format("[ROBDispatcher] JIT allocation failed: %s — job NOT enqueued",
       tostring(alloc_err)))
-    self._job_seq = self._job_seq - 1  -- rollback on failure
     return nil, alloc_err or "allocation failed"
   end
+
+  self._job_seq = self._job_seq + 1
 
   local job = {
     id = string.format("central-%06d", self._job_seq),
