@@ -754,6 +754,8 @@ function ROBDispatcher:_poll_completions()
       if result.status == "done" then
         self._log(string.format("[ROBDispatcher] %s job complete: %s", machine_id, tostring(lane.current_job_id)))
         lane.last_error = nil
+        -- Transition job status so _reap_jobs can clean it up
+        self:_set_job_status(lane.current_job_id, "done")
         self:_release_locks(machine_id, lane)
         lane.state = LANE_IDLE
         lane.current_job_id = nil
@@ -762,6 +764,8 @@ function ROBDispatcher:_poll_completions()
         local err = result.error or "unknown error"
         self._log(string.format("[ROBDispatcher] %s job failed: %s — %s", machine_id, tostring(lane.current_job_id), err))
         lane.last_error = err
+        -- Transition job status so _reap_jobs can retry or discard it
+        self:_set_job_status(lane.current_job_id, "failed")
         self:_release_locks(machine_id, lane)
         lane.state = LANE_FAULTED
         lane.current_job_id = nil
@@ -769,6 +773,20 @@ function ROBDispatcher:_poll_completions()
       end
     end
     self._results[machine_id] = nil
+  end
+end
+
+--- Find a job by id and set its status.
+--- Used by _poll_completions and _check_watchdogs to keep job state in sync.
+--- @param job_id string|nil
+--- @param new_status string  "done" or "failed"
+function ROBDispatcher:_set_job_status(job_id, new_status)
+  if not job_id then return end
+  for _, job in ipairs(self._pending_jobs) do
+    if job.id == job_id then
+      job.status = new_status
+      return
+    end
   end
 end
 
@@ -788,6 +806,7 @@ function ROBDispatcher:_check_watchdogs(now)
         local detail = string.format("watchdog timeout in WORKING (deadline=%.0f grace=%d)", lane.deadline, grace)
         self._log(string.format("[ROBDispatcher] %s %s", machine_id, detail))
         lane.last_error = detail
+        self:_set_job_status(lane.current_job_id, "failed")
         self:_release_locks(machine_id, lane)
         lane.state = LANE_FAULTED
         lane.current_job_id = nil
@@ -899,17 +918,25 @@ function ROBDispatcher:_assign_jobs(poll_results)
     end
   end
 
-  -- Diagnostic: log when pending jobs exist but nothing could be dispatched
-  if #assigned == 0 and #self._pending_jobs > 0 and budget > 0 then
+  -- Diagnostic: log when truly-pending jobs exist but nothing could be dispatched
+  local truly_pending = 0
+  for _, j in ipairs(self._pending_jobs) do
+    if j.status == "pending" then truly_pending = truly_pending + 1 end
+  end
+  if #assigned == 0 and truly_pending > 0 and budget > 0 then
     local idle, working, faulted = 0, 0, 0
-    for _, lane in pairs(self._lanes) do
-      if lane.state == LANE_IDLE then idle = idle + 1
+    local machines = self._registry.machines or self._config.machines or {}
+    for _, m in ipairs(machines) do
+      local lane = self._lanes[m.id]
+      if not lane then
+        idle = idle + 1  -- never dispatched → implicitly idle
+      elseif lane.state == LANE_IDLE then idle = idle + 1
       elseif lane.state == LANE_WORKING then working = working + 1
       elseif lane.state == LANE_FAULTED then faulted = faulted + 1
       end
     end
     self._log(string.format("[ROBDispatcher] %d pending job(s), budget=%d, but no dispatch — lanes: idle=%d working=%d faulted=%d",
-      #self._pending_jobs, budget, idle, working, faulted))
+      truly_pending, budget, idle, working, faulted))
   end
 
   return assigned
@@ -1155,7 +1182,10 @@ function ROBDispatcher:any_fast_tick()
   for _, lane in pairs(self._lanes) do
     if lane.state == LANE_WORKING then return true end
   end
-  if #self._pending_jobs > 0 then return true end
+  -- Only count genuinely pending jobs (not running/done/failed)
+  for _, job in ipairs(self._pending_jobs) do
+    if job.status == "pending" then return true end
+  end
   return false
 end
 
