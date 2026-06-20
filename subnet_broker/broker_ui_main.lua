@@ -1,25 +1,25 @@
 --[[
-  AutoOS — Overseer Main Entry Point
+  AutoOS — Broker UI Main Entry Point
 
   Boot: check for GPU, fall back gracefully.
-  Load broker modules and start the overseer TUI.
+  Load broker modules and start the broker TUI.
 
-  If called as lua overseer_main.lua: starts standalone UI.
+  If called as lua broker_ui_main.lua: starts standalone UI.
   If required as module: returns a start() function.
 
-  The overseer drives its own event loop. Broker state is refreshed by
+  Drives its own event loop. Broker state is refreshed by
   a pump function that runs machine_poll + rob:tick() on each cycle.
   For full lane-worker execution, run broker_main.lua on the same or a
-  separate computer alongside the overseer.
+  separate computer.
 ]]
 
-local BROKER_BUILD = "2026-06-20-overseer"
+local BROKER_BUILD = "2026-06-20-broker-ui"
 
 local sep = package.config:sub(1, 1)
 local here = (arg and arg[0] and arg[0]:match("^(.*)[/\\]")) or "/home/subnet_broker"
 package.path = here .. sep .. "?.lua;" .. package.path
 
-local OverseerMain = {}
+local BrokerUIMain = {}
 
 ---------------------------------------------------------------------------
 -- GPU detection
@@ -98,11 +98,11 @@ end
 
 --- Build the broker, create the overseer, and enter the event loop.
 --- @return boolean success
-function OverseerMain.start()
+function BrokerUIMain.start()
   local gpu, screen_addr = detect_gpu()
 
-  print("[Overseer] starting " .. BROKER_BUILD)
-  print(string.format("[Overseer] GPU: %s", (gpu and "yes") or "no (headless)"))
+  print("[Broker] starting " .. BROKER_BUILD)
+  print(string.format("[Broker] GPU: %s", (gpu and "yes") or "no (headless)"))
 
   -- Build broker context (registry, config, rob, poll, state)
   local BrokerMain
@@ -110,8 +110,8 @@ function OverseerMain.start()
   if ok_bm then
     BrokerMain = bm_result
   else
-    print("[Overseer] broker_main not available: " .. tostring(bm_result))
-    print("[Overseer] running in display-only mode (no live broker data)")
+    print("[Broker] broker_main not available: " .. tostring(bm_result))
+    print("[Broker] running in display-only mode (no live broker data)")
   end
 
   local rob, config
@@ -127,11 +127,11 @@ function OverseerMain.start()
       -- Build broker pump function for live data updates
       pump_fn = build_pump_fn(ctx)
 
-      print(string.format("[Overseer] broker online — %s",
+      print(string.format("[Broker] broker online — %s",
         tostring(config.subnet_id)))
     else
-      print("[Overseer] broker build failed: " .. tostring(ctx_or_err))
-      print("[Overseer] running in display-only mode")
+      print("[Broker] broker build failed: " .. tostring(ctx_or_err))
+      print("[Broker] running in display-only mode")
       config = require("config")
     end
   else
@@ -146,8 +146,8 @@ function OverseerMain.start()
     now_fn = function() return computer.uptime() end
   end
 
-  -- Load overseer page manager
-  local Overseer = require("overseer")
+  -- Load broker UI page manager
+  local BrokerUI = require("broker_ui")
 
   local deps = {
     gpu = gpu,
@@ -157,8 +157,8 @@ function OverseerMain.start()
     pump_fn = pump_fn,
   }
 
-  local ov = Overseer.new(rob, config, deps)
-  ov:run()
+  local ui = BrokerUI.new(rob, config, deps)
+  ui:run()
 
   return true
 end
@@ -176,10 +176,10 @@ local function should_autostart()
 end
 
 if should_autostart() then
-  local ok, err = pcall(OverseerMain.start)
+  local ok, err = pcall(BrokerUIMain.start)
   if not ok then
-    print("[Overseer] FATAL:\n" .. tostring(err))
+    print("[Broker] FATAL:\n" .. tostring(err))
   end
 end
 
-return OverseerMain
+return BrokerUIMain

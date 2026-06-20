@@ -64,12 +64,12 @@ local FILES = {
   "subnet_broker/network_protocols.lua",
   "subnet_broker/start.lua",
   "subnet_broker/test_recover_transfer.lua",
-  -- subnet_broker/ — overseer TUI (new)
-  "subnet_broker/overseer.lua",
-  "subnet_broker/overseer_main.lua",
-  "subnet_broker/overseer_dashboard.lua",
-  "subnet_broker/overseer_logs.lua",
-  "subnet_broker/overseer_config.lua",
+  -- subnet_broker/ — broker TUI
+  "subnet_broker/broker_ui.lua",
+  "subnet_broker/broker_ui_main.lua",
+  "subnet_broker/broker_ui_dashboard.lua",
+  "subnet_broker/broker_ui_logs.lua",
+  "subnet_broker/broker_ui_config.lua",
 
   -- shared/ — cross-cutting protocol definitions
   "shared/network_protocols.lua",
@@ -87,7 +87,7 @@ local FILES = {
   "orchestrator/start.lua",
 
   -- tests/
-  "tests/overseer_test.lua",
+  "tests/broker_ui_test.lua",
 }
 
 -- =========================================================================
@@ -98,10 +98,13 @@ local function dirname(path)
   return path:match("^(.*)/") or "."
 end
 
+local created_dirs = {}
+
 local function ensure_dir(path)
   local dir = dirname(path)
-  -- mkdir -p creates intermediate directories silently
+  if dir == "." or created_dirs[dir] then return end
   os.execute("mkdir -p " .. TARGET_ROOT .. "/" .. dir)
+  created_dirs[dir] = true
 end
 
 local function download_file(rel_path)

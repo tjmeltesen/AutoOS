@@ -1,5 +1,5 @@
 --[[
-  AutoOS Overseer TUI — Config Editor Page
+  AutoOS Broker UI — Config Editor Page
   Lua 5.2 / OpenComputers
 
   Returns: { name = "Config", render = function(gpu, w, h, data), handle_key = function(code, data),

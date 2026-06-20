@@ -1,5 +1,5 @@
--- overseer_dashboard.lua
--- AutoOS Overseer TUI: Dashboard page
+-- broker_ui_dashboard.lua
+-- AutoOS Broker UI: Dashboard page
 -- Renders status bar, lane status, pending queue, recent dispatches, active locks
 
 local Dashboard = {}
@@ -117,7 +117,7 @@ local function render_status_bar(gpu, w, h, data, start_row)
   local job_str = tostring(active_count) .. "/" .. tostring(max_lanes)
 
   -- Row 1: top border with title
-  local top_line = TL .. " AutoOS Overseer ── " .. subnet_id
+  local top_line = TL .. " AutoOS Broker ── " .. subnet_id
   local filler = w - #top_line - 1
   if filler > 0 then
     top_line = top_line .. string.rep(H, filler)

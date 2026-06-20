@@ -1,4 +1,4 @@
--- overseer_logs.lua - Log viewer page module for AutoOS Overseer TUI
+-- broker_ui_logs.lua - Log viewer page for AutoOS Broker UI
 -- Lua 5.2, OpenComputers
 --
 -- Returns: { name = "Logs", render = fn, handle_key = fn, load_log_lines = fn }

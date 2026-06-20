@@ -1,21 +1,21 @@
 --[[
-  AutoOS — Overseer TUI Page Manager
+  AutoOS — Broker UI Page Manager
 
   A GPU-backed status display and navigation system for the AutoOS broker.
   Provides three pages: dashboard, logs, config. Falls back to headless
   mode when no GPU is available.
 
   Page modules (dashboard, logs, config) are loaded via pcall(require, ...)
-  so missing pages do not crash the overseer — they simply show a placeholder.
+  so missing pages do not crash the broker UI — they simply show a placeholder.
 
   Usage:
-    local Overseer = require("overseer")
-    local ov = Overseer.new(rob, config, { gpu = ..., screen_addr = ..., now_fn = ..., log = ... })
-    ov:run()
+    local BrokerUI = require("broker_ui")
+    local ui = BrokerUI.new(rob, config, { gpu = ..., screen_addr = ..., now_fn = ..., log = ... })
+    ui:run()
 ]]
 
-local Overseer = {}
-Overseer.__index = Overseer
+local BrokerUI = {}
+BrokerUI.__index = BrokerUI
 
 ---------------------------------------------------------------------------
 -- OC palette indices (0xRRGGBB)
@@ -119,11 +119,11 @@ end
 ---   deps.now_fn       function() -> seconds (os.clock or computer.uptime)
 ---   deps.log          function(msg) (print)
 ---   deps.pump_fn      function() called before each render tick (optional)
---- @return Overseer
-function Overseer.new(rob, config, deps)
+--- @return BrokerUI
+function BrokerUI.new(rob, config, deps)
   deps = deps or {}
 
-  local self = setmetatable({}, Overseer)
+  local self = setmetatable({}, BrokerUI)
 
   self._rob = rob
   self._config = config or {}
@@ -149,15 +149,15 @@ end
 -- Page loading
 ---------------------------------------------------------------------------
 
-function Overseer:_load_pages()
+function BrokerUI:_load_pages()
   for _, name in ipairs(PAGE_ORDER) do
-    local mod_name = "overseer_" .. name
+    local mod_name = "broker_ui_" .. name
     local ok, mod = pcall(require, mod_name)
     if ok and mod then
       self._pages[name] = mod
-      self._log("[Overseer] loaded page: " .. name)
+      self._log("[BrokerUI] loaded page: " .. name)
     else
-      self._log("[Overseer] page not available: " .. mod_name)
+      self._log("[BrokerUI] page not available: " .. mod_name)
     end
   end
 end
@@ -168,7 +168,8 @@ end
 
 --- Track lane state transitions (WORKING->IDLE, IDLE->WORKING, *->FAULTED).
 --- Called before each render to detect changes in rob:get_debug().lanes.
-function Overseer:_track_dispatch()
+function BrokerUI:_track_dispatch()
+  if not self._rob then return end
   local dbg = self._rob:get_debug()
   local lanes = dbg.lanes or {}
 
@@ -207,7 +208,8 @@ end
 -- Data builders (called before each render for the current page)
 ---------------------------------------------------------------------------
 
-function Overseer:_build_dashboard_data()
+function BrokerUI:_build_dashboard_data()
+  if not self._rob then return { lanes = {}, pending = {}, locks = {}, dispatch_log = {}, debug = {} } end
   local dbg = self._rob:get_debug()
   return {
     lanes = dbg.lanes,
@@ -218,7 +220,7 @@ function Overseer:_build_dashboard_data()
   }
 end
 
-function Overseer:_read_log_lines(max_lines)
+function BrokerUI:_read_log_lines(max_lines)
   max_lines = max_lines or 500
   local f, err = io.open(LOG_PATH, "r")
   if not f then
@@ -240,11 +242,11 @@ function Overseer:_read_log_lines(max_lines)
   return lines
 end
 
-function Overseer:_build_logs_data()
+function BrokerUI:_build_logs_data()
   return { lines = self:_read_log_lines(500) }
 end
 
-function Overseer:_build_config_fields(config_tbl)
+function BrokerUI:_build_config_fields(config_tbl)
   config_tbl = config_tbl or self._config
   local fields = {}
 
@@ -272,7 +274,7 @@ function Overseer:_build_config_fields(config_tbl)
   return fields
 end
 
-function Overseer:_build_config_data()
+function BrokerUI:_build_config_data()
   return { fields = self:_build_config_fields(self._config) }
 end
 
@@ -283,7 +285,7 @@ end
 --- Refresh the current page's .data field by pulling fresh state from
 --- rob and config. Calls _track_dispatch first so the dispatch log is
 --- up-to-date.
-function Overseer:_refresh_data()
+function BrokerUI:_refresh_data()
   self:_track_dispatch()
 
   local page = self._pages[self._current_page]
@@ -302,7 +304,7 @@ end
 -- Navigation
 ---------------------------------------------------------------------------
 
-function Overseer:_nav_to(name)
+function BrokerUI:_nav_to(name)
   if self._pages[name] then
     self._current_page = name
     for i, n in ipairs(PAGE_ORDER) do
@@ -312,13 +314,13 @@ function Overseer:_nav_to(name)
   end
 end
 
-function Overseer:_nav_next()
+function BrokerUI:_nav_next()
   local idx = self._page_idx + 1
   if idx > #PAGE_ORDER then idx = 1 end
   self:_nav_to(PAGE_ORDER[idx])
 end
 
-function Overseer:_nav_prev()
+function BrokerUI:_nav_prev()
   local idx = self._page_idx - 1
   if idx < 1 then idx = #PAGE_ORDER end
   self:_nav_to(PAGE_ORDER[idx])
@@ -328,7 +330,7 @@ end
 -- Key handling
 ---------------------------------------------------------------------------
 
-function Overseer:_handle_key(code)
+function BrokerUI:_handle_key(code)
   -- Direct page navigation
   if code == KEY.NUM1 then
     self:_nav_to("dashboard")
@@ -365,7 +367,7 @@ end
 ---------------------------------------------------------------------------
 
 --- Draw the help bar at the bottom row of the screen.
-function Overseer:_draw_help_bar(gpu, w, h)
+function BrokerUI:_draw_help_bar(gpu, w, h)
   local help = "[1]Dashboard  [2]Logs  [3]Config   Tab:next   Q:quit"
   if #help > w then
     help = help:sub(1, w)
@@ -377,7 +379,7 @@ function Overseer:_draw_help_bar(gpu, w, h)
 end
 
 --- Full render: clear screen, render current page above help bar, draw help bar.
-function Overseer:_render()
+function BrokerUI:_render()
   local gpu = self._gpu
   if not gpu then return end
 
@@ -395,7 +397,7 @@ function Overseer:_render()
     gpu.setForeground(COLORS.red)
     gpu.set(2, 2, "Page '" .. self._current_page .. "' not loaded")
     gpu.setForeground(COLORS.gray)
-    gpu.set(2, 3, "Create overseer_" .. self._current_page .. ".lua to enable this page.")
+    gpu.set(2, 3, "Create broker_ui_" .. self._current_page .. ".lua to enable this page.")
   end
 
   -- Help bar at the bottom
@@ -408,8 +410,9 @@ end
 
 --- Return a one-line string with key broker status suitable for print().
 --- @return string
-function Overseer:headless_line()
+function BrokerUI:headless_line()
   self:_track_dispatch()
+  if not self._rob then return "[BrokerUI] no broker data (display-only mode)" end
   local dbg = self._rob:get_debug()
   local pending = self._rob:pending_count()
 
@@ -430,7 +433,7 @@ function Overseer:headless_line()
     parts[#parts + 1] = table.concat(lane_parts, " ")
   end
 
-  return "[Overseer] " .. table.concat(parts, " | ")
+  return "[BrokerUI] " .. table.concat(parts, " | ")
 end
 
 ---------------------------------------------------------------------------
@@ -439,7 +442,7 @@ end
 
 --- Enter the overseer event loop. Blocks until the user presses Q or Escape.
 --- If no GPU is available, runs in headless mode (prints status every 1s).
-function Overseer:run()
+function BrokerUI:run()
   if not self._gpu then
     -- Headless mode — infinite print loop
     while true do
@@ -494,7 +497,7 @@ function Overseer:run()
   -- Clean exit: clear screen and print stop message
   self._gpu.fill(1, 1, mw, mh, " ")
   self._gpu.setForeground(COLORS.white)
-  self._gpu.set(1, 1, "AutoOS Overseer stopped.")
+  self._gpu.set(1, 1, "AutoOS Broker UI stopped.")
 end
 
-return Overseer
+return BrokerUI
