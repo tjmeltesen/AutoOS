@@ -1,28 +1,28 @@
 --[[
   AutoOS — Lane Worker (Event-Driven Coroutine)
 
-  REPLACES the FSM in lane_dispatch.lua (1267 lines → ~280 lines).
   Each lane is its own coroutine.  This function is the coroutine body.
-  It consumes a pre-built Job Object from the Dispatcher (Phase 3) and
-  executes it end-to-end.
+  It consumes a pre-built Job Object from the Dispatcher and executes
+  it end-to-end.
 
-  Phase: stock → wait_delivery → transfer → cleanup+pulse → wait_complete → extract → wait_import
+  Phase: stock → wait_delivery → transfer → wait_dual_if_empty → cleanup+pulse
+          → wait_complete → extract → wait_import
+
+  Fluid transfer is handled by an external device; the lane worker only
+  moves items through the item transposer.  Cleanup fires when the dual
+  IF pull face is empty (adapter sees no items left).
 
   Constraints:
     - NEVER call component.proxy() — all proxies come from registry
-    - NEVER call event.pull() with a timeout in a busy loop — event-driven yield
-    - No os.sleep() polling — the coroutine scheduler handles timing
     - All component calls wrapped in pcall()
     - Yield at least once per "step"
 ]]
 
 local LaneSides = require("lane_sides")
-local FluidTanks = require("fluid_tanks")
 
 local LaneWorker = {}
 
 local PULL_SCAN_MAX = 54
-local FLUID_CHUNK = 1000000  -- ponytail: single-shot drain, matches lane_dispatch.lua:24
 
 ---------------------------------------------------------------------------
 -- Internal helpers
@@ -64,7 +64,6 @@ end
 local function build_queue(manifest)
   local queue = manifest.queue
   if type(queue) == "table" and #queue > 0 then return queue end
-  -- Fallback: build from items/fluids arrays
   queue = {}
   for _, it in ipairs(manifest.items or {}) do
     queue[#queue + 1] = { kind = "item", name = it.name, damage = it.damage,
@@ -140,28 +139,8 @@ local function pull_face_has_items(item_tp, machine)
   return false
 end
 
---- Check if the pull face has the expected fluid.
-local function pull_face_has_fluid(fluid_tp, machine)
-  local side = LaneSides.central_fluid_pull_side(machine)
-  return FluidTanks.tank_level(fluid_tp, side) > 0
-end
-
---- Check if a specific queue step is visible on the pull face.
-local function step_visible(item_tp, fluid_tp, machine, step)
-  if step.kind == "fluid" then
-    local side = LaneSides.central_fluid_pull_side(machine)
-    if not step.fluid_label and not step.fluid_registry then
-      return FluidTanks.tank_level(fluid_tp, side) > 0
-    end
-    for _, row in ipairs(FluidTanks.non_empty_tanks(fluid_tp, side)) do
-      if FluidTanks.label_matches(row.name, step.fluid_label or step.fluid_registry) then
-        return true
-      end
-    end
-    return false
-  end
-
-  -- Item step
+--- Check if a specific item step is visible on the pull face.
+local function step_visible(item_tp, machine, step)
   local side = LaneSides.central_item_pull_side(machine)
   local start = machine.chest_slot_start or 1
   local size = pull_scan_max(item_tp, side)
@@ -193,31 +172,24 @@ local function transfer_item_step(item_tp, machine, step)
   return 0
 end
 
---- Drain check: bus empty except circuit slot.  fluid hatch empty.
-local function drain_complete(item_tp, fluid_tp, machine, circuit_slot)
-  if fluid_tp then
-    local hatch_side = LaneSides.fluid_hatch_side(machine)
-    if FluidTanks.tank_level(fluid_tp, hatch_side) > 0 then return false end
-  end
-  if item_tp then
-    local bus_side = LaneSides.bus_side(machine)
-    local size = pull_scan_max(item_tp, bus_side)
-    for slot = 1, size do
-      if slot ~= circuit_slot and safe_slot_size(item_tp, bus_side, slot) > 0 then
-        return false
-      end
+--- Bus empty except circuit slot.
+local function bus_drained(item_tp, machine, circuit_slot)
+  local bus_side = LaneSides.bus_side(machine)
+  local size = pull_scan_max(item_tp, bus_side)
+  for slot = 1, size do
+    if slot ~= circuit_slot and safe_slot_size(item_tp, bus_side, slot) > 0 then
+      return false
     end
   end
   return true
 end
 
 ---------------------------------------------------------------------------
--- Event-driven wait helper
+-- Wait helper
 ---------------------------------------------------------------------------
 
 --- Yield once per scheduler tick, re-checking a condition each cycle.
---- Returns true when condition is met, false+err on timeout.
-local function await_delivery(registry, machine, item_tp, fluid_tp, condition_fn,
+local function await_delivery(registry, item_tp, condition_fn,
                               timeout_s, start_time, phase_name)
   local now_fn = registry.get_now()
   local deadline = start_time + timeout_s
@@ -239,16 +211,11 @@ end
 ---------------------------------------------------------------------------
 
 --- Execute a pre-built Job Object on one lane.
---- This IS the coroutine body — it yields internally and returns when done.
----@param registry table  Phase-1 static registry (get_machine, get_transposer,
----   get_interface, get_config, get_circuit_manager, get_now, log)
----@param job table  Pre-built Job Object with manifest.{items,fluids,queue},
----   each entry carrying pre-computed db_slot and db_address.
----@param machine_id string  Target machine identifier.
----@param event string|nil  Triggering event name from the scheduler (unused; retained for API compatibility).
+---@param registry table
+---@param job table  Pre-built Job Object with manifest.{items,fluids,queue}
+---@param machine_id string
 ---@return table { status = "done"|"failed", error = string|nil }
 function LaneWorker.execute(registry, job, machine_id, event)
-  -- Resolve dependencies from registry (no component.proxy() calls)
   local machine = registry.get_machine(machine_id)
   if not machine then
     return { status = "failed", error = "machine not found: " .. tostring(machine_id) }
@@ -258,29 +225,20 @@ function LaneWorker.execute(registry, job, machine_id, event)
   local now_fn = registry.get_now()
   local log = registry._log or function() end
 
-  -- Cached transposer proxies (pre-resolved by registry at boot)
   local item_tp = machine.item_tp or registry.get_transposer(machine.item_transposer_address)
-  local fluid_tp = machine.fluid_tp or registry.get_transposer(machine.fluid_transposer_address)
-
-  -- ME interface proxy (pre-resolved by registry at boot)
   local iface = machine.iface
-
-  -- Circuit manager (already initialized by Phase 1)
   local circuit_mgr = registry.get_circuit_manager()
 
-  -- Config values
   local interface_wait_s = (config.central and config.central.interface_wait_s)
     or config.staging_timeout_s or 60
   local staging_timeout_s = config.staging_timeout_s or 60
   local circuit_bus_slot = config.circuit_bus_slot or 1
   local slot_start = machine.interface_item_slot_start or config.interface_item_slot_start or 1
-  -- Build ordered queue from manifest
   local queue = build_queue(job.manifest)
-  local cfg_slots = {}  -- track configured slots for cleanup
+  local cfg_slots = {}
 
   local function fail(err)
     log("[LaneWorker] " .. machine_id .. " FAILED: " .. tostring(err))
-    -- Best-effort cleanup
     for _, s in ipairs(cfg_slots) do
       if s.fluid then
         clear_fluid_slot(iface, s.side)
@@ -297,15 +255,8 @@ function LaneWorker.execute(registry, job, machine_id, event)
   ---------------------------------------------------------------------------
   do
     local item_idx = 0
-    local fluid_idx = 0
-    -- One fluid per side: setFluidInterfaceConfiguration(side, ...)
-    -- overwrites previous configs on the same side. Use distinct sides.
-    -- The dual IF's internal tank is accessible from all sides, so the
-    -- transposer sees all fluids on fluid_pull_side regardless.
     local used_sides = {}
     local function next_fluid_side()
-      -- Prefer sides 0,1,3,5 (skip 2=item_pull, 4=fluid_pull transposer
-      -- sides — they still work but avoid potential conflicts)
       local candidates = {0, 1, 3, 5, 2, 4}
       for _, s in ipairs(candidates) do
         if not used_sides[s] then used_sides[s] = true; return s end
@@ -333,8 +284,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
       coroutine.yield({ type = "yield" })
     end
 
-    -- Second pass: fill remaining free sides with duplicate fluid configs.
-    -- One fluid on 4 sides → 4×16kB = 64kB throughput instead of 16kB.
+    -- Fill remaining free sides with duplicate fluid configs
     local fluid_steps = {}
     for _, step in ipairs(queue) do
       if step.kind == "fluid" then fluid_steps[#fluid_steps + 1] = step end
@@ -360,7 +310,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
   log("[LaneWorker] " .. machine_id .. " stocked " .. #cfg_slots .. " interface slot(s)")
 
   ---------------------------------------------------------------------------
-  -- Phase 2: Wait for AE2 delivery
+  -- Phase 2: Wait for AE2 delivery (items only — fluid device handles itself)
   ---------------------------------------------------------------------------
   if not item_tp then
     return fail("item transposer proxy unavailable")
@@ -369,26 +319,23 @@ function LaneWorker.execute(registry, job, machine_id, event)
   do
     local delivery_start = now_fn()
     local function delivery_ready()
-      local has_items = false
-      local has_fluids = false
       for _, step in ipairs(queue) do
-        if step.kind == "fluid" then has_fluids = true else has_items = true end
+        if step.kind == "item" and not step_visible(item_tp, machine, step) then
+          return false
+        end
       end
-      if has_items and not pull_face_has_items(item_tp, machine) then return false end
-      if has_fluids and fluid_tp and not pull_face_has_fluid(fluid_tp, machine) then return false end
       return true
     end
 
-    local ok_del, del_err = await_delivery(registry, machine, item_tp, fluid_tp,
+    local ok_del, del_err = await_delivery(registry, item_tp,
       delivery_ready, interface_wait_s, delivery_start, "delivery")
     if not ok_del then return fail(del_err) end
   end
 
   ---------------------------------------------------------------------------
-  -- Phase 3: Transfer items + fluids through the machine
+  -- Phase 3: Transfer items through transposer to machine input bus
   ---------------------------------------------------------------------------
   do
-    -- Items: transfer in queue order
     for _, step in ipairs(queue) do
       if step.kind ~= "item" then goto continue_item end
       local item_deadline = now_fn() + staging_timeout_s
@@ -397,9 +344,8 @@ function LaneWorker.execute(registry, job, machine_id, event)
         local moved, _ = transfer_item_step(item_tp, machine, step)
         if moved and moved >= 1 then
           moved_total = moved_total + moved
-          -- ponytail: no yield here — batch all item moves, yield only on retry
         else
-          if not step_visible(item_tp, fluid_tp, machine, step) then break end
+          if not step_visible(item_tp, machine, step) then break end
           coroutine.yield({ type = "yield" })
         end
         if now_fn() >= item_deadline then
@@ -408,74 +354,55 @@ function LaneWorker.execute(registry, job, machine_id, event)
       end
       ::continue_item::
     end
-
-    -- Fluids: drain ALL tanks from the dual interface pull face.
-    -- Dual IF stocks all fluids at once (Phase 1), but each slot holds
-    -- only 16 kB. A >16 kB fluid needs AE2 to refill the slot after the
-    -- first batch transfers, so we loop until tanks stay dry for settle_s.
-    -- Skipped when fluid_tp is nil (e.g. testing a non-transposer fluid device).
-    if fluid_tp then
-      local fluid_pull_side = LaneSides.central_fluid_pull_side(machine)
-      local fluid_hatch_side = LaneSides.fluid_hatch_side(machine)
-      local fluid_deadline = now_fn() + staging_timeout_s
-      local fluid_dry_since = nil
-      local settle_s = (config.central and config.central.settle_s) or config.settle_s or 2.0
-      -- ponytail: single-shot FLUID_CHUNK drain, matches lane_dispatch:_transfer_fluids.
-      while true do
-        local total = FluidTanks.tank_level(fluid_tp, fluid_pull_side)
-        if total <= 0 then
-          fluid_dry_since = fluid_dry_since or now_fn()
-          if now_fn() - fluid_dry_since >= settle_s then break end
-          coroutine.yield({ type = "yield" })
-        else
-          fluid_dry_since = nil
-          pcall(fluid_tp.transferFluid, fluid_pull_side, fluid_hatch_side, FLUID_CHUNK)
-          coroutine.yield({ type = "yield" })
-        end
-        if now_fn() >= fluid_deadline then
-          return fail("fluid transfer timeout")
-        end
-      end
-    end
   end
 
   log("[LaneWorker] " .. machine_id .. " transfer complete")
 
   ---------------------------------------------------------------------------
-  -- Phase 4: Cleanup interface configs + pulse redstone
-  -- Done immediately after transfer so AE2 can start the next job while
-  -- the machine processes.  Items/fluids are already in the input bus/hatch.
+  -- Phase 4: Wait for dual IF pull face to empty, then cleanup + pulse
   ---------------------------------------------------------------------------
-  for _, s in ipairs(cfg_slots) do
-    if s.fluid then
-      clear_fluid_slot(iface, s.side)
-    else
-      clear_item_slot(iface, s.slot)
+  do
+    local drain_start = now_fn()
+    local function pull_face_empty()
+      return not pull_face_has_items(item_tp, machine)
     end
-    coroutine.yield({ type = "yield" })
-  end
-  log("[LaneWorker] " .. machine_id .. " interface configs cleared")
-  -- Pulse redstone to ungate central buffer for next batch
-  local redstone_addr = config.redstone_address
-  if redstone_addr and redstone_addr ~= "" then
-    local rs = registry.get_redstone(redstone_addr)
-    if rs and rs.setOutput then
-      local rs_side = config.redstone_side or 0
-      local pulse_s = config.redstone_pulse_s or 0.1
-      pcall(rs.setOutput, rs_side, 15)
-      coroutine.yield({ type = "sleep", seconds = pulse_s })
-      pcall(rs.setOutput, rs_side, 0)
-      log("[LaneWorker] " .. machine_id .. " redstone pulsed side " .. rs_side)
+
+    local ok_drain, drain_err = await_delivery(registry, item_tp,
+      pull_face_empty, staging_timeout_s, drain_start, "dual_if_drain")
+    if not ok_drain then return fail(drain_err) end
+
+    -- Clear interface configs
+    for _, s in ipairs(cfg_slots) do
+      if s.fluid then
+        clear_fluid_slot(iface, s.side)
+      else
+        clear_item_slot(iface, s.slot)
+      end
+      coroutine.yield({ type = "yield" })
     end
+
+    -- Pulse redstone to ungate central buffer
+    local redstone_addr = config.redstone_address
+    if redstone_addr and redstone_addr ~= "" then
+      local rs = registry.get_redstone(redstone_addr)
+      if rs and rs.setOutput then
+        local rs_side = config.redstone_side or 0
+        local pulse_s = config.redstone_pulse_s or 0.1
+        pcall(rs.setOutput, rs_side, 15)
+        coroutine.yield({ type = "sleep", seconds = pulse_s })
+        pcall(rs.setOutput, rs_side, 0)
+      end
+    end
+    log("[LaneWorker] " .. machine_id .. " cleanup+pulse done")
   end
-  log("[LaneWorker] " .. machine_id .. " redstone pulse complete")
+
   ---------------------------------------------------------------------------
   -- Phase 5: Wait for machine to finish processing
   ---------------------------------------------------------------------------
   do
     local complete_start = now_fn()
     local saw_active = false
-    local quiet_drained_since = nil  -- ponytail: quiet-drain failsafe for fast recipes
+    local quiet_drained_since = nil
     local completion_mode = config.completion_mode or "both"
     local quiet_failsafe_s = config.completion_quiet_failsafe_s or 5
 
@@ -485,16 +412,13 @@ function LaneWorker.execute(registry, job, machine_id, event)
         saw_active = true
         quiet_drained_since = nil
       end
-      local drained = drain_complete(item_tp, fluid_tp, machine, circuit_bus_slot)
+      local drained = bus_drained(item_tp, machine, circuit_bus_slot)
       if not drained then
         quiet_drained_since = nil
         return false
       end
       if completion_mode == "drain" then return true end
 
-      -- Quiet-drain failsafe: if machine was never seen active but
-      -- drain is complete and poll consistently shows idle for N seconds,
-      -- declare done (handles fast recipes that finish between polls).
       if not saw_active then
         if poll and not poll.active and not poll.has_work then
           quiet_drained_since = quiet_drained_since or now_fn()
@@ -510,12 +434,11 @@ function LaneWorker.execute(registry, job, machine_id, event)
       if completion_mode == "adapter" then
         return poll and not poll.active
       end
-      -- "both": adapter done OR saw_active and now idle
       if poll and not poll.active then return true end
       return false
     end
 
-    local ok_comp, comp_err = await_delivery(registry, machine, item_tp, fluid_tp,
+    local ok_comp, comp_err = await_delivery(registry, item_tp,
       completion_ready, staging_timeout_s, complete_start, "completion")
     if not ok_comp then return fail(comp_err) end
   end
@@ -532,7 +455,6 @@ function LaneWorker.execute(registry, job, machine_id, event)
 
     local size = safe_slot_size(item_tp, bus_side, circuit_bus_slot)
     if size <= 0 then
-      -- No circuit to extract; may be normal for some recipes
       log("[LaneWorker] " .. machine_id .. " no circuit on bus, skipping extract")
     else
       local moved, err = circuit_mgr:transfer_one(item_tp, bus_side, return_side,
@@ -558,7 +480,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
       return true
     end
 
-    local ok_imp, imp_err = await_delivery(registry, machine, item_tp, fluid_tp,
+    local ok_imp, imp_err = await_delivery(registry, item_tp,
       import_ready, staging_timeout_s, import_start, "import")
     if not ok_imp then return fail(imp_err) end
   end
