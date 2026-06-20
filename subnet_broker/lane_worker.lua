@@ -428,7 +428,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
     end
     coroutine.yield({ type = "yield" })
   end
-
+  log("[LaneWorker] " .. machine_id .. " interface configs cleared")
   -- Pulse redstone to ungate central buffer for next batch
   local redstone_addr = config.redstone_address
   if redstone_addr and redstone_addr ~= "" then
@@ -439,9 +439,10 @@ function LaneWorker.execute(registry, job, machine_id, event)
       pcall(rs.setOutput, rs_side, 15)
       coroutine.yield({ type = "sleep", seconds = pulse_s })
       pcall(rs.setOutput, rs_side, 0)
+      log("[LaneWorker] " .. machine_id .. " redstone pulsed side " .. rs_side)
     end
   end
-
+  log("[LaneWorker] " .. machine_id .. " redstone pulse complete")
   ---------------------------------------------------------------------------
   -- Phase 5: Wait for machine to finish processing
   ---------------------------------------------------------------------------
