@@ -517,6 +517,16 @@ end
 -- Render
 -------------------------------------------------------------------------------
 function module.render(gpu, w, h, data)
+  if not data then return end
+  if not data.sections or #data.sections == 0 then
+    gpu.setBackground(C_BLACK)
+    gpu.fill(1, 1, w, h, " ")
+    gpu.setForeground(C_RED)
+    gpu.set(2, 2, "Config data not loaded")
+    gpu.setForeground(C_DKGRAY)
+    gpu.set(2, 3, "Ensure config.lua exists at: " .. (data.config_path or "?"))
+    return
+  end
   -- Store dimensions for handle_key
   data._h = h
   data._w = w

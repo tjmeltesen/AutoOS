@@ -115,6 +115,8 @@ local function render_status_bar(gpu, w, h, data, start_row)
   end
 
   local job_str = tostring(active_count) .. "/" .. tostring(max_lanes)
+  local uptime_str = fmt_time(uptime)
+  local port_str = tostring(port)
 
   -- Row 1: top border with title
   local top_line = TL .. " AutoOS Broker ── " .. subnet_id
@@ -127,52 +129,20 @@ local function render_status_bar(gpu, w, h, data, start_row)
   gpu.setForeground(COLOR_GRAY)
   gpu.set(row, 1, top_line:sub(1, w))
 
-  -- Row 2: status line
+  -- Row 2: status line — build as simple formatted string
   row = row + 1
-  local status_line = V .. " STATUS: "
-  gpu.setForeground(COLOR_GRAY)
-  gpu.set(row, 1, V)
-  gpu.set(row, 2, " STATUS: ")
+  local line = string.format(" STATUS: %-8s    Uptime: %-6s    Port: %-5s    Jobs: %s",
+    status_str, uptime_str, port_str, job_str)
 
-  -- STATUS value in color
+  -- Draw left border + status substring then right border
+  gpu.setForeground(COLOR_GRAY)
+  gpu.set(row, 1, V)                        -- left border
+  gpu.set(row, 2, line:sub(1, w - 2))       -- status text
+  gpu.set(row, w, V)                        -- right border
+
+  -- Color the STATUS value
   gpu.setForeground(status_color)
-  gpu.set(row, #status_line + 1, status_str)
-
-  -- Uptime
-  gpu.setForeground(COLOR_GRAY)
-  local uptime_part = "    Uptime: "
-  local uptime_pos = #status_line + #status_str + 1
-  gpu.set(row, uptime_pos, uptime_part)
-  gpu.setForeground(COLOR_WHITE)
-  uptime_pos = uptime_pos + #uptime_part
-  gpu.set(row, uptime_pos, fmt_time(uptime))
-
-  -- Port
-  gpu.setForeground(COLOR_GRAY)
-  uptime_pos = uptime_pos + #fmt_time(uptime)
-  local port_part = "    Port: "
-  gpu.set(row, uptime_pos, port_part)
-  gpu.setForeground(COLOR_WHITE)
-  uptime_pos = uptime_pos + #port_part
-  gpu.set(row, uptime_pos, tostring(port))
-
-  -- Jobs
-  gpu.setForeground(COLOR_GRAY)
-  uptime_pos = uptime_pos + #tostring(port)
-  local jobs_part = "    Jobs: "
-  gpu.set(row, uptime_pos, jobs_part)
-  gpu.setForeground(COLOR_WHITE)
-  uptime_pos = uptime_pos + #jobs_part
-  gpu.set(row, uptime_pos, job_str)
-
-  -- Pad rest of line with spaces
-  gpu.setForeground(COLOR_GRAY)
-  local right_pad = w - uptime_pos - #job_str
-  if right_pad > 0 then
-    gpu.set(row, uptime_pos + #job_str, string.rep(" ", right_pad - 1) .. V)
-  else
-    gpu.set(row, w, V)
-  end
+  gpu.set(row, 10, status_str)
 
   return row
 end
@@ -540,6 +510,7 @@ end
 -- ─── page render ───────────────────────────────────────────────────────────
 
 function Dashboard.render(gpu, w, h, data)
+  if not data then return end
   local row = 1
 
   -- Section 1: Status Bar (rows 1-2, plus blank line)

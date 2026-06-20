@@ -139,6 +139,9 @@ function BrokerUI.new(rob, config, deps)
   self._dispatch_log = {}
   self._prev_lane_states = {} -- { [machine_id] = state_string }
   self._running = false
+  self._start_time = self._now()  -- for uptime display
+  self._config_path = "subnet_broker/config.lua"
+  self._config_page_mod = nil    -- lazy-loaded config module
 
   self:_load_pages()
 
@@ -209,7 +212,16 @@ end
 ---------------------------------------------------------------------------
 
 function BrokerUI:_build_dashboard_data()
-  if not self._rob then return { lanes = {}, pending = {}, locks = {}, dispatch_log = {}, debug = {} } end
+  if not self._rob then
+    return {
+      lanes = {}, pending = {}, locks = {}, dispatch_log = {}, debug = {},
+      subnet_id = self._config.subnet_id or "unknown",
+      uptime = self._now() - self._start_time,
+      port = self._config.broker_modem_port or self._config.main_net_channel or 0,
+      max_lanes = #(self._config.machines or {}),
+      now_fn = self._now,
+    }
+  end
   local dbg = self._rob:get_debug()
   return {
     lanes = dbg.lanes,
@@ -217,6 +229,11 @@ function BrokerUI:_build_dashboard_data()
     locks = self._rob:get_locks(),
     dispatch_log = self._dispatch_log,
     debug = dbg,
+    subnet_id = self._config.subnet_id or "unknown",
+    uptime = self._now() - self._start_time,
+    port = self._config.broker_modem_port or self._config.main_net_channel or 0,
+    max_lanes = #(self._config.machines or {}),
+    now_fn = self._now,
   }
 end
 
@@ -243,39 +260,25 @@ function BrokerUI:_read_log_lines(max_lines)
 end
 
 function BrokerUI:_build_logs_data()
-  return { lines = self:_read_log_lines(500) }
-end
-
-function BrokerUI:_build_config_fields(config_tbl)
-  config_tbl = config_tbl or self._config
-  local fields = {}
-
-  local function walk(t, prefix)
-    for k, v in pairs(t) do
-      local full_key = prefix and (prefix .. "." .. k) or k
-      local vt = type(v)
-      if vt == "table" then
-        walk(v, full_key)
-      elseif vt == "function" then
-        fields[#fields + 1] = { key = full_key, value = "(function)" }
-      elseif vt == "boolean" then
-        fields[#fields + 1] = { key = full_key, value = v and "true" or "false" }
-      elseif vt == "nil" then
-        fields[#fields + 1] = { key = full_key, value = "nil" }
-      else
-        fields[#fields + 1] = { key = full_key, value = tostring(v) }
-      end
-    end
-  end
-
-  walk(config_tbl, nil)
-
-  table.sort(fields, function(a, b) return a.key < b.key end)
-  return fields
+  return { lines = self:_read_log_lines(500), path = LOG_PATH }
 end
 
 function BrokerUI:_build_config_data()
-  return { fields = self:_build_config_fields(self._config) }
+  -- Lazy-load the config page module so we can reuse its build_data()
+  if not self._config_page_mod then
+    local ok, mod = pcall(require, "broker_ui_config")
+    if ok and mod then self._config_page_mod = mod end
+  end
+  -- If we have a live config table loaded, use it for data
+  if self._config and type(self._config) == "table" and next(self._config) then
+    if self._config_page_mod and self._config_page_mod.build_data then
+      return self._config_page_mod.build_data(
+        self._config_path or "subnet_broker/config.lua")
+    end
+  end
+  -- Fallback: empty config state (renders error message via nil guard)
+  return { sections = {}, focus_section = 1, focus_field = 1, editing = false,
+           config_path = self._config_path or "config.lua" }
 end
 
 ---------------------------------------------------------------------------

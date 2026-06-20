@@ -43,6 +43,9 @@ end
 -- Draws the log viewer page.
 ---------------------------------------------------------------------------
 function module.render(gpu, w, h, data)
+  if not data then return end
+  data.path = data.path or "/var/log/autoos/lane_worker.log"
+  data.lines = data.lines or {}
   -- Follow mode: always pin to newest lines
   if data.follow then
     data.offset = 0
