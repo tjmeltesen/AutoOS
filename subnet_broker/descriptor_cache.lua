@@ -235,6 +235,17 @@ function DescriptorCache:ensure_item(iface, spec)
       local ok_store = iface.store(filter, db_addr, slot, count)
       if ok_store then return true end
     end
+    -- Fallback: write descriptor directly via db.set.
+    -- iface.store samples from ME network which may not see items
+    -- on a different subnet from the central buffer.
+    local db = self:_db()
+    if db and db.set then
+      local desc = { name = spec.name, damage = damage or 0 }
+      if spec.label then desc.label = spec.label end
+      desc.size = count or 1
+      local ok_set = pcall(db.set, slot, desc)
+      if ok_set then return true end
+    end
     return false, string.format(
       "me_interface.store failed for real item %q damage=%s label=%s; preconfigure database_preconfigured_slots or ensure the item exists in subnet ME",
       tostring(spec.name), tostring(damage), tostring(spec.label or "")
@@ -352,6 +363,14 @@ function DescriptorCache:ensure_fluid(iface, rules)
   local function write(slot)
     local ok_store = iface.store(filter, db_addr, slot, 1)
     if ok_store then return true end
+    -- Fallback: write fluid drop descriptor directly via db.set
+    local db = self:_db()
+    if db and db.set and filter.name and filter.damage then
+      local desc = { name = filter.name, damage = filter.damage }
+      if filter.label then desc.label = filter.label end
+      local ok_set = pcall(db.set, slot, desc)
+      if ok_set then return true end
+    end
     return false, string.format("me.store failed for fluid drop %q", hint)
   end
 

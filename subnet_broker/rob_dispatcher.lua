@@ -426,13 +426,14 @@ function ROBDispatcher:_resolve_db_pointers(manifest)
       end
     end
   end
+  -- DB is dynamic — entries are created lazily at runtime.  Missing DB
+  -- slots are logged but never block dispatch.  The lane worker will skip
+  -- unresolvable steps with a warning.
   if #missing > 0 then
-    self._log(string.format("[ROBDispatcher] DB MISS: %s (db has %d items, %d fluids)",
-      table.concat(missing, ", "),
-      next(self._registry._item_db) ~= nil and 1 or 0,
-      next(self._registry._fluid_db) ~= nil and 1 or 0))
+    self._log(string.format("[ROBDispatcher] DB MISS (non-fatal): %s",
+      table.concat(missing, ", ")))
   end
-  return #missing == 0
+  return true  -- never block
 end
 
 --- Build a job object from a manifest and enqueue it.
@@ -443,11 +444,7 @@ function ROBDispatcher:_enqueue_job(manifest, source)
     return nil, "empty manifest"
   end
 
-  local all_resolved = self:_resolve_db_pointers(manifest)
-  if not all_resolved then
-    self._log("[ROBDispatcher] job rejected — DB entries missing, deferring")
-    return nil, "unresolved DB entries"
-  end
+  self:_resolve_db_pointers(manifest)  -- logs misses, never blocks
 
   self._job_seq = self._job_seq + 1
   local job = {

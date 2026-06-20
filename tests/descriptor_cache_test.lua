@@ -174,16 +174,18 @@ end
 
 do
   local db_set_called = false
+  local last_set = nil
   local component = {
     list = function() return { ["db-1"] = "database" } end,
     proxy = function()
       return {
-        get = function() return nil end,
-        set = function()
+        get = function() return last_set end,
+        set = function(_, desc)
           db_set_called = true
+          last_set = desc
           return true
         end,
-        clear = function() return true end,
+        clear = function() last_set = nil; return true end,
       }
     end,
   }
@@ -193,7 +195,9 @@ do
   })
   local iface = { store = function() return false end }
   local ok, err = cache:ensure_item(iface, { name = "minecraft:stone", damage = 0, count = 1 })
-  check("synthetic database.set fallback disabled", not ok and not db_set_called and tostring(err):find("store failed", 1, true) ~= nil)
+  -- db.set fallback is now ENABLED: when iface.store fails (item not in ME network),
+  -- write the descriptor directly via db.set using data from getStackInSlot.
+  check("db.set fallback creates entry when iface.store fails", ok and db_set_called)
 end
 
 io.write(string.rep("-", 60) .. "\n")
