@@ -439,10 +439,9 @@ function ROBDispatcher:_allocate_db_slots(manifest)
         pcall(db.set, slot, desc)
       end
     elseif step.kind == "fluid" then
-      local drop = match_fluid_drop(step)
-      if drop then
-        local filter = { name = drop.name, damage = drop.damage or 0 }
-        if drop.label then filter.label = drop.label end
+      if type(step.fluid_filter) == "table" then
+        -- Chest drop: filter already known, no ME search needed.
+        local filter = step.fluid_filter
         if iface.store then
           local ok_s = pcall(iface.store, filter, db_addr, slot, 1)
           written = ok_s
@@ -451,9 +450,23 @@ function ROBDispatcher:_allocate_db_slots(manifest)
           pcall(db.set, slot, filter)
         end
       else
-        self._log(string.format("[ROBDispatcher] no fluid drop for %s — skipping DB slot %d",
-          tostring(step.fluid_label or "?"), slot))
-        goto continue_slot  -- don't consume a slot for unmatched fluids
+        -- Central tank fluid: must search ME for a discretized drop.
+        local drop = match_fluid_drop(step)
+        if drop then
+          local filter = { name = drop.name, damage = drop.damage or 0 }
+          if drop.label then filter.label = drop.label end
+          if iface.store then
+            local ok_s = pcall(iface.store, filter, db_addr, slot, 1)
+            written = ok_s
+          end
+          if not written then
+            pcall(db.set, slot, filter)
+          end
+        else
+          self._log(string.format("[ROBDispatcher] no fluid drop for %s — skipping DB slot %d",
+            tostring(step.fluid_label or "?"), slot))
+          goto continue_slot  -- don't consume a slot for unmatched fluids
+        end
       end
     end
     step.db_slot = slot
