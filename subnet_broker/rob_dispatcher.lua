@@ -365,8 +365,16 @@ function ROBDispatcher:_admission_ok()
   local max_circ = self:_max_circuits()
   if not max_circ or max_circ < 1 then return true end
   local n = self:_count_circuits()
-  if n > max_circ then
-    self._log(string.format("[ROBDispatcher] buffer has %d circuits (max %d) — suppressing dispatch", n, max_circ))
+  -- Circuits belonging to dispatched jobs are still physically in the
+  -- chest while AE2 pulls them.  Each WORKING lane owns one batch that
+  -- will be pulled shortly; subtract those from the effective count.
+  local inflight = 0
+  for _, lane in pairs(self._lanes) do
+    if lane.state == LANE_WORKING then inflight = inflight + 1 end
+  end
+  local effective = math.max(0, n - inflight)
+  if effective > max_circ then
+    self._log(string.format("[ROBDispatcher] buffer has %d circuits (effective %d, max %d, inflight %d) — suppressing job creation", n, effective, max_circ, inflight))
     return false
   end
   return true
@@ -891,6 +899,19 @@ function ROBDispatcher:_assign_jobs(poll_results)
     end
   end
 
+  -- Diagnostic: log when pending jobs exist but nothing could be dispatched
+  if #assigned == 0 and #self._pending_jobs > 0 and budget > 0 then
+    local idle, working, faulted = 0, 0, 0
+    for _, lane in pairs(self._lanes) do
+      if lane.state == LANE_IDLE then idle = idle + 1
+      elseif lane.state == LANE_WORKING then working = working + 1
+      elseif lane.state == LANE_FAULTED then faulted = faulted + 1
+      end
+    end
+    self._log(string.format("[ROBDispatcher] %d pending job(s), budget=%d, but no dispatch — lanes: idle=%d working=%d faulted=%d",
+      #self._pending_jobs, budget, idle, working, faulted))
+  end
+
   return assigned
 end
 
@@ -1134,6 +1155,7 @@ function ROBDispatcher:any_fast_tick()
   for _, lane in pairs(self._lanes) do
     if lane.state == LANE_WORKING then return true end
   end
+  if #self._pending_jobs > 0 then return true end
   return false
 end
 
