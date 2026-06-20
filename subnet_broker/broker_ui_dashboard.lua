@@ -1,611 +1,182 @@
--- broker_ui_dashboard.lua
--- AutoOS Broker UI: Dashboard page
--- Renders status bar, lane status, pending queue, recent dispatches, active locks
+-- broker_ui_dashboard.lua - Dashboard page for AutoOS Broker UI
+-- Lua 5.2, OpenComputers. Self-sufficient: works with any data, even {}.
 
-local Dashboard = {}
-Dashboard.name = "Dashboard"
-
--- ─── helpers ───────────────────────────────────────────────────────────────
-
-local function truncate(str, max)
-  if not str then
-    return "—"
-  end
-  if #str <= max then
-    return str
-  end
-  return str:sub(1, max - 3) .. "..."
-end
+local Dashboard = { name = "Dashboard" }
 
 local function fmt_time(seconds)
-  if seconds == nil or seconds < 0 then
-    return "—"
-  end
-  if seconds < 60 then
-    return "<1m"
-  end
+  if not seconds or seconds < 0 then return "--" end
+  if seconds < 60 then return "<1m" end
   local d = math.floor(seconds / 86400)
   local h = math.floor((seconds % 86400) / 3600)
   local m = math.floor((seconds % 3600) / 60)
   local s = math.floor(seconds % 60)
-  if d > 0 then
-    return string.format("%dd %dh", d, h)
-  end
-  if h > 0 then
-    return string.format("%dh %dm", h, m)
-  end
-  if s > 0 then
-    return string.format("%dm %ds", m, s)
-  end
+  if d > 0 then return string.format("%dd%dh", d, h) end
+  if h > 0 then return string.format("%dh%dm", h, m) end
+  if s > 0 then return string.format("%dm%ds", m, s) end
   return string.format("%dm", m)
 end
 
-local function fmt_age(now, then_time)
-  if not then_time then
-    return "—"
-  end
-  local diff = now - then_time
-  if diff < 0 then
-    return "—"
-  end
-  if diff < 60 then
-    return math.floor(diff) .. "s ago"
-  end
-  if diff < 3600 then
-    return math.floor(diff / 60) .. "m ago"
-  end
-  return math.floor(diff / 3600) .. "h ago"
+local function fmt_age(now, t)
+  if not now or not t then return "--" end
+  local diff = now - t
+  if diff < 0 then return "--" end
+  if diff < 60 then return math.floor(diff) .. "s"
+  elseif diff < 3600 then return math.floor(diff / 60) .. "m"
+  else return math.floor(diff / 3600) .. "h" end
 end
 
--- ─── local constants ───────────────────────────────────────────────────────
-
--- Box drawing characters
-local H = "─"
-local V = "│"
-local TL = "┌"
-local TR = "┐"
-local BL = "└"
-local BR = "┘"
-local LT = "├"
-local RT = "┤"
-
--- Colors (OpenComputers palette indices)
-local COLOR_GRAY = 0x666666
-local COLOR_WHITE = 0xFFFFFF
-local COLOR_GREEN = 0x00FF00
-local COLOR_YELLOW = 0xFFFF00
-local COLOR_RED = 0xFF0000
-
--- ─── section: status bar ───────────────────────────────────────────────────
-
-local function render_status_bar(gpu, w, h, data, start_row)
-  local row = start_row
-  local subnet_id = data.subnet_id or "unknown"
-  local uptime = data.uptime or 0
-  local port = data.port or 0
-  local lanes = data.lanes or {}
-  local max_lanes = data.max_lanes or 0
-
-  -- Count states
-  local active_count = 0
-  local faulted_count = 0
-  local has_any = false
-  for _, lane in pairs(lanes) do
-    has_any = true
-    if lane.state == "WORKING" then
-      active_count = active_count + 1
-    elseif lane.state == "FAULTED" then
-      faulted_count = faulted_count + 1
-    end
-  end
-
-  local status_str, status_color
-  if not has_any then
-    status_str = "OK"
-    status_color = COLOR_GREEN
-  elseif faulted_count > 0 and active_count == 0 then
-    status_str = "STALLED"
-    status_color = COLOR_RED
-  elseif faulted_count > 0 then
-    status_str = "DEGRADED"
-    status_color = COLOR_YELLOW
-  else
-    status_str = "OK"
-    status_color = COLOR_GREEN
-  end
-
-  local job_str = tostring(active_count) .. "/" .. tostring(max_lanes)
-  local uptime_str = fmt_time(uptime)
-  local port_str = tostring(port)
-
-  -- Row 1: top border with title
-  local top_line = TL .. " AutoOS Broker ── " .. subnet_id
-  local filler = w - #top_line - 1
-  if filler > 0 then
-    top_line = top_line .. string.rep(H, filler)
-  end
-  top_line = top_line .. TR
-
-  gpu.setForeground(COLOR_GRAY)
-  gpu.set(row, 1, top_line:sub(1, w))
-
-  -- Row 2: status line — build as simple formatted string
-  row = row + 1
-  local line = string.format(" STATUS: %-8s    Uptime: %-6s    Port: %-5s    Jobs: %s",
-    status_str, uptime_str, port_str, job_str)
-
-  -- Draw left border + status substring then right border
-  gpu.setForeground(COLOR_GRAY)
-  gpu.set(row, 1, V)                        -- left border
-  gpu.set(row, 2, line:sub(1, w - 2))       -- status text
-  gpu.set(row, w, V)                        -- right border
-
-  -- Color the STATUS value
-  gpu.setForeground(status_color)
-  gpu.set(row, 10, status_str)
-
-  return row
-end
-
--- ─── section: lane status ──────────────────────────────────────────────────
-
-local function render_lane_status(gpu, w, h, data, start_row)
-  local row = start_row
-  local lanes = data.lanes or {}
-  local now = (data.now_fn or os.clock)()
-  local scroll_offset = data.scroll_offset or 0
-
-  gpu.setForeground(COLOR_GRAY)
-
-  -- Blank separator line
-  gpu.set(row, 1, V .. string.rep(" ", w - 2) .. V)
-  row = row + 1
-
-  -- Section header
-  gpu.set(row, 1, LT .. " Lane Status " .. string.rep(H, w - #(" Lane Status ") - 1) .. RT)
-  row = row + 1
-
-  -- Column headers
-  local header_line = V
-    .. string.format(" %-15s", "Machine")
-    .. string.format(" %-10s", "State")
-    .. string.format(" %-20s", "Job ID")
-    .. " Elapsed    "
-  local header_pad = w - #header_line - 1
-  if header_pad > 0 then
-    header_line = header_line .. string.rep(" ", header_pad)
-  end
-  header_line = header_line .. V
-  gpu.set(row, 1, header_line:sub(1, w))
-  row = row + 1
-
-  -- Collect lane keys sorted
-  local lane_keys = {}
-  for k, _ in pairs(lanes) do
-    lane_keys[#lane_keys + 1] = k
-  end
-  table.sort(lane_keys)
-
-  -- How many lane rows we can show (leave room for blank line after)
-  local max_visible = h - row - 2
-  if max_visible < 0 then
-    max_visible = 0
-  end
-  max_visible = math.min(max_visible, #lane_keys)
-
-  local total_lanes = #lane_keys
-  if total_lanes > max_visible then
-    if scroll_offset < 0 then
-      scroll_offset = 0
-    end
-    if scroll_offset > total_lanes - max_visible then
-      scroll_offset = total_lanes - max_visible
-    end
-    data.scroll_offset = scroll_offset
-  else
-    scroll_offset = 0
-    data.scroll_offset = 0
-  end
-
-  -- Show scroll up indicator if needed
-  if scroll_offset > 0 then
-    gpu.setForeground(COLOR_GRAY)
-    gpu.set(row, 1, V .. "  ... more above ..." .. string.rep(" ", w - 20) .. V)
-    row = row + 1
-  end
-
-  for i = scroll_offset + 1, math.min(scroll_offset + max_visible, total_lanes) do
-    local key = lane_keys[i]
-    local lane = lanes[key]
-    local machine_name = truncate(key, 15)
-
-    -- State color
-    local state_color = COLOR_WHITE
-    if lane.state == "WORKING" then
-      state_color = COLOR_YELLOW
-    elseif lane.state == "IDLE" then
-      state_color = COLOR_GREEN
-    elseif lane.state == "FAULTED" then
-      state_color = COLOR_RED
-    end
-
-    -- Job ID column
-    local job_id_col
-    if lane.state == "FAULTED" then
-      job_id_col = truncate(lane.last_error or "unknown", 18)
-    elseif lane.current_job_id then
-      job_id_col = truncate(lane.current_job_id, 20)
-    else
-      job_id_col = "—"
-    end
-
-    -- Elapsed
-    local elapsed
-    if lane.state == "WORKING" and lane.deadline and lane.state_entered_at then
-      -- Use time since state_entered_at if available, otherwise since deadline
-      local since = lane.state_entered_at
-      elapsed = fmt_time(now - since)
-    else
-      elapsed = "—"
-    end
-
-    -- Build the line
-    gpu.setForeground(COLOR_GRAY)
-    gpu.set(row, 1, V)
-    gpu.set(row, 2, " " .. string.format("%-15s", machine_name))
-
-    gpu.setForeground(state_color)
-    gpu.set(row, 19, string.format("%-10s", lane.state or "—"))
-
-    gpu.setForeground(COLOR_WHITE)
-    gpu.set(row, 30, string.format("%-20s", job_id_col))
-
-    gpu.setForeground(COLOR_WHITE)
-    gpu.set(row, 51, string.format("%-10s", elapsed))
-
-    gpu.setForeground(COLOR_GRAY)
-    gpu.set(row, w, V)
-
-    row = row + 1
-  end
-
-  -- Show scroll down indicator if needed
-  if scroll_offset + max_visible < total_lanes then
-    gpu.setForeground(COLOR_GRAY)
-    gpu.set(row, 1, V .. "  ... more below ..." .. string.rep(" ", w - 20) .. V)
-    row = row + 1
-  end
-
-  -- Fill remaining rows with blank lines to section boundary
-  local bottom_marker_row = start_row + (h - start_row)
-  -- We'll let the caller handle remaining blank filler between sections
-
-  return row
-end
-
--- ─── section: pending queue ────────────────────────────────────────────────
-
-local function render_pending_queue(gpu, w, h, data, start_row, max_rows)
-  local row = start_row
-  local pending = data.pending or {}
-  local now = (data.now_fn or os.clock)()
-  local visible = math.min(max_rows or 5, 8)
-
-  gpu.setForeground(COLOR_GRAY)
-
-  -- Section header
-  gpu.set(row, 1, LT .. " Pending Queue " .. string.rep(H, w - #(" Pending Queue ") - 1) .. RT)
-  row = row + 1
-
-  if #pending == 0 then
-    gpu.set(row, 1, V .. " (empty)" .. string.rep(" ", w - #(" (empty)") - 1) .. V)
-    row = row + 1
-  else
-    -- Column headers
-    local header = V .. " #  "
-      .. string.format("%-20s", "Job ID")
-      .. string.format("%-8s", "Age")
-      .. string.format("%-4s", "Att")
-      .. " Items     "
-    local header_pad = w - #header - 1
-    if header_pad > 0 then
-      header = header .. string.rep(" ", header_pad)
-    end
-    header = header .. V
-    gpu.set(row, 1, header:sub(1, w))
-    row = row + 1
-
-    for i = 1, math.min(visible, #pending) do
-      local job = pending[i]
-      local idx_str = string.format("%-3d", i)
-      local job_id = truncate(job.id or "?", 20)
-      local age = fmt_age(now, job.created_at)
-      local attempt = tostring(job.attempt or 1)
-
-      -- Items / fluids counts
-      local items_count = 0
-      local fluids_count = 0
-      if job.manifest then
-        if job.manifest.items then
-          items_count = #job.manifest.items
-        end
-        if job.manifest.fluids then
-          fluids_count = #job.manifest.fluids
-        end
-      end
-      local items_str = tostring(items_count) .. "i/" .. tostring(fluids_count) .. "f"
-
-      -- Build line
-      gpu.setForeground(COLOR_GRAY)
-      gpu.set(row, 1, V)
-
-      gpu.setForeground(COLOR_WHITE)
-      gpu.set(row, 3, idx_str)
-
-      gpu.setForeground(COLOR_WHITE)
-      gpu.set(row, 7, string.format("%-20s", job_id))
-
-      gpu.setForeground(COLOR_WHITE)
-      gpu.set(row, 28, string.format("%-8s", age))
-
-      gpu.setForeground(COLOR_WHITE)
-      gpu.set(row, 37, string.format("%-4s", attempt))
-
-      gpu.setForeground(COLOR_WHITE)
-      gpu.set(row, 42, items_str)
-
-      gpu.setForeground(COLOR_GRAY)
-      gpu.set(row, w, V)
-
-      row = row + 1
-    end
-  end
-
-  return row
-end
-
--- ─── section: recent dispatches ────────────────────────────────────────────
-
-local function render_dispatch_log(gpu, w, h, data, start_row, max_rows)
-  local row = start_row
-  local dispatch_log = data.dispatch_log or {}
-  local now = (data.now_fn or os.clock)()
-  local visible = math.min(max_rows or 5, 8)
-
-  gpu.setForeground(COLOR_GRAY)
-
-  -- Section header
-  gpu.set(row, 1, LT .. " Recent Dispatches " .. string.rep(H, w - #(" Recent Dispatches ") - 1) .. RT)
-  row = row + 1
-
-  if #dispatch_log == 0 then
-    gpu.set(row, 1, V .. " (none)" .. string.rep(" ", w - #(" (none)") - 1) .. V)
-    row = row + 1
-  else
-    -- Newest first: iterate from end
-    local shown = 0
-    for i = #dispatch_log, 1, -1 do
-      if shown >= visible then
-        break
-      end
-      local entry = dispatch_log[i]
-      local job_id = truncate(entry.job_id or "?", 20)
-
-      -- Determine the machine identifier
-      local machine_str = truncate(entry.machine_id or "?", 15)
-
-      -- Age
-      local age_str
-      if entry.time then
-        age_str = fmt_age(now, entry.time)
-      else
-        age_str = "—"
-      end
-
-      -- Status color
-      local status_color = COLOR_WHITE
-      local status_str = entry.status or "unknown"
-      if status_str == "running" then
-        status_color = COLOR_YELLOW
-      elseif status_str == "done" then
-        status_color = COLOR_GREEN
-      elseif status_str == "failed" then
-        status_color = COLOR_RED
-      end
-
-      -- Build line: "job_id → machine  age  status"
-      local line = " "
-      line = line .. string.format("%-20s", job_id)
-      line = line .. " → "
-      line = line .. string.format("%-15s", machine_str)
-      line = line .. string.format("%-8s", age_str)
-
-      gpu.setForeground(COLOR_GRAY)
-      gpu.set(row, 1, V)
-
-      gpu.setForeground(COLOR_WHITE)
-      gpu.set(row, 2, line)
-
-      gpu.setForeground(status_color)
-      gpu.set(row, 2 + #line, status_str)
-
-      gpu.setForeground(COLOR_GRAY)
-      gpu.set(row, w, V)
-
-      row = row + 1
-      shown = shown + 1
-    end
-  end
-
-  return row
-end
-
--- ─── section: active locks ─────────────────────────────────────────────────
-
-local function render_active_locks(gpu, w, h, data, start_row, max_rows)
-  local row = start_row
-  local locks = data.locks or {}
-  local visible = math.min(max_rows or 4, 6)
-
-  gpu.setForeground(COLOR_GRAY)
-
-  -- Section header
-  gpu.set(row, 1, LT .. " Active Locks " .. string.rep(H, w - #(" Active Locks ") - 1) .. RT)
-  row = row + 1
-
-  -- Collect lock keys sorted
-  local lock_keys = {}
-  for k, _ in pairs(locks) do
-    lock_keys[#lock_keys + 1] = k
-  end
-  table.sort(lock_keys)
-
-  if #lock_keys == 0 then
-    gpu.set(row, 1, V .. " (no locks held)" .. string.rep(" ", w - #(" (no locks held)") - 1) .. V)
-    row = row + 1
-  else
-    for i = 1, math.min(visible, #lock_keys) do
-      local resource_key = lock_keys[i]
-      local holder = locks[resource_key] or "?"
-
-      -- Truncate UUID portion: show prefix + first 8 chars of UUID + "..."
-      local display_key = resource_key
-      -- Try to find a UUID pattern and shorten it
-      local uuid_start = resource_key:find(":%x%x%x%x%x%x%x%x%-")
-      if uuid_start then
-        local prefix = resource_key:sub(1, uuid_start)
-        local uuid_prefix = resource_key:sub(uuid_start + 1, uuid_start + 8)
-        display_key = prefix .. uuid_prefix .. "..."
-      elseif #display_key > 30 then
-        display_key = display_key:sub(1, 27) .. "..."
-      end
-
-      local line = " " .. string.format("%-35s", display_key) .. string.format("%-15s", holder)
-
-      gpu.setForeground(COLOR_GRAY)
-      gpu.set(row, 1, V)
-
-      gpu.setForeground(COLOR_WHITE)
-      gpu.set(row, 2, line)
-
-      gpu.setForeground(COLOR_GRAY)
-      gpu.set(row, w, V)
-
-      row = row + 1
-    end
-  end
-
-  return row
-end
-
--- ─── bottom border ─────────────────────────────────────────────────────────
-
-local function render_bottom_border(gpu, w, row)
-  gpu.setForeground(COLOR_GRAY)
-  gpu.set(row, 1, BL .. string.rep(H, w - 2) .. BR)
-  row = row + 1
-  return row
-end
-
--- ─── page render ───────────────────────────────────────────────────────────
+local G, W, Y, R = 0x00FF00, 0xFFFFFF, 0xFFFF00, 0xFF0000
+local GRAY = 0x808080
 
 function Dashboard.render(gpu, w, h, data)
-  if not data then return end
-  local row = 1
+  data = data or {}
 
-  -- Section 1: Status Bar (rows 1-2, plus blank line)
-  row = render_status_bar(gpu, w, h, data, row)
-  row = row + 1  -- blank separator line handled inside status_bar
+  -- ====== ROW 1: Title bar ======
+  gpu.setBackground(0x000000)
+  gpu.fill(1, 1, w, h, " ")
+  gpu.setForeground(GRAY)
+  local title = " AutoOS Broker -- " .. (data.subnet_id or "?")
+  title = title .. string.rep(" ", w - #title)
+  gpu.set(1, 1, title)
 
-  -- Section 2: Lane Status
-  -- Calculate how much space we have and be flexible
+  -- ====== ROW 2: Status bar ======
   local lanes = data.lanes or {}
-  local lane_keys_count = 0
-  for _ in pairs(lanes) do
-    lane_keys_count = lane_keys_count + 1
+  local active, faulted = 0, 0
+  for _, lane in pairs(lanes) do
+    if lane.state == "WORKING" then active = active + 1
+    elseif lane.state == "FAULTED" then faulted = faulted + 1 end
   end
-  -- Lane section needs: header (1) + column headers (1) + lane rows + scroll indicators + blank line
-  local lane_overhead = 4
-  local lane_rows_needed = math.min(lane_keys_count, 8) + lane_overhead
-  local remaining = h - row - lane_rows_needed
+  local has_any = next(lanes) ~= nil
+  local status = "OK"
+  local scol = G
+  if not has_any then status = "IDLE"
+  elseif faulted > 0 and active == 0 then status = "STALLED"; scol = R
+  elseif faulted > 0 then status = "WARN"; scol = Y end
 
-  -- If lots of space, give lanes up to 10 visible rows; reserve space for below sections
-  local lane_max = math.min(lane_keys_count + lane_overhead, math.max(4, h - row - 12))
-  row = render_lane_status(gpu, w, h, data, row)
+  local jobs = tostring(active) .. "/" .. tostring(data.max_lanes or 0)
+  local port = tostring(data.port or "?")
+  local uptime = fmt_time(data.uptime or 0)
+  local status_line = string.format(" STATUS: %-7s  Uptime: %-6s  Port: %-3s  Jobs: %s",
+    status, uptime, port, jobs)
+  if #status_line > w then status_line = status_line:sub(1, w) end
+  gpu.setForeground(GRAY)
+  gpu.set(1, 2, status_line)
+  gpu.setForeground(scol)
+  gpu.set(9, 2, status)  -- color the status word
 
-  -- Ensure row advances properly past lane section
-  if row >= h - 5 then
-    -- Not enough room for remaining sections; just do bottom border
-    row = render_bottom_border(gpu, w, row)
-    return
-  end
+  -- ====== ROW 3: separator ======
+  gpu.setForeground(GRAY)
+  gpu.set(1, 3, string.rep("-", w))
 
-  -- Section 3: Pending Queue (up to 5 visible rows + header)
-  local pq_max = math.min(6, h - row - 8)
-  row = render_pending_queue(gpu, w, h, data, row, pq_max)
+  -- ====== ROWS 4-10: Lane Status ======
+  local row = 4
+  gpu.setForeground(GRAY)
+  gpu.set(1, row, " Lane Status")
+  row = row + 1
+  gpu.setForeground(GRAY)
+  gpu.set(1, row, string.format(" %-14s %-9s %-18s %s", "Machine", "State", "Job", "Elapsed"))
+  row = row + 1
 
-  if row >= h - 3 then
-    row = render_bottom_border(gpu, w, row)
-    return
-  end
+  local lane_keys = {}
+  for k in pairs(lanes) do lane_keys[#lane_keys + 1] = k end
+  table.sort(lane_keys)
 
-  -- Section 4: Recent Dispatches (up to 5 visible rows + header)
-  local dl_max = math.min(6, h - row - 6)
-  row = render_dispatch_log(gpu, w, h, data, row, dl_max)
+  local now = data.now_fn and data.now_fn() or 0
+  local max_lane_rows = math.min(#lane_keys, 6)
+  local off = data.scroll_offset or 0
+  if off < 0 then off = 0 end
+  if off > math.max(0, #lane_keys - max_lane_rows) then off = math.max(0, #lane_keys - max_lane_rows) end
+  data.scroll_offset = off
 
-  if row >= h - 3 then
-    row = render_bottom_border(gpu, w, row)
-    return
-  end
-
-  -- Section 5: Active Locks (up to 4 visible rows + header)
-  local al_max = math.min(5, h - row - 2)
-  row = render_active_locks(gpu, w, h, data, row, al_max)
-
-  -- Fill remaining rows with blank bordered lines
-  gpu.setForeground(COLOR_GRAY)
-  while row < h do
-    gpu.set(row, 1, V .. string.rep(" ", w - 2) .. V)
+  for li = 1 + off, math.min(off + max_lane_rows, #lane_keys) do
+    if row > h - 6 then break end
+    local k = lane_keys[li]
+    local lane = lanes[k] or {}
+    local name = k:len() > 14 and k:sub(1, 13).."." or (k .. string.rep(" ", 14 - k:len()))
+    local state = lane.state or "?"
+    local lc = state == "WORKING" and Y or state == "FAULTED" and R or state == "IDLE" and G or W
+    local st = (state .. string.rep(" ", 9)):sub(1, 9)
+    local job = lane.current_job_id or (state == "FAULTED" and (lane.last_error or "?"):sub(1, 17)) or "--"
+    if job:len() > 17 then job = job:sub(1, 16) .. "." end
+    job = (job .. string.rep(" ", 18)):sub(1, 18)
+    local elapsed = "--"
+    if lane.state == "WORKING" and lane.state_entered_at then
+      elapsed = fmt_time(now - lane.state_entered_at)
+    end
+    local line = string.format(" %-14s ", name)
+    gpu.setForeground(GRAY); gpu.set(1, row, line)
+    gpu.setForeground(lc);    gpu.set(#line + 1, row, st)
+    gpu.setForeground(W);     gpu.set(#line + 11, row, job)
+    gpu.setForeground(GRAY);  gpu.set(#line + 30, row, elapsed)
     row = row + 1
   end
 
-  -- Bottom border
-  render_bottom_border(gpu, w, row)
+  if #lane_keys == 0 then
+    gpu.setForeground(GRAY)
+    gpu.set(1, row, " (no lanes)")
+    row = row + 1
+  end
+
+  -- ====== Pending Queue ======
+  row = row + 1
+  gpu.setForeground(GRAY)
+  gpu.set(1, row, " Pending Queue")
+  row = row + 1
+  local pending = data.pending or {}
+  if #pending == 0 then
+    gpu.set(1, row, " (empty)")
+    row = row + 1
+  else
+    for i = 1, math.min(#pending, 3) do
+      if row > h - 4 then break end
+      local job = pending[i] or {}
+      local items = (job.manifest and job.manifest.items and #job.manifest.items) or 0
+      local fluids = (job.manifest and job.manifest.fluids and #job.manifest.fluids) or 0
+      local line = string.format(" %-20s  age:%-5s  a:%d  %di/%df",
+        (job.id or "?"):sub(1, 20), fmt_age(now, job.created_at),
+        job.attempt or 1, items, fluids)
+      gpu.set(1, row, line:sub(1, w))
+      row = row + 1
+    end
+  end
+
+  -- ====== Active Locks ======
+  row = row + 1
+  gpu.setForeground(GRAY)
+  gpu.set(1, row, " Active Locks")
+  row = row + 1
+  local locks = data.locks or {}
+  local lock_keys = {}
+  for k in pairs(locks) do lock_keys[#lock_keys + 1] = k end
+  if #lock_keys == 0 then
+    gpu.set(1, row, " (none)")
+    row = row + 1
+  else
+    for i = 1, math.min(#lock_keys, 3) do
+      if row > h - 1 then break end
+      local key = lock_keys[i]
+      -- Truncate long UUIDs
+      local display = key:gsub(":(%x%x%x%x%x%x%x%x)%-[%x%-]+", ":%1...")
+      if #display > 45 then display = display:sub(1, 44) .. "." end
+      local line = string.format(" %-47s  %s", display, locks[key] or "?")
+      gpu.set(1, row, line:sub(1, w))
+      row = row + 1
+    end
+  end
+
+  -- ====== Help bar at bottom ======
+  gpu.setForeground(GRAY)
+  gpu.set(1, h, "[1]Dash  [2]Logs  [3]Config  Tab:next  Q:quit  Up/Dn:scroll")
 end
 
--- ─── key handling ──────────────────────────────────────────────────────────
-
--- Key codes:
--- Up(200), Down(208), PageUp(201), PageDown(209)
-
 Dashboard.handle_key = function(code, data)
+  data = data or {}
   local lanes = data.lanes or {}
-  local lane_count = 0
-  for _ in pairs(lanes) do
-    lane_count = lane_count + 1
+  local n_lanes = 0; for _ in pairs(lanes) do n_lanes = n_lanes + 1 end
+  local off = data.scroll_offset or 0
+  if code == 200 then data.scroll_offset = math.max(0, off - 1)  -- Up
+  elseif code == 208 then data.scroll_offset = math.min(math.max(0, n_lanes - 6), off + 1)  -- Down
   end
-
-  if code == 200 then -- Up
-    local offset = data.scroll_offset or 0
-    if offset > 0 then
-      data.scroll_offset = offset - 1
-    end
-  elseif code == 208 then -- Down
-    local offset = data.scroll_offset or 0
-    -- Allow scrolling to show all lanes
-    local max_scroll = math.max(0, lane_count - 8)
-    if offset < max_scroll then
-      data.scroll_offset = offset + 1
-    end
-  elseif code == 201 then -- PageUp
-    local offset = data.scroll_offset or 0
-    data.scroll_offset = math.max(0, offset - 5)
-  elseif code == 209 then -- PageDown
-    local offset = data.scroll_offset or 0
-    local max_scroll = math.max(0, lane_count - 8)
-    data.scroll_offset = math.min(max_scroll, offset + 5)
-  end
-  -- Other keys ignored
 end
 
 return Dashboard

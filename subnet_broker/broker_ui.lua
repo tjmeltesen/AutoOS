@@ -140,8 +140,6 @@ function BrokerUI.new(rob, config, deps)
   self._prev_lane_states = {} -- { [machine_id] = state_string }
   self._running = false
   self._start_time = self._now()  -- for uptime display
-  self._config_path = "subnet_broker/config.lua"
-  self._config_page_mod = nil    -- lazy-loaded config module
 
   self:_load_pages()
 
@@ -264,21 +262,9 @@ function BrokerUI:_build_logs_data()
 end
 
 function BrokerUI:_build_config_data()
-  -- Lazy-load the config page module so we can reuse its build_data()
-  if not self._config_page_mod then
-    local ok, mod = pcall(require, "broker_ui_config")
-    if ok and mod then self._config_page_mod = mod end
-  end
-  -- If we have a live config table loaded, use it for data
-  if self._config and type(self._config) == "table" and next(self._config) then
-    if self._config_page_mod and self._config_page_mod.build_data then
-      return self._config_page_mod.build_data(
-        self._config_path or "subnet_broker/config.lua")
-    end
-  end
-  -- Fallback: empty config state (renders error message via nil guard)
-  return { sections = {}, focus_section = 1, focus_field = 1, editing = false,
-           config_path = self._config_path or "config.lua" }
+  -- Config page is self-sufficient — it calls build_data() internally
+  -- if sections are missing. Just pass it a hint for config path.
+  return { config_path = "subnet_broker/config.lua" }
 end
 
 ---------------------------------------------------------------------------
