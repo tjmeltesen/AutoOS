@@ -384,13 +384,13 @@ function ROBDispatcher:_allocate_db_slots(manifest)
   local iface = self._registry.get_stock_iface()
   local db_addr = self._config.database_address
   if not db or not iface then
-    self._log("[ROBDispatcher] _allocate_db_slots: db or iface missing, skipping")
-    return
+    self._log("[ROBDispatcher] _allocate_db_slots: db or iface unavailable")
+    return false, "db or iface unavailable"
   end
 
   local queue = manifest.queue or {}
   local n = #queue
-  if n == 0 then return end
+  if n == 0 then return true end  -- nothing to allocate, not an error
 
   -- Clear scratchpad range
   for slot = 1, n do pcall(db.clear, slot) end
@@ -463,9 +463,29 @@ function ROBDispatcher:_allocate_db_slots(manifest)
             pcall(db.set, slot, filter)
           end
         else
-          self._log(string.format("[ROBDispatcher] no fluid drop for %s — skipping DB slot %d",
-            tostring(step.fluid_label or "?"), slot))
-          goto continue_slot  -- don't consume a slot for unmatched fluids
+          -- Try registry fallback before giving up.
+          -- If the DB persisted descriptors from a previous session, the
+          -- boot-time scan may have cached them even when the ME network
+          -- search finds nothing.
+          local reg_entry = self._registry.lookup_fluid_db
+            and self._registry.lookup_fluid_db(step.fluid_label, step.fluid_registry)
+          if reg_entry and reg_entry.slot and reg_entry.address then
+            local ok_get, desc = pcall(db.get, reg_entry.slot)
+            if ok_get and type(desc) == "table" and desc.name then
+              if iface.store then
+                local ok_s = pcall(iface.store, desc, db_addr, slot, 1)
+                written = ok_s
+              end
+              if not written then
+                pcall(db.set, slot, desc)
+              end
+            end
+          end
+          if not written then
+            self._log(string.format("[ROBDispatcher] no fluid drop for %s — skipping (unresolved operand)",
+              tostring(step.fluid_label or "?")))
+            goto continue_slot
+          end
         end
       end
     end
@@ -474,6 +494,17 @@ function ROBDispatcher:_allocate_db_slots(manifest)
     slot = slot + 1
     ::continue_slot::
   end
+
+  -- Validate: every queue step must have a stable DB pointer.
+  -- Reject the job if any operand failed to resolve — a partial
+  -- delivery would corrupt the recipe.
+  for _, step in ipairs(queue) do
+    if not step.db_slot or not step.db_address then
+      return false, string.format("unresolved operand: %s",
+        tostring(step.fluid_label or step.name or "?"))
+    end
+  end
+  return true
 end
 
 --- Build a job object from a manifest and enqueue it.
@@ -484,7 +515,12 @@ function ROBDispatcher:_enqueue_job(manifest, source)
     return nil, "empty manifest"
   end
 
-  self:_allocate_db_slots(manifest)  -- JIT scratchpad: clear + write fresh entries
+  local alloc_ok, alloc_err = self:_allocate_db_slots(manifest)
+  if not alloc_ok then
+    self._log(string.format("[ROBDispatcher] JIT allocation failed: %s — job NOT enqueued",
+      tostring(alloc_err)))
+    return nil, alloc_err or "allocation failed"
+  end
 
   self._job_seq = self._job_seq + 1
   local job = {
