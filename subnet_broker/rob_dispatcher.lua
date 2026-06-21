@@ -1,21 +1,7 @@
 --[[
   AutoOS — ROB Dispatcher (Reorder Buffer / Atomic Dispatcher)
   Phase 3: Central buffer monitor + job creation + lane assignment + mutex management.
-
-  Replaces central_dispatch.lua and the dispatch-related parts of array_watch.lua
-  (step_scheduler, step_central, step_watchdog, _harvest_finished_jobs).
-
-  Architecture:
-    - Single tick() entry point called every scheduler cycle — no yields inside.
-    - Registry provides cached hardware proxies (no component.proxy() calls here).
-    - Lane workers write completion results to a shared table polled by tick().
-    - One central batch = one job = one lane. Never split across lanes.
-
-  Internal modules:
-    rob_core/          — constants, job_manifest, job_descriptor, lane_state, lock_manager
-    rob_services/      — buffer_monitor, admission_control, job_factory, machine_selector,
-                         completion_detector, watchdog, job_reaper, job_assigner
-    rob_tick.lua       — tick() phase orchestrator
+  All 5 tick phases inlined — no rob_tick.lua dependency.
 ]]
 
 local FluidTanks = require("fluid_tanks")
@@ -24,7 +10,6 @@ local LockManager = require("rob_core.lock_manager")
 local LaneState = require("rob_core.lane_state")
 local BufferMonitor = require("rob_services.buffer_monitor")
 local MachineSelector = require("rob_services.machine_selector")
--- Tick phase modules (inlined — no rob_tick.lua dependency)
 local CompletionDetector = require("rob_services.completion_detector")
 local JobReaper = require("rob_services.job_reaper")
 local Watchdog = require("rob_services.watchdog")
@@ -51,54 +36,38 @@ function ROBDispatcher.new(registry, config, deps)
   self._circuit_manager = deps.circuit_manager
 
   self._max_parallel_lanes = deps.max_parallel_lanes
-    or (config.scheduler and config.scheduler.max_parallel_lanes)
-    or nil
+    or (config.scheduler and config.scheduler.max_parallel_lanes) or nil
   self._max_job_attempts = deps.max_job_attempts
-    or (config.scheduler and config.scheduler.max_job_attempts)
-    or 2
+    or (config.scheduler and config.scheduler.max_job_attempts) or 2
   self._watchdog_grace_s = deps.watchdog_grace_s
-    or (config.scheduler and config.scheduler.watchdog_grace_s)
-    or 10
+    or (config.scheduler and config.scheduler.watchdog_grace_s) or 10
 
-  -- Sub-module instances
   self._buf_mon = BufferMonitor.new()
   self._lock_mgr = LockManager.new()
   self._machine_sel = MachineSelector.new(self._max_parallel_lanes)
-
-  -- Job queue (owned by facade)
   self._pending_jobs = {}
   self._job_seq = 0
-  self._job_seq_ref = { 0 }  -- mutable ref for job_factory (avoids closure capture)
-
-  -- Lane state
+  self._job_seq_ref = { 0 }
   self._lanes = {}
-
-  -- Completion results table (shared with lane workers)
   self._results = {}
-
-  -- Yield callback for UI mode
   self._yield_fn = nil
 
-  -- Safe yield wrapper (exposed for sub-module callbacks)
   local s = self
   self._safe_yield = function()
     if s._yield_fn then s._yield_fn() end
   end
 
-  -- FluidTanks module reference (for manifest builder callback)
   self._fluid_tanks = FluidTanks
-
   return self
 end
 
 ---------------------------------------------------------------------------
--- Public API — tick
+-- tick()
 ---------------------------------------------------------------------------
 
 function ROBDispatcher:tick(poll_results, yield_fn)
   poll_results = poll_results or {}
   self._tick_n = (self._tick_n or 0) + 1
-
   local prev_yield = self._yield_fn
   self._yield_fn = yield_fn
   local now = self._now()
@@ -133,8 +102,7 @@ function ROBDispatcher:tick(poll_results, yield_fn)
       end,
       check_admission = function()
         return AdmissionControl.is_ok(self._registry, self._config,
-          self._circuit_manager, self._lanes, self._log, self._safe_yield,
-          require("rob_core.constants"))
+          self._circuit_manager, self._lanes, self._log, self._safe_yield, C)
       end,
       log = self._log,
     },
@@ -161,8 +129,9 @@ function ROBDispatcher:tick(poll_results, yield_fn)
   )
   local jobs_assigned = assign_result.events or {}
   if pending_count > 0 and #jobs_assigned == 0 then
-    local locks = 0; for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end
-    self._log(string.format("[ROB] assign: %d pending, 0 assigned — budget=%d rr=%d locks=%d",
+    local locks = 0
+    for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end
+    self._log(string.format("[ROB] assign: %d pending, 0 assigned -- budget=%d rr=%d locks=%d",
       pending_count, self._machine_sel:available_budget(self._lanes),
       self._machine_sel._rr_index, locks))
   end
@@ -183,7 +152,7 @@ function ROBDispatcher:tick(poll_results, yield_fn)
     end
     for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end
     self._log(string.format(
-      "[ROB] tick=%d  buf=%s  pending=%d  working=%d  faulted=%d  locks=%d  batch=%s  seq=%d",
+      "[ROB] tick=%d buf=%s pending=%d working=%d faulted=%d locks=%d batch=%s seq=%d",
       self._tick_n, self._buf_mon._state, #self._pending_jobs, working, faults, locks,
       tostring(self._buf_mon._batch_claimed), self._job_seq_ref[1]))
   end
@@ -192,7 +161,7 @@ function ROBDispatcher:tick(poll_results, yield_fn)
 end
 
 ---------------------------------------------------------------------------
--- Public API — results table
+-- Public API — results
 ---------------------------------------------------------------------------
 
 function ROBDispatcher:get_results_table()
@@ -205,7 +174,7 @@ end
 
 function ROBDispatcher:fault_lane(machine_id, reason)
   local lane = self._lanes[machine_id]
-  if not lane then
+  if lane == nil then
     lane = LaneState.create(machine_id, self._now)
     self._lanes[machine_id] = lane
   end
@@ -216,7 +185,7 @@ end
 
 function ROBDispatcher:recover_lane(machine_id)
   local lane = self._lanes[machine_id]
-  if lane and LaneState.is_faulted(lane) then
+  if lane ~= nil and LaneState.is_faulted(lane) then
     LaneState.recover(lane)
     self._lock_mgr:release(machine_id, lane)
     self._log(string.format("[ROBDispatcher] %s RECOVERED", machine_id))
@@ -224,7 +193,7 @@ function ROBDispatcher:recover_lane(machine_id)
 end
 
 ---------------------------------------------------------------------------
--- Public API — transport lock release (called by LaneWorker via registry bridge)
+-- Public API — transport locks
 ---------------------------------------------------------------------------
 
 function ROBDispatcher:release_transport_locks(machine_id)
@@ -249,7 +218,6 @@ end
 ---------------------------------------------------------------------------
 
 function ROBDispatcher:any_fast_tick()
-  -- Fast tick if buffer is stabilizing, any lane is working, or pending jobs exist
   if self._buf_mon._state ~= C.DIS_IDLE then return true end
   for _, lane in pairs(self._lanes) do
     if LaneState.is_working(lane) then return true end
@@ -270,7 +238,7 @@ end
 
 function ROBDispatcher:get_assigned_job(machine_id)
   local lane = self._lanes[machine_id]
-  if not lane or not LaneState.is_working(lane) then return nil end
+  if lane == nil or not LaneState.is_working(lane) then return nil end
   for _, job in ipairs(self._pending_jobs) do
     if job.id == lane.current_job_id then return job end
   end
@@ -299,6 +267,8 @@ function ROBDispatcher:get_debug()
   if self._buf_mon._state == C.DIS_STABILIZING and self._buf_mon._stable_since > 0 then
     stable_for = self._now() - self._buf_mon._stable_since
   end
+  local locks = 0
+  for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end
   return {
     buffer_state = self._buf_mon._state,
     pending_jobs = #self._pending_jobs,
@@ -306,9 +276,7 @@ function ROBDispatcher:get_debug()
     stable_for = stable_for,
     batch_claimed = self._buf_mon._batch_claimed,
     lanes = lanes,
-    active_locks = (function()
-      local n = 0; for _ in pairs(self._lock_mgr._locks) do n = n + 1 end; return n
-    end)(),
+    active_locks = locks,
   }
 end
 
