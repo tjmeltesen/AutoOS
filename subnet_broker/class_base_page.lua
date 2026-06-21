@@ -14,6 +14,7 @@ function BasePage.new(deps)
   o._h = 25    -- screen height, updated by router before render
   o.data = {}  -- page-local mutable state, populated by set_data()
   o._hitboxes = {}  -- touch hitbox registry, cleared on unmount
+  o._is_dirty = false  -- ponytail: set by backend pump when data changes; cleared by render
   return o
 end
 

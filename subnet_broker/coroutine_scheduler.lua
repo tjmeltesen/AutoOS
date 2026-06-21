@@ -78,6 +78,16 @@ function Scheduler:stop()
   self._running = false
 end
 
+--- Mark all tasks dead and clear the task list. Safe to call from any context.
+--- Used by broker shutdown to release all coroutines before restart.
+function Scheduler:clear()
+  for _, task in ipairs(self.tasks) do
+    task.dead = true
+  end
+  self.tasks = {}
+  self._running = false
+end
+
 local function normalize_wait(spec, now)
   if spec == nil then
     return { type = "ready" }

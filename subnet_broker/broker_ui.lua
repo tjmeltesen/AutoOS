@@ -29,6 +29,12 @@ function BrokerUI.new(rob, config, deps)
   self._poll_mids = nil; self._poll_index = 1
   -- Page instances (registered via add_page)
   self._page_instances = {}
+  -- Cooperative pump coroutine (UI mode — drains scheduler/poll/dispatch)
+  self._pump_co = nil
+  -- OC thread handle (best-effort; falls back to coroutine)
+  self._worker_thread = nil
+  -- Shared broker state table for dirty tracking
+  self._broker_state = {}
   return self
 end
 
@@ -79,61 +85,169 @@ function BrokerUI:_incremental_poll(poll_obj, st, batch_size)
 end
 
 -----------------------------------------------------------------------
+-- Cooperative pump coroutine (replaces monolithic pump_fn)
+-----------------------------------------------------------------------
+
+--- Resume the pump coroutine for one unit of work.
+--- Called from the event loop gate (~4 Hz).  Each call does one phase
+--- of work: drain scheduler coroutines, OR poll machines, OR rob:tick().
+--- Uses xpcall + debug.traceback so crashes are never silently swallowed.
+function BrokerUI:_drain_pump()
+  if not self._pump_co then return end
+  if coroutine.status(self._pump_co) == "dead" then
+    self._pump_co = nil
+    return
+  end
+  local success, err = xpcall(
+    function() coroutine.resume(self._pump_co) end,
+    debug.traceback
+  )
+  if not success then
+    local tb = tostring(err)
+    self._log("[UI] pump coroutine CRASHED:\n" .. tb)
+    self._status = "Pump crashed: " .. tb:match("([^\n]+)")  -- first line in footer
+    self._pump_co = nil
+    self._broker_active = false
+  end
+end
+
+--- Build and return a coroutine that runs the backend pump cooperatively.
+--- 3-phase rotation: scheduler drain → machine poll → rob:tick().
+--- Each phase does a small unit of work then yields back to the event loop.
+--- @param ctx table  broker context (scheduler, poll, rob, state)
+--- @return thread
+function BrokerUI:_build_pump_coroutine(ctx)
+  local sched, poll, rob, st = ctx.scheduler, ctx.poll, ctx.rob, ctx.state
+  return coroutine.create(function()
+    local phase = 1  -- 1=scheduler, 2=poll, 3=dispatch
+    while self._broker_active do
+      if phase == 1 then
+        -- Drain a small batch of scheduler coroutines (3 per phase).
+        -- Each coroutine does one tick of work and yields again.
+        if sched then
+          for _ = 1, 3 do
+            pcall(sched._resume_due, sched)
+          end
+        end
+        phase = 2
+        coroutine.yield()
+      elseif phase == 2 then
+        -- Incremental machine poll (2 machines per phase)
+        self:_incremental_poll(poll, st, 2)
+        phase = 3
+        coroutine.yield()
+      elseif phase == 3 then
+        -- rob:tick() with yielding injected at safe points
+        local yield_fn = function() coroutine.yield() end
+        pcall(rob.tick, rob, st.poll_results, yield_fn)
+        -- Full cycle complete — push data to UI via dirty flags
+        pcall(self._refresh_data, self)
+        self._page_dirty = true
+        for _, page in pairs(self._page_instances) do
+          page._is_dirty = true
+        end
+        phase = 1
+        coroutine.yield()
+      end
+    end
+  end)
+end
+
+--- Attempt to create an OC thread for the pump loop.
+--- OC threads have isolated Lua states WITHOUT component access —
+--- all broker work (polling, ME interface config, transposer ops)
+--- requires component proxies, so the thread model is not viable.
+--- This function exists as a future-proofing stub; it deliberately
+--- returns false to fall through to the coroutine model.
+--- @param ctx table  broker context
+--- @return boolean true if thread was created
+function BrokerUI:_try_thread_pump(ctx)
+  local ok_th, thread_mod = pcall(require, "thread")
+  if not ok_th or not thread_mod or not thread_mod.create then
+    return false
+  end
+  -- ponytail: OC threads cannot access component API.  Coroutine
+  -- model is the correct and standard OC pattern for non-blocking UI.
+  return false
+end
+
+--- Build broker context on demand (called from _start_broker when
+--- the context wasn't passed at construction time).
+function BrokerUI:_build_broker_on_demand()
+  self._status = "Building broker..."
+  local ok, bm = pcall(require, "broker_main")
+  if not ok or not bm then
+    self._status = "broker_main not available"
+    return
+  end
+  local okb, result = pcall(bm.build, self._log)
+  if not okb or not result then
+    local msg = "Build failed: " .. tostring(result or okb)
+    self._status = msg
+    return
+  end
+  self._broker_ctx = result
+  self._broker_bm = bm
+  self._rob = result.rob
+  self._config = result.config
+  self._status = "Broker built -- starting..."
+end
+
+-----------------------------------------------------------------------
 -- Broker start/stop
 -----------------------------------------------------------------------
 function BrokerUI:_start_broker()
   if self._broker_active then self._status = "Broker already running"; return end
   local ctx = self._broker_ctx
   if not ctx then
-    -- Try to build broker context on-demand
-    self._status = "Building broker..."
-    local ok, bm = pcall(require, "broker_main")
-    if ok and bm then
-      local okb, result = pcall(bm.build, bm)
-      if okb and result then
-        ctx = result; self._broker_ctx = ctx; self._broker_bm = bm
-        self._rob = ctx.rob; self._config = ctx.config
-        -- Basic pump with incremental polling
-        local poll, rob, st = ctx.poll, ctx.rob, ctx.state
-        self._pump_fn = function()
-          self:_incremental_poll(poll, st)
-          pcall(rob.tick, rob, st.poll_results)
-        end
-        self._status = "Broker built -- starting..."
-      else
-        local msg = "Build failed: "
-        if type(result) == "string" then msg = msg .. result
-        elseif type(okb) == "string" then msg = msg .. okb
-        else msg = msg .. tostring(result or okb) end
-        self._status = msg; return
-      end
-    else self._status = "broker_main not available"; return end
+    self:_build_broker_on_demand()
+    ctx = self._broker_ctx
+    if not ctx then return end  -- _build_broker_on_demand sets _status on failure
   end
+  -- Attach scheduler tasks (idempotent — attach_tasks checks if already attached)
   local ok, err = pcall(function()
-    if self._broker_bm and self._broker_bm.attach_tasks then self._broker_bm.attach_tasks(ctx) end
-    if ctx.scheduler and ctx.poll and ctx.rob then
-      local sched, poll, rob, st = ctx.scheduler, ctx.poll, ctx.rob, ctx.state
-      self._pump_fn = function()
-        pcall(function()
-          if sched then
-            -- Drain ready coroutines (mimics Scheduler:run inner loop)
-            for _ = 1, 20 do pcall(sched._resume_due, sched) end
-          end
-          self:_incremental_poll(poll, st)
-          pcall(rob.tick, rob, st.poll_results)
-        end)
-      end
+    if self._broker_bm and self._broker_bm.attach_tasks then
+      self._broker_bm.attach_tasks(ctx)
     end
   end)
-  if not ok then self._status = "Start FAILED: "..tostring(err); return end
-  self._broker_active = true; self._status = "Broker RUNNING"
+  if not ok then
+    self._status = "Attach failed: " .. tostring(err)
+    return
+  end
+  -- Build the cooperative pump coroutine (3-phase: scheduler/poll/dispatch)
+  self._pump_co = self:_build_pump_coroutine(ctx)
+  -- Replace pump_fn with coroutine drain
+  self._pump_fn = function()
+    self:_drain_pump()
+  end
+  self._broker_active = true
+  self._status = "Broker RUNNING"
 end
 
 function BrokerUI:_stop_broker()
   if not self._broker_active then return end
   local ctx = self._broker_ctx
-  if ctx and ctx.scheduler then pcall(ctx.scheduler.clear, ctx.scheduler) end
+  -- 1. Kill the pump coroutine
+  self._pump_co = nil
+  -- 2. Kill the worker thread (no-op if thread was never created)
+  if self._worker_thread then
+    pcall(self._worker_thread.kill, self._worker_thread)
+    self._worker_thread = nil
+  end
+  -- 3. Clear scheduler tasks (method now exists on coroutine_scheduler)
+  if ctx and ctx.scheduler then
+    pcall(ctx.scheduler.clear, ctx.scheduler)
+  end
+  -- 4. Invalidate cached component proxies — ensures next _start_broker()
+  --    calls refresh_proxies() and gets fresh ME interface / GT machine
+  --    connections instead of stale nil proxies from a mid-transaction crash.
+  if ctx and ctx.poll then
+    ctx.poll.proxies = {}
+    ctx.poll.proxy_errors = {}
+    ctx.poll.proxy_cache_stale = true
+  end
   self._broker_active = false
+  -- 5. Revert pump_fn to simple polling (no scheduler, sync OK, fresh proxies)
   if ctx then
     local poll, rob, st = ctx.poll, ctx.rob, ctx.state
     self._pump_fn = function()
@@ -207,6 +321,8 @@ function BrokerUI:_refresh_data()
   elseif self._current_page == "config" then
     page:set_data({ _locked = self._broker_active })
   end
+  -- ponytail: signal render loop that data changed
+  page._is_dirty = true
 end
 
 -----------------------------------------------------------------------
@@ -380,7 +496,7 @@ function BrokerUI:headless_line()
 end
 
 -----------------------------------------------------------------------
--- Main loop (event-first, backend pump gated to 1 Hz)
+-- Main loop (event-first, backend pump cooperative)
 -----------------------------------------------------------------------
 function BrokerUI:run()
   if not self._gpu then
@@ -420,15 +536,27 @@ function BrokerUI:run()
       end
     end
     local now = self._now()
-    -- Gate backend pump to ~1 Hz — don't block input with dispatch work
-    if now - last_pump > 1.0 then
-      if self._pump_fn then pcall(self._pump_fn) end
-      pcall(self._refresh_data, self)
+    -- Gate backend pump to ~4 Hz (250ms).  Each pump call does one
+    -- lightweight unit of work: drain 3 scheduler coroutines, OR poll
+    -- 2 machines, OR rob:tick() with internal yielding.
+    if now - last_pump > 0.25 then
+      if self._pump_fn then
+        pcall(self._pump_fn)
+        -- Yield to OS to ensure event processing isn't starved
+        pcall(os.sleep, 0)
+      end
       last_pump = now
     end
-    -- Full render throttled to ~2 fps (0.5s) — GPU is the bottleneck
-    if now - (self._last_render or 0) >= 0.5 then
+    -- Render throttled to ~2 fps (0.5s) — GPU is the bottleneck.
+    -- Also render immediately if a page is marked dirty by the pump.
+    local active_page = self._page_instances[self._current_page]
+    local page_dirty = active_page and active_page._is_dirty
+    if page_dirty or self._page_dirty
+       or (now - (self._last_render or 0) >= 0.5) then
       pcall(self._render, self)
+      -- Clear dirty flags after successful render
+      if active_page then active_page._is_dirty = false end
+      self._page_dirty = false
       self._last_render = now
     end
   end

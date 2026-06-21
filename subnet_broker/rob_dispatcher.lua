@@ -119,7 +119,24 @@ function ROBDispatcher.new(registry, config, deps)
   -- Round-robin
   self._rr_index = 1
 
+  -- Optional yield callback injected by UI mode pump coroutine.
+  -- When set, _maybe_yield() calls it at safe points inside heavy loops.
+  -- Nil in headless mode (no-op).
+  self._yield_fn = nil
+
   return self
+end
+
+---------------------------------------------------------------------------
+-- Yield helper
+---------------------------------------------------------------------------
+
+--- Call the injected yield function if one is set (UI mode).
+--- No-op in headless mode where yield_fn is nil.
+function ROBDispatcher:_maybe_yield()
+  if self._yield_fn then
+    self._yield_fn()
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -195,6 +212,7 @@ function ROBDispatcher:_item_fingerprint()
   if not ok or type(size) ~= "number" or size <= 0 then return {} end
 
   for slot = start, size do
+    if slot % 10 == 0 then self:_maybe_yield() end  -- ponytail: yield per 10 slots
     local ok_st, st = pcall(adapter.getStackInSlot, side, slot)
     if ok_st and type(st) == "table" then
       local count = st.size or 0
@@ -267,6 +285,7 @@ function ROBDispatcher:_build_manifest()
   end
 
   for slot = start, size do
+    if slot % 10 == 0 then self:_maybe_yield() end  -- ponytail: yield per 10 slots
     local st = _stack_on_adapter(adapter, side, slot)
     if st then
       if st.name == FLUID_DROP_ITEM then
@@ -352,6 +371,7 @@ function ROBDispatcher:_count_circuits()
   if not ok_size or type(size) ~= "number" then return 0 end
 
   for slot = start, size do
+    if slot % 10 == 0 then self:_maybe_yield() end  -- ponytail: yield per 10 slots
     local ok_st, st = pcall(adapter.getStackInSlot, side, slot)
     if ok_st and self._circuit_manager.stack_is_circuit
       and self._circuit_manager:stack_is_circuit(st) then
@@ -485,6 +505,7 @@ function ROBDispatcher:_allocate_db_slots(manifest)
 
   local slot = 1
   for _, step in ipairs(queue) do
+    self:_maybe_yield()  -- ponytail: yield between DB allocation steps
     local written = false
     if step.kind == "item" then
       local filter = { name = step.name, damage = step.damage or 0 }
@@ -931,6 +952,7 @@ function ROBDispatcher:_assign_jobs(poll_results)
 
   -- Scan each pending job, try to match with an available machine
   for _, job in ipairs(self._pending_jobs) do
+    self:_maybe_yield()  -- ponytail: yield between job assignments
     if budget <= 0 then break end
     if job.status == "pending" then
       local machine, idx = self:_find_available_machine_rr(poll_results)
@@ -1138,8 +1160,12 @@ end
 ---
 --- @param poll_results table  machine_id -> { available, healthy, active, has_work, ... }
 --- @return table { events = {...}, jobs_assigned = {...} }
-function ROBDispatcher:tick(poll_results)
+function ROBDispatcher:tick(poll_results, yield_fn)
   poll_results = poll_results or {}
+  -- ponytail: store/restore yield_fn — lets internal methods call _maybe_yield()
+  -- without threading the parameter through every call chain
+  local prev_yield = self._yield_fn
+  self._yield_fn = yield_fn
   local now = self._now()
 
   -- Phase 1: Completion detection
@@ -1166,6 +1192,8 @@ function ROBDispatcher:tick(poll_results)
     }
   end
 
+  -- Restore previous yield_fn before returning
+  self._yield_fn = prev_yield
   return { events = events, jobs_assigned = jobs_assigned }
 end
 

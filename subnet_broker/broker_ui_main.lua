@@ -119,7 +119,7 @@ function BrokerUIMain.start()
           poll_idx = poll_idx + 1
           if poll_idx > #poll_mids then poll_idx = 1 end
         end
-        pcall(ctx.rob.tick, ctx.rob, ctx.state.poll_results)
+        pcall(ctx.rob.tick, ctx.rob, ctx.state.poll_results, function() end)
       end
 
       print(string.format("[Broker] broker ready — %s (press S to start)", tostring(config.subnet_id)))
