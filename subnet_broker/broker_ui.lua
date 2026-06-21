@@ -44,16 +44,14 @@ local function render_dashboard(gpu, w, h, data)
   gpu.setForeground(GRAY)
   gpu.set(1, 1, (" AutoOS Broker -- %s"):format(data.subnet_id or "?"):sub(1, w))
 
-  -- Row 2: status
+  -- Row 2: status (broker state + uptime + port + jobs)
   local active, faulted = 0, 0
   for _, l in pairs(lanes) do
     if l.state == "WORKING" then active = active + 1 elseif l.state == "FAULTED" then faulted = faulted + 1 end
   end
-  local st, sc = "OK", G
-  if next(lanes) == nil then st = "IDLE"
-  elseif faulted > 0 and active == 0 then st = "STALLED"; sc = R
-  elseif faulted > 0 then st = "WARN"; sc = Y end
-  local sline = (" STATUS: %-7s  Uptime: %-6s  Port: %-3s  Jobs: %s"):format(st, fmtt(data.uptime or 0), tostring(data.port or "?"), tostring(active).."/"..tostring(data.max_lanes or 0))
+  local bstate = data.broker_active and "RUNNING" or "STOPPED"
+  local bsc = data.broker_active and G or R
+  local sline = (" BROKER: %-8s  Uptime: %-6s  Port: %-3s  Jobs: %s"):format(bstate, fmtt(data.uptime or 0), tostring(data.port or "?"), tostring(active).."/"..tostring(data.max_lanes or 0))
   gpu.setForeground(GRAY); gpu.set(1, 2, sline:sub(1, w))
   gpu.setForeground(sc); gpu.set(9, 2, st)
 
@@ -352,16 +350,15 @@ local function handle_logs_key(code, data)
   if data.offset < 0 then data.offset = 0 elseif data.offset > mx then data.offset = mx end
 end
 
-local function handle_config_key(code, data)
+local function handle_config_key(code, char, data)
   data = data or {}; data._sections = data._sections or {}; data._machines = data._machines or {}
   local secs = data._sections; local fs = data._fs or 1
   local sec = secs[fs] or {}; local fields = sec.f or {}; local ff = data._ff or 1
 
-  -- Ctrl+S: serialize and write config back to disk
-  if code == 31 then
+  -- Ctrl+S (char=19 = ASCII DC3)
+  if char == 19 then
     if data._editing then data._editing = false; data._eb = "" end
     local out = data._cfg or {}
-    -- Apply edited section values back
     for _,s in ipairs(data._sections or {}) do
       for _,f in ipairs(s.f or {}) do out[f.k or ""] = f.v end
     end
@@ -372,8 +369,8 @@ local function handle_config_key(code, data)
     else data._status = "Error: "..tostring(err) end
     return
   end
-  -- Esc
-  if code == 1 then data._editing = false; data._eb = ""; return end
+  -- Backspace cancels edit (ESC is system-level keyboard release in OC)
+  if code == 14 then data._editing = false; data._eb = ""; data._status = "cancelled"; return end
 
   if not data._editing then
     if code == 200 then data._ff = math.max(1, ff - 1)                         -- Up
@@ -389,7 +386,7 @@ local function handle_config_key(code, data)
         local cur = tostring(f.v or f.c[1])
         for ci, cv in ipairs(f.c) do if cv == cur then f.v = f.c[(ci % #f.c) + 1]; break end end
       else data._eb = tostring(f.v or ""); data._editing = true; data._status = nil end
-    elseif code >= 50 and code <= 56 then data._fs = code - 49; data._ff = 1 end -- keys 2-8 = sections 1-7
+    elseif char and char >= 50 and char <= 56 then data._fs = char - 49; data._ff = 1 end -- keys 2-8 = sections 1-7
   else
     local f = fields[ff]
     if code == 28 then                                                            -- Enter commit
@@ -398,10 +395,12 @@ local function handle_config_key(code, data)
         else f.v = data._eb; data._status = f.l.." updated" end
       end; data._editing = false; data._eb = ""
     elseif code == 14 then data._eb = data._eb:sub(1, -2)                        -- Bksp
-    elseif code >= 32 and code <= 126 then                                       -- Printable
-      local ch = string.char(code)
-      if f and f.t == "n" then if (ch>="0" and ch<="9") or ch=="." or (ch=="-" and #data._eb==0) then data._eb = data._eb..ch end
-      else data._eb = data._eb..ch end
+    else
+      if char and char >= 32 and char <= 126 then                                -- Printable (layout-independent)
+        local ch = string.char(char)
+        if f and f.t == "n" then if (ch>="0" and ch<="9") or ch=="." or (ch=="-" and #data._eb==0) then data._eb = data._eb..ch end
+        else data._eb = data._eb..ch end
+      end
     end
   end
 end
@@ -420,6 +419,11 @@ function BrokerUI.new(rob, config, deps)
   self._dispatch_log = {}; self._prev_lane_states = {}
   self._running = false; self._start_time = self._now()
 
+  -- Broker lifecycle
+  self._broker_ctx = deps.broker_ctx      -- context from BrokerMain.build()
+  self._broker_bm  = deps.broker_bm       -- BrokerMain module (for attach_tasks)
+  self._broker_active = false
+
   -- Embedded page registry (no external files)
   self._pages = {
     dashboard = { render = render_dashboard, handle_key = handle_dashboard_key },
@@ -428,6 +432,52 @@ function BrokerUI.new(rob, config, deps)
   }
 
   return self
+end
+
+-----------------------------------------------------------------------
+-- Broker start / stop
+-----------------------------------------------------------------------
+function BrokerUI:_start_broker()
+  if self._broker_active then return end
+  local ctx = self._broker_ctx
+  if not ctx then self._log("[Broker] no broker context — cannot start"); return end
+  self._log("[Broker] starting lane workers...")
+  if self._broker_bm and self._broker_bm.attach_tasks then
+    self._broker_bm.attach_tasks(ctx)
+  end
+  -- Refresh pump function to include scheduler steps
+  if ctx.scheduler and ctx.poll and ctx.rob then
+    local sched, poll, rob, st = ctx.scheduler, ctx.poll, ctx.rob, ctx.state
+    self._pump_fn = function()
+      if sched then for _ = 1, 5 do pcall(sched.step, sched) end end
+      local ok, results = pcall(poll.poll_all, poll)
+      if ok and results then for mid, r in pairs(results) do st.poll_results[mid] = r end end
+      pcall(rob.tick, rob, st.poll_results)
+    end
+  end
+  self._broker_active = true
+  self._log("[Broker] RUNNING — press Q to stop")
+end
+
+function BrokerUI:_stop_broker()
+  if not self._broker_active then return end
+  self._log("[Broker] stopping lane workers...")
+  local ctx = self._broker_ctx
+  if ctx and ctx.scheduler then
+    -- Signal all coroutines to stop (they check _broker_active)
+    ctx.scheduler:clear()
+  end
+  self._broker_active = false
+  -- Restore basic pump (poll only, no scheduler steps)
+  if ctx then
+    local poll, rob, st = ctx.poll, ctx.rob, ctx.state
+    self._pump_fn = function()
+      local ok, results = pcall(poll.poll_all, poll)
+      if ok and results then for mid, r in pairs(results) do st.poll_results[mid] = r end end
+      pcall(rob.tick, rob, st.poll_results)
+    end
+  end
+  self._log("[Broker] STOPPED")
 end
 
 -----------------------------------------------------------------------
@@ -458,14 +508,16 @@ function BrokerUI:_build_dashboard_data()
     return { lanes={}, pending={}, locks={}, dispatch_log={}, debug={},
       subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
       port=self._config.broker_modem_port or self._config.main_net_channel or 0,
-      max_lanes=#(self._config.machines or {}), now_fn=self._now }
+      max_lanes=#(self._config.machines or {}), now_fn=self._now,
+      broker_active=self._broker_active }
   end
   local dbg = self._rob:get_debug()
   return { lanes=dbg.lanes, pending=self._rob:pending_queue(),
     locks=self._rob:get_locks(), dispatch_log=self._dispatch_log, debug=dbg,
     subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
     port=self._config.broker_modem_port or self._config.main_net_channel or 0,
-    max_lanes=#(self._config.machines or {}), now_fn=self._now }
+    max_lanes=#(self._config.machines or {}), now_fn=self._now,
+    broker_active=self._broker_active }
 end
 
 -----------------------------------------------------------------------
@@ -497,15 +549,28 @@ function BrokerUI:_nav_next()
 end
 
 -----------------------------------------------------------------------
--- Key handling
+-- Key handling (char = ASCII from event, code = scancode)
 -----------------------------------------------------------------------
-function BrokerUI:_handle_key(code)
-  if code == 2 then self:_nav_to("dashboard")
-  elseif code == 3 then self:_nav_to("logs")
-  elseif code == 4 then self:_nav_to("config")
-  elseif code == 15 then self:_nav_next()
-  elseif code == 16 or code == 1 then self._running = false
-  else local page = self._pages[self._current_page]; if page and page.handle_key then page.handle_key(code, page.data) end end
+function BrokerUI:_handle_key(code, char)
+  -- Use 'char' for printable keys (layout-independent)
+  if char then
+    if char == 49 then self:_nav_to("dashboard")                             -- '1'
+    elseif char == 50 then self:_nav_to("logs")                              -- '2'
+    elseif char == 51 then self:_nav_to("config")                            -- '3'
+    elseif char == 81 or char == 113 then self:_stop_broker(); self._running = false; return -- 'Q'
+    elseif char == 83 or char == 115 then                                    -- 'S'
+      if self._broker_active then self:_stop_broker() else self:_start_broker() end
+      return
+    end
+  end
+  -- Non-printable: use 'code' (scancode) for arrows, tab, enter
+  if code == 15 then self:_nav_next()                                         -- Tab
+  elseif code == 14 and self._current_page == "config" then                  -- Bksp in config = go back to dashboard
+    self:_nav_to("dashboard"); return
+  else
+    local page = self._pages[self._current_page]
+    if page and page.handle_key then page.handle_key(code, char, page.data) end
+  end
 end
 
 -----------------------------------------------------------------------
@@ -547,7 +612,7 @@ function BrokerUI:run()
   while self._running do
     if self._pump_fn then self._pump_fn() end; self:_refresh_data(); self:_render()
     local ev = { event.pull(1.0, "key_down") }
-    if ev[1] == "key_down" then self:_handle_key(ev[4]) end
+    if ev[1] == "key_down" then self:_handle_key(ev[4], ev[3]) end
   end
   self._gpu.fill(1, 1, mw, mh, " "); self._gpu.setForeground(W); self._gpu.set(1, 1, "AutoOS Broker stopped.")
 end

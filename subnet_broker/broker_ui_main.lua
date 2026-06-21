@@ -61,40 +61,6 @@ end
 -- Broker pump function builder
 ---------------------------------------------------------------------------
 
---- Build a pump function that polls machines and ticks the dispatcher.
---- This runs before each overseer render cycle so the displayed data
---- is always fresh.
---- @param ctx table  Broker context from BrokerMain.build()
---- @return function
-local function build_pump_fn(ctx)
-  local poll = ctx.poll
-  local rob = ctx.rob
-  local registry = ctx.registry
-  local state = ctx.state
-  local sched = ctx.scheduler
-
-  return function()
-    -- Step scheduler to advance lane workers / machine_poll / dispatch
-    if sched then
-      for _ = 1, 5 do pcall(sched.step, sched) end
-    end
-    -- Poll all machines
-    local ok_poll, results = pcall(poll.poll_all, poll)
-    if ok_poll and results then
-      for mid, r in pairs(results) do
-        state.poll_results[mid] = r
-        if registry._poll_results then
-          registry._poll_results[mid] = r
-        end
-      end
-    end
-
-    -- Run one dispatcher tick
-    local ok_tick, _ = pcall(rob.tick, rob, state.poll_results)
-    if not ok_tick then end
-  end
-end
-
 ---------------------------------------------------------------------------
 -- Start
 ---------------------------------------------------------------------------
@@ -117,7 +83,7 @@ function BrokerUIMain.start()
     print("[Broker] running in display-only mode (no live broker data)")
   end
 
-  local rob, config
+  local rob, config, broker_ctx, broker_bm
   local pump_fn = nil
 
   if BrokerMain then
@@ -126,15 +92,17 @@ function BrokerUIMain.start()
       local ctx = ctx_or_err
       rob = ctx.rob
       config = ctx.config
+      broker_ctx = ctx
+      broker_bm = BrokerMain
 
-      -- Build broker pump function for live data updates
-      pump_fn = build_pump_fn(ctx)
+      -- Basic pump (poll only, no scheduler steps until 'S' pressed)
+      pump_fn = function()
+        local ok, results = pcall(ctx.poll.poll_all, ctx.poll)
+        if ok and results then for mid, r in pairs(results) do ctx.state.poll_results[mid] = r end end
+        pcall(ctx.rob.tick, ctx.rob, ctx.state.poll_results)
+      end
 
-      -- Spawn lane workers, machine_poll, central_dispatch coroutines
-      BrokerMain.attach_tasks(ctx)
-
-      print(string.format("[Broker] broker online — %s",
-        tostring(config.subnet_id)))
+      print(string.format("[Broker] broker ready — %s (press S to start)", tostring(config.subnet_id)))
     else
       print("[Broker] broker build failed: " .. tostring(ctx_or_err))
       print("[Broker] running in display-only mode")
@@ -161,6 +129,8 @@ function BrokerUIMain.start()
     now_fn = now_fn,
     log = print,
     pump_fn = pump_fn,
+    broker_ctx = broker_ctx,
+    broker_bm = broker_bm,
   }
 
   local ui = BrokerUI.new(rob, config, deps)
