@@ -88,26 +88,36 @@ end
 -- Cooperative pump coroutine (replaces monolithic pump_fn)
 -----------------------------------------------------------------------
 
---- Resume the pump coroutine for one unit of work.
---- Called from the event loop gate (~4 Hz).  Each call does one phase
---- of work: drain scheduler coroutines, OR poll machines, OR rob:tick().
+--- Resume the pump coroutine multiple times per cycle.
+--- Each call does up to 12 resumes — enough to complete a full 3-phase
+--- pump cycle even with internal rob_dispatcher yields.  Internal yields
+--- use os.sleep(0) (quick OS breath, resume immediately); phase boundaries
+--- use coroutine.yield().  Keystrokes land between _drain_pump() calls
+--- via the event loop's 80ms pump gate.
 --- Uses xpcall + debug.traceback so crashes are never silently swallowed.
 function BrokerUI:_drain_pump()
   if not self._pump_co then return end
-  if coroutine.status(self._pump_co) == "dead" then
+  if coroutine.status(self._pump_co) ~= "suspended" then
     self._pump_co = nil
     return
   end
-  local success, err = xpcall(
-    function() coroutine.resume(self._pump_co) end,
-    debug.traceback
-  )
-  if not success then
-    local tb = tostring(err)
-    self._log("[UI] pump coroutine CRASHED:\n" .. tb)
-    self._status = "Pump crashed: " .. tb:match("([^\n]+)")  -- first line in footer
-    self._pump_co = nil
-    self._broker_active = false
+  -- Run up to 12 consecutive resumes.  Internal rob yields (os.sleep(0))
+  -- return instantly; phase boundaries (coroutine.yield) also yield but
+  -- we keep going.  Cap prevents starvation if something goes wrong.
+  for _ = 1, 12 do
+    if coroutine.status(self._pump_co) ~= "suspended" then break end
+    local success, err = xpcall(
+      function() coroutine.resume(self._pump_co) end,
+      debug.traceback
+    )
+    if not success then
+      local tb = tostring(err)
+      self._log("[UI] pump coroutine CRASHED:\n" .. tb)
+      self._status = "Pump crashed: " .. tb:match("([^\n]+)")  -- first line in footer
+      self._pump_co = nil
+      self._broker_active = false
+      return
+    end
   end
 end
 
@@ -137,8 +147,11 @@ function BrokerUI:_build_pump_coroutine(ctx)
         phase = 3
         coroutine.yield()
       elseif phase == 3 then
-        -- rob:tick() with yielding injected at safe points
-        local yield_fn = function() coroutine.yield() end
+        -- rob:tick() with yielding injected at safe points.
+        -- os.sleep(0) gives the OC kernel a micro-yield so keystrokes
+        -- aren't starved, but the pump coroutine resumes within the
+        -- same _drain_pump() call (no 250ms stall per yield).
+        local yield_fn = function() os.sleep(0) end
         pcall(rob.tick, rob, st.poll_results, yield_fn)
         -- Full cycle complete — push data to UI via dirty flags
         pcall(self._refresh_data, self)
@@ -536,10 +549,11 @@ function BrokerUI:run()
       end
     end
     local now = self._now()
-    -- Gate backend pump to ~4 Hz (250ms).  Each pump call does one
-    -- lightweight unit of work: drain 3 scheduler coroutines, OR poll
-    -- 2 machines, OR rob:tick() with internal yielding.
-    if now - last_pump > 0.25 then
+    -- Gate backend pump to ~12 Hz (80ms).  Each pump call does up to 12
+    -- lightweight coroutine resumes — enough for a full pump cycle even
+    -- with internal yields, but short enough that keystrokes land within
+    -- one frame.
+    if now - last_pump > 0.08 then
       if self._pump_fn then
         pcall(self._pump_fn)
         -- Yield to OS to ensure event processing isn't starved
