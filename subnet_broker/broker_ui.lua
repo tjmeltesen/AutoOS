@@ -336,8 +336,8 @@ local function handle_config_key(code, char, data)
   if ff < 1 then ff = 1 elseif ff > #fields then ff = #fields end
   data._ff = ff
 
-  -- Ctrl+S (char == 19 = ASCII DC3)
-  if char == 19 then
+  -- Ctrl+S: _handle_key pre-checks Ctrl before routing here
+  if code == 31 then
     if data._editing then data._editing = false; data._eb = "" end
     local out = data._cfg or {}
     for _, s in ipairs(data._sections or {}) do
@@ -369,7 +369,7 @@ local function handle_config_key(code, char, data)
         local cur = tostring(f.v or f.c[1])
         for ci, cv in ipairs(f.c) do if cv == cur then f.v = f.c[(ci % #f.c) + 1]; break end end
       else data._eb = tostring(f.v or ""); data._editing = true; data._status = nil end
-    elseif char and char >= 50 and char <= 56 then data._fs = char - 49; data._ff = 1 end
+    elseif code >= 3 and code <= 9 then data._fs = code - 1; data._ff = 1 end  -- keys 2-8 = sections 1-7
   else
     local f = fields[ff]
     if code == 28 then
@@ -521,19 +521,18 @@ end
 -- Key handling (char=ASCII, code=scancode)
 -----------------------------------------------------------------------
 function BrokerUI:_handle_key(code, char)
-  -- Debug: log every key to terminal
-  if char then self._log(("[BrokerUI] key char=%d code=%d"):format(char, code))
-  else self._log(("[BrokerUI] key char=nil code=%d"):format(code)) end
-  if char then
-    if char == 49 then self:_nav_to("dashboard")
-    elseif char == 50 then self:_nav_to("logs")
-    elseif char == 51 then self:_nav_to("config")
-    elseif char == 81 or char == 113 then self:_stop_broker(); self._running = false; return
-    elseif char == 83 or char == 115 then
-      if self._broker_active then self:_stop_broker() else self:_start_broker() end; return
+  -- Use OC keyboard scancodes (USB HID + OC extensions from keyboard.lua)
+  if code == 2 then self:_nav_to("dashboard")                               -- 1 key
+  elseif code == 3 then self:_nav_to("logs")                                -- 2 key
+  elseif code == 4 then self:_nav_to("config")                              -- 3 key
+  elseif code == 31 then                                                     -- S key (0x1F)
+    if self._current_page == "config" and self._kb and self._kb.isControlDown() then
+      local page = self._pages.config
+      if page and page.handle_key then page.handle_key(code, char, page.data) end; return
     end
-  end
-  if code == 15 then self:_nav_next()
+    if self._broker_active then self:_stop_broker() else self:_start_broker() end; return
+  elseif code == 16 then self:_stop_broker(); self._running = false; return -- Q key (0x10)
+  elseif code == 15 then self:_nav_next()                                   -- Tab
   elseif code == 14 and self._current_page == "config" then self:_nav_to("dashboard"); return
   else
     local page = self._pages[self._current_page]
@@ -579,6 +578,7 @@ function BrokerUI:run()
     while true do if self._pump_fn then pcall(self._pump_fn) end; print(self:headless_line()); os.execute("sleep 1") end
   end
   local event = require("event")
+  local ok_kb, kb = pcall(require, "keyboard"); self._kb = ok_kb and kb or nil
   if self._screen_addr then pcall(self._gpu.bind, self._screen_addr) end
   local mw, mh = 80, 25
   pcall(function()
@@ -591,7 +591,7 @@ function BrokerUI:run()
     if self._pump_fn then pcall(self._pump_fn) end
     pcall(self._refresh_data, self); pcall(self._render, self)
     local ev = { event.pull(1.0, "key_down") }
-    if ev[1] == "key_down" then self:_handle_key(ev[4], ev[3]) end
+    if ev[1] == "key_down" then self._ctrl = self._kb and self._kb.isControlDown(); self:_handle_key(ev[4], ev[3]) end
   end
   FL(self._gpu, 1, 1, mw, mh, " "); FG(self._gpu, W); GS(self._gpu, 1, 1, "AutoOS Broker stopped.")
 end
