@@ -240,36 +240,33 @@ function BrokerUI:_start_broker()
 end
 
 function BrokerUI:_stop_broker()
-  if not self._broker_active then return end
+  self._broker_active = false  -- signal all coroutines/threads to stop FIRST
   local ctx = self._broker_ctx
-  -- 1. Kill the pump coroutine
-  self._pump_co = nil
-  -- 2. Kill the worker thread (no-op if thread was never created)
+  -- 1. Kill the worker thread (before coroutine, thread may hold component locks)
   if self._worker_thread then
     pcall(self._worker_thread.kill, self._worker_thread)
     self._worker_thread = nil
   end
-  -- 3. Clear scheduler tasks (method now exists on coroutine_scheduler)
+  -- 2. Kill the pump coroutine
+  self._pump_co = nil
+  -- 3. Clear scheduler tasks
   if ctx and ctx.scheduler then
     pcall(ctx.scheduler.clear, ctx.scheduler)
   end
-  -- 4. Invalidate cached component proxies — ensures next _start_broker()
-  --    calls refresh_proxies() and gets fresh ME interface / GT machine
-  --    connections instead of stale nil proxies from a mid-transaction crash.
+  -- 4. Invalidate cached component proxies
   if ctx and ctx.poll then
     ctx.poll.proxies = {}
     ctx.poll.proxy_errors = {}
     ctx.poll.proxy_cache_stale = true
   end
-  self._broker_active = false
-  -- 5. Revert pump_fn to simple polling (no scheduler, sync OK, fresh proxies)
-  if ctx then
-    local poll, rob, st = ctx.poll, ctx.rob, ctx.state
-    self._pump_fn = function()
-      self:_incremental_poll(poll, st)
-      pcall(rob.tick, rob, st.poll_results)
-    end
+  -- 5. Clear poll results so stale data doesn't survive a restart
+  if ctx and ctx.state then
+    ctx.state.poll_results = {}
   end
+  -- 6. Yield to let in-flight component calls drain
+  pcall(os.sleep, 0)
+  -- 7. Clear pump_fn so the main loop doesn't keep ticking the broker
+  self._pump_fn = nil
   self._status = "Broker STOPPED"
 end
 
@@ -395,9 +392,12 @@ function BrokerUI:_handle_key(code, char)
     page._locked = self._broker_active
   end
 
-  -- Global: Q quits (always, even when modal)
+  -- Global: Q quits (always, even when modal) — forceful shutdown
   if code == 16 then
-    self:_stop_broker(); self._running = false; return
+    self:_stop_broker()
+    -- Drain any events that arrived during shutdown
+    pcall(os.sleep, 0)
+    self._running = false; return
   end
 
   -- Global: Ctrl+S saves config (only config page handles it)
@@ -535,6 +535,9 @@ function BrokerUI:run()
   end
   local event = require("event")
   local ok_kb, kb = pcall(require, "keyboard"); self._kb = ok_kb and kb or nil
+  -- Clear terminal before GPU takes over (belt and suspenders)
+  pcall(os.execute, "clear")
+  print("\27[2J\27[H")
   if self._screen_addr then pcall(self._gpu.bind, self._screen_addr) end
   local mw, mh = 80, 25
   pcall(function()
@@ -542,7 +545,7 @@ function BrokerUI:run()
     if ok and w and h then mw, mh = w, h end
   end)
   pcall(self._gpu.setResolution, mw, mh)
-  pcall(self._gpu.fill, 1, 1, mw, mh, " ")  -- clear terminal bleed
+  pcall(self._gpu.fill, 1, 1, mw, mh, " ")  -- clear any remaining framebuffer bleed
   self._running = true; pcall(self._refresh_data, self)
   self._page_dirty = true; pcall(self._render, self)
   local last_pump = 0
