@@ -521,6 +521,9 @@ end
 -- Key handling (char=ASCII, code=scancode)
 -----------------------------------------------------------------------
 function BrokerUI:_handle_key(code, char)
+  -- Debug: log every key to terminal
+  if char then self._log(("[BrokerUI] key char=%d code=%d"):format(char, code))
+  else self._log(("[BrokerUI] key char=nil code=%d"):format(code)) end
   if char then
     if char == 49 then self:_nav_to("dashboard")
     elseif char == 50 then self:_nav_to("logs")
