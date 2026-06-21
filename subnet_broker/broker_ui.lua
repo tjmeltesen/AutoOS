@@ -452,7 +452,10 @@ function BrokerUI:_start_broker()
       local sched, poll, rob, st = ctx.scheduler, ctx.poll, ctx.rob, ctx.state
       self._pump_fn = function()
         pcall(function()
-          if sched then for _ = 1, 5 do pcall(sched.step, sched) end end
+          if sched then
+            -- Drain ready coroutines (mimics Scheduler:run inner loop without event.pull)
+            for _ = 1, 20 do pcall(sched._resume_due, sched) end
+          end
           local okr, results = pcall(poll.poll_all, poll)
           if okr and results then for mid, r in pairs(results) do st.poll_results[mid] = r end end
           pcall(rob.tick, rob, st.poll_results)
