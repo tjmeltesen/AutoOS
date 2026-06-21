@@ -644,10 +644,8 @@ end
 function BrokerUI:_nav_to(name)
   if not self._pages[name] or self._current_page == name then return end
   self._current_page = name
-  -- Flag for timer to clear screen once — no GPU calls in event handlers
-  self._needs_clear = true
   self:_refresh_data()
-  -- Force immediate render so new page appears without waiting for throttle
+  -- Bypass render throttle so new page appears immediately
   self._last_render = 0
 end
 function BrokerUI:_nav_next()
@@ -707,13 +705,11 @@ function BrokerUI:_render()
   if type(w) ~= "number" then w = 80 elseif type(h) ~= "number" then h = 25 end
   w, h = math.max(1, w), math.max(1, h)
 
-  -- Centralized screen clear: only on page switch, only here
-  if self._needs_clear then
-    pcall(gpu.fill, gpu, 1, 1, w, h, " ")
-    self._needs_clear = false
-  end
+  -- Always clear before render — prevents bleed from shrinking content,
+  -- page switches, and stale rows that page renderers don't overwrite.
+  pcall(gpu.fill, gpu, 1, 1, w, h, " ")
 
-  -- Strict page gating: only the active page renders — no bleeding
+  -- Strict page gating: only the active page renders
   if self._current_page == "dashboard" then
     local page = self._pages.dashboard
     if page and page.render then pcall(page.render, gpu, w, h - 1, page.data) end
