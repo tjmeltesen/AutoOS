@@ -329,14 +329,14 @@ end
 -----------------------------------------------------------------------
 -- Page key handlers
 -----------------------------------------------------------------------
-local function handle_dashboard_key(code, data)
+local function handle_dashboard_key(code, char, data)
   data = data or {}; local n = 0; for _ in pairs(data.lanes or {}) do n = n + 1 end
   local off = data.scroll_offset or 0
   if code == 200 then data.scroll_offset = math.max(0, off - 1)        -- Up
   elseif code == 208 then data.scroll_offset = math.min(math.max(0,n-6), off+1) end -- Down
 end
 
-local function handle_logs_key(code, data)
+local function handle_logs_key(code, char, data)
   data = data or {}; data.lines = data.lines or {}; local hh = data._h or 20
   local mx = math.max(0, #data.lines - hh + 2)
   if code == 200 then data.offset = (data.offset or 0) + 1            -- Up
@@ -586,13 +586,16 @@ end
 -----------------------------------------------------------------------
 function BrokerUI:_render()
   local gpu = self._gpu; if not gpu then return end
-  local ok, w, h = pcall(gpu.getResolution, gpu)
-  if not ok or not w then w, h = 80, 25 end
+  local okr, w, h = pcall(gpu.getResolution, gpu)
+  if not okr or not w then w, h = 80, 25 end
   if type(w) ~= "number" then w = 80 elseif type(h) ~= "number" then h = 25 end
   w, h = math.max(1, w), math.max(1, h)
   pcall(gpu.fill, gpu, 1, 1, w, h, " ")
   local page = self._pages[self._current_page]
-  if page and page.render then pcall(page.render, gpu, w, h - 1, page.data) end
+  if page and page.render then
+    local ok, err = pcall(page.render, gpu, w, h - 1, page.data)
+    if not ok then self._log("[BrokerUI] render error ("..self._current_page.."): "..tostring(err)) end
+  end
 end
 
 -----------------------------------------------------------------------
