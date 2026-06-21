@@ -4,11 +4,14 @@
   Deploy /home/subnet_broker/ with:
     config.lua, hw.lua, lane_sides.lua, lane_dispatch.lua, central_dispatch.lua,
     maintenance_parse.lua, machine_poll.lua, circuit_manager.lua,
-    array_watch.lua, network_protocols.lua, broker_main.lua,
+    array_watch.lua, network_protocols.lua, broker_main.lua, broker_entry.lua,
+    broker_bootstrap.lua, broker_registry_adapter.lua, broker_diagnostics.lua,
+    broker_event_bus.lua, broker_poll_cache.lua, broker_test_tick.lua,
+    dispatch_clock.lua, task_registry.lua, tasks/*.lua,
     start.lua, diag.lua, probe_transposer.lua, probe_fluid.lua, fluid_tanks.lua
 
   Run: loadfile("/home/subnet_broker/start.lua")()
-  Watch: lua broker_main.lua
+  Watch: lua broker_entry.lua
 ]]
 
 local sep = package.config:sub(1, 1)
@@ -18,7 +21,13 @@ package.path = here .. sep .. "?.lua;" .. package.path
 local REQUIRED = {
   "array_watch.lua", "lane_dispatch.lua", "central_dispatch.lua", "machine_poll.lua",
   "circuit_manager.lua", "descriptor_cache.lua", "interface_stock.lua", "fluid_tanks.lua",
-  "network_protocols.lua", "broker_main.lua",
+  "network_protocols.lua", "broker_main.lua", "broker_entry.lua",
+  "broker_bootstrap.lua", "dispatch_clock.lua", "broker_event_bus.lua",
+  "broker_poll_cache.lua", "task_registry.lua",
+  "tasks/task_modem_rx.lua", "tasks/task_component_events.lua",
+  "tasks/task_central_input_events.lua", "tasks/task_machine_poll.lua",
+  "tasks/task_central_dispatch.lua", "tasks/task_lane_worker.lua",
+  "tasks/task_heartbeat.lua",
 }
 local missing = {}
 for _, name in ipairs(REQUIRED) do
@@ -42,8 +51,8 @@ print("[AutoOS] Broker loaded. Usage:")
 print("  Smoke test:  loadfile('" .. here .. "/diag.lua')()")
 print("  Find/probe:  loadfile('" .. here .. "/find.lua')('probe')  → also writes find.txt")
 print("  Fluid probe: loadfile('" .. here .. "/probe_fluid.lua')('machine_01', 1000, '--xfer')")
-print("  Watch loop:  broker_main   (or loadfile('" .. here .. "/broker_main.lua')())")
-print("  One tick:    loadfile('" .. here .. "/broker_main.lua')('test')")
+print("  Watch loop:  broker_entry   (or loadfile('" .. here .. "/broker_entry.lua')())")
+print("  One tick:    loadfile('" .. here .. "/broker_entry.lua')('test')")
 print("  Note: broker is headless — no GPU screen; Ctrl+C stops the watch loop")
 
 return Config

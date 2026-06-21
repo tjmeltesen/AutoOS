@@ -21,7 +21,13 @@ local fs = require("filesystem")
 local BROKER_MODULES = {
   "config", "hw", "lane_sides", "lane_dispatch", "central_dispatch", "maintenance_parse",
   "machine_poll", "circuit_manager", "array_watch", "network_protocols",
-  "broker_main", "probe_transposer", "diag", "start", "find",
+  "broker_main", "broker_entry", "broker_bootstrap", "broker_registry_adapter",
+  "broker_diagnostics", "broker_event_bus", "broker_poll_cache", "broker_test_tick",
+  "dispatch_clock", "task_registry",
+  "tasks/task_modem_rx", "tasks/task_component_events", "tasks/task_central_input_events",
+  "tasks/task_machine_poll", "tasks/task_central_dispatch", "tasks/task_lane_worker",
+  "tasks/task_heartbeat",
+  "probe_transposer", "diag", "start", "find",
 }
 
 local SIDE_NAMES = {

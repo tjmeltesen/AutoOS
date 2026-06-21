@@ -42,7 +42,7 @@ Config.broker_modem_port = 106
 Config.heartbeat_interval_s = 10
 
 -- Locking card: redstone pulse after lane completes to ungate central buffer
-Config.redstone_address = "01c49b4a-5dd5-455d-8bac-8f0391272ff5"        -- set to your redstone I/O UUID
+Config.redstone_address = "bf265d88-b18e-43f0-ba1c-939767fcc22d"        -- set to your redstone I/O UUID
 Config.redstone_side = 0            -- side the locking card is on
 Config.redstone_pulse_s = 0.5       -- pulse duration
 
