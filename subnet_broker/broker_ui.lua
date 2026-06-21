@@ -355,11 +355,8 @@ local function handle_config_key(code, char, data)
     else data._status = "Error: " .. tostring(err) end
     return
   end
-  -- Backspace: delete char if editing, cancel if not
-  if code == 14 then
-    if data._editing then data._eb = data._eb:sub(1, -2); return
-    else data._status = nil; return end
-  end
+  -- Backspace: delete last char (editing guaranteed by _handle_key routing)
+  if code == 14 then data._eb = data._eb:sub(1, -2); return end
 
   if not data._editing then
     if code == 200 then data._ff = math.max(1, ff - 1)
@@ -546,7 +543,20 @@ end
 -- Key handling (char=ASCII, code=scancode)
 -----------------------------------------------------------------------
 function BrokerUI:_handle_key(code, char)
-  -- Use OC keyboard scancodes (USB HID + OC extensions from keyboard.lua)
+  -- If editing a config field, route ALL keys to config handler
+  -- (except Q=quit and Ctrl+S=save which are handled globally)
+  if self._current_page == "config" then
+    local cfg = self._pages.config
+    if cfg and cfg.data and cfg.data._editing then
+      if code == 16 then self:_stop_broker(); self._running = false; return end    -- Q quits
+      if code == 31 and self._kb and self._kb.isControlDown() then                 -- Ctrl+S saves
+        cfg.handle_key(code, char, cfg.data); return
+      end
+      cfg.handle_key(code, char, cfg.data); return                                  -- everything else to config
+    end
+  end
+
+  -- Global navigation (only when NOT editing)
   if code == 2 then self:_nav_to("dashboard")                               -- 1 key
   elseif code == 3 then self:_nav_to("logs")                                -- 2 key
   elseif code == 4 then self:_nav_to("config")                              -- 3 key
@@ -558,12 +568,8 @@ function BrokerUI:_handle_key(code, char)
     if self._broker_active then self:_stop_broker() else self:_start_broker() end; return
   elseif code == 16 then self:_stop_broker(); self._running = false; return -- Q key (0x10)
   elseif code == 15 then self:_nav_next()                                   -- Tab
-  elseif code == 14 and self._current_page == "config" then
-    -- Only exit config on Backspace if NOT editing a field
-    local page = self._pages.config
-    if page and page.data and not page.data._editing then self:_nav_to("dashboard"); return end
-    -- If editing, let config handler process the Backspace
-    if page and page.handle_key then page.handle_key(code, char, page.data) end; return
+  elseif code == 14 and self._current_page == "config" then                 -- Backspace on config = go back
+    self:_nav_to("dashboard"); return
   else
     local page = self._pages[self._current_page]
     if page and page.handle_key then page.handle_key(code, char, page.data) end
