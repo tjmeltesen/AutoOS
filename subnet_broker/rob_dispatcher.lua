@@ -24,7 +24,7 @@ local LockManager = require("rob_core.lock_manager")
 local LaneState = require("rob_core.lane_state")
 local BufferMonitor = require("rob_services.buffer_monitor")
 local MachineSelector = require("rob_services.machine_selector")
-local RobTick = require("rob_tick")
+local RobTick = nil  -- loaded lazily in tick() so require errors surface clearly
 
 local ROBDispatcher = {}
 ROBDispatcher.__index = ROBDispatcher
@@ -89,14 +89,28 @@ end
 ---------------------------------------------------------------------------
 
 function ROBDispatcher:tick(poll_results, yield_fn)
+  -- Lazy-load rob_tick on first call so any require-chain errors surface
+  -- with a clear message rather than silently producing a nil upvalue.
+  if not RobTick then
+    local ok, mod = pcall(require, "rob_tick")
+    if not ok then
+      self._log("[ROB] FATAL: rob_tick.lua failed to load: " .. tostring(mod))
+      error("rob_tick.lua failed to load: " .. tostring(mod), 0)
+    end
+    RobTick = mod
+  end
+
   self._tick_n = (self._tick_n or 0) + 1
   local result = RobTick.run(self, poll_results, yield_fn)
 
-  -- Periodic state dump every ~30 ticks (30s at 1s rate, ~4.5s at 0.15s rate)
+  -- Periodic state dump every ~30 ticks
   if self._tick_n % 30 == 1 then
-    local working = 0; for _, l in pairs(self._lanes) do if require("rob_core.lane_state").is_working(l) then working = working + 1 end end
-    local faults = 0; for _, l in pairs(self._lanes) do if require("rob_core.lane_state").is_faulted(l) then faults = faults + 1 end end
-    local locks = 0; for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end
+    local working, faults, locks = 0, 0, 0
+    for _, l in pairs(self._lanes) do
+      if LaneState.is_working(l) then working = working + 1 end
+      if LaneState.is_faulted(l) then faults = faults + 1 end
+    end
+    for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end
     self._log(string.format(
       "[ROB] tick=%d  buf=%s  pending=%d  working=%d  faulted=%d  locks=%d  batch=%s  seq=%d",
       self._tick_n, self._buf_mon._state, #self._pending_jobs, working, faults, locks,

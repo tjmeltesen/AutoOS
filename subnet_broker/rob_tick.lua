@@ -11,6 +11,11 @@ local AdmissionControl = require("rob_services.admission_control")
 local JobManifest = require("rob_core.job_manifest")
 local JobFactory = require("rob_services.job_factory")
 
+local function table_len(t)
+  if not t then return 0 end
+  local n = 0; for _ in pairs(t) do n = n + 1 end; return n
+end
+
 local RobTick = {}
 
 --- Run one full tick cycle.
@@ -92,7 +97,7 @@ function RobTick.run(self, poll_results, yield_fn)
       pending_count,
       self._machine_sel:available_budget(self._lanes),
       self._machine_sel._rr_index,
-      (function() local n=0; for _ in pairs(self._lock_mgr._locks) do n=n+1 end; return n end)()))
+      table_len(self._lock_mgr._locks)))
   end
   for _, ev in ipairs(assign_result.events or {}) do
     self._log(string.format("[ROB] staged: %s -> %s", tostring(ev.job_id), tostring(ev.machine_id)))

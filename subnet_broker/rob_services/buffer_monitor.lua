@@ -65,6 +65,11 @@ function BufferMonitor.build_fingerprint(registry, config, yield_fn)
   return fp, nil
 end
 
+local function table_len(t)
+  if not t then return 0 end
+  local n = 0; for _ in pairs(t) do n = n + 1 end; return n
+end
+
 --- Step the buffer monitor state machine.
 --- @param self BufferMonitor instance
 --- @param now number  current time
@@ -138,7 +143,7 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
     self._stable_since = now
     self._state = C.DIS_STABILIZING
     if log then log(string.format("[ROB] buf: IDLE -> STABILIZING (fp has %d slots, stabilize_s=%.1f)",
-      (function() local n=0; for _ in pairs(fp) do n=n+1 end; return n end)(), job_stabilize_s or 3.0)) end
+      table_len(fp), job_stabilize_s or 3.0)) end
     events[#events + 1] = { type = "central_buffer_ready", detail = "items in central chest" }
 
   elseif self._state == C.DIS_STABILIZING then
