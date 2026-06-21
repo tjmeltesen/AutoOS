@@ -346,10 +346,12 @@ local function render_config(gpu, w, h, data)
     local lb = f.l; if #lb > 20 then lb = lb:sub(1,19).."." end
     local fc = (i == ff and not locked) and CYAN or (locked and 0x404040 or W)
     FG(gpu, fc); GS(gpu, rx, row, pad((" %-21s %s"):format(lb, val), rw))
-    -- Description line (muted gray)
+    -- Description line (always draw to clear stale content)
+    FG(gpu, 0x404040)
     if f.d then
-      FG(gpu, 0x404040)
       GS(gpu, rx, row + 1, pad(("   %s"):format(f.d:sub(1, rw - 4)), rw))
+    else
+      GS(gpu, rx, row + 1, string.rep(" ", rw))
     end
     row = row + 2
   end
@@ -360,6 +362,12 @@ local function render_config(gpu, w, h, data)
       local m = data._machines[i]; FG(gpu, i == ff and CYAN or (locked and 0x404040 or W))
       GS(gpu, rx, row, pad((" %d. %s"):format(i, m.id or ("#"..i)), rw)); row = row + 1
     end
+  end
+  -- Blank any stale right-pane rows between last drawn content and status bar.
+  -- Handles section switches from many-fields to few-fields when gpu.fill is skipped.
+  FG(gpu, GRAY)
+  for cr = row, h - 2 do
+    GS(gpu, 1, cr, string.rep(" ", w))
   end
   -- Status + help
   if data._status then FG(gpu, data._status:find("Err") and R or G); GS(gpu, 1, h - 1, pad(data._status:sub(1, w), w)) end
@@ -468,6 +476,7 @@ function BrokerUI.new(rob, config, deps)
   self._broker_ctx = deps.broker_ctx; self._broker_bm = deps.broker_bm
   self._broker_active = false; self._status = "Press S to start broker"
   self._last_render = 0
+  self._page_dirty = false
   -- Incremental polling state
   self._poll_mids = nil; self._poll_index = 1
   self._pages = {
@@ -645,8 +654,8 @@ function BrokerUI:_nav_to(name)
   if not self._pages[name] or self._current_page == name then return end
   self._current_page = name
   self:_refresh_data()
-  -- Bypass render throttle so new page appears immediately
-  self._last_render = 0
+  self._page_dirty = true
+  pcall(self._render, self)
 end
 function BrokerUI:_nav_next()
   local order = {"dashboard","logs","config"}
@@ -669,9 +678,13 @@ function BrokerUI:_handle_key(code, char)
     if cfg and cfg.data and cfg.data._editing then
       if code == 16 then self:_stop_broker(); self._running = false; return end    -- Q quits
       if code == 31 and self._kb and self._kb.isControlDown() then                 -- Ctrl+S saves
-        cfg.handle_key(code, char, cfg.data); return
+        cfg.handle_key(code, char, cfg.data)
+        self._last_render = 0                                                       -- status bar changed, needs full render
+        return
       end
-      cfg.handle_key(code, char, cfg.data); return                                  -- everything else to config
+      cfg.handle_key(code, char, cfg.data)                                         -- char/BS/Enter: targeted redraw only
+      self:_redraw_config_field(self._gpu, cfg.data, cfg.data._ff)
+      return
     end
   end
 
@@ -691,7 +704,26 @@ function BrokerUI:_handle_key(code, char)
     self:_nav_to("dashboard"); return
   else
     local page = self._pages[self._current_page]
-    if page and page.handle_key then page.handle_key(code, char, page.data) end
+    if page and page.handle_key then
+      -- For config page: detect section vs field change and redraw accordingly
+      if self._current_page == "config" and page.data then
+        local old_fs = page.data._fs
+        local old_ff = page.data._ff
+        page.handle_key(code, char, page.data)
+        if page.data._fs ~= old_fs then
+          self._last_render = 0   -- section changed, full render needed
+        elseif page.data._ff ~= old_ff then
+          -- Field nav: redraw old focus (loses highlight) + new focus
+          self:_redraw_config_field(self._gpu, page.data, old_ff)
+          self:_redraw_config_field(self._gpu, page.data, page.data._ff)
+        else
+          -- Same field: Enter toggle bool/enum, or start editing
+          self:_redraw_config_field(self._gpu, page.data, page.data._ff)
+        end
+      else
+        page.handle_key(code, char, page.data)
+      end
+    end
   end
 end
 
@@ -705,9 +737,14 @@ function BrokerUI:_render()
   if type(w) ~= "number" then w = 80 elseif type(h) ~= "number" then h = 25 end
   w, h = math.max(1, w), math.max(1, h)
 
-  -- Always clear before render — prevents bleed from shrinking content,
-  -- page switches, and stale rows that page renderers don't overwrite.
-  pcall(gpu.fill, gpu, 1, 1, w, h, " ")
+  -- Stash dimensions for targeted redraws
+  self._w, self._h = w, h
+
+  -- Only clear on page transitions; state updates skip the expensive gpu.fill
+  if self._page_dirty then
+    pcall(gpu.fill, gpu, 1, 1, w, h, " ")
+    self._page_dirty = false
+  end
 
   -- Strict page gating: only the active page renders
   if self._current_page == "dashboard" then
@@ -719,6 +756,59 @@ function BrokerUI:_render()
   elseif self._current_page == "config" then
     local page = self._pages.config
     if page and page.render then pcall(page.render, gpu, w, h - 1, page.data) end
+  end
+end
+
+-----------------------------------------------------------------------
+-- Targeted config field redraw (2 rows: value + description)
+-- Used by keystroke handlers to avoid full-page renders on typing.
+-----------------------------------------------------------------------
+function BrokerUI:_redraw_config_field(gpu, data, field_idx)
+  if not gpu or not data then return end
+  local sections = data._sections
+  if not sections then return end
+  local fs = data._fs or 1
+  local sec = sections[fs]
+  if not sec or sec.ismach then return end  -- machines section uses full render
+  local fields = sec.f or {}
+  if field_idx < 1 or field_idx > #fields then return end
+  local f = fields[field_idx]
+  if not f then return end
+
+  local rx = data._rx or 1
+  local rw = data._rw or 40
+  local locked = data._locked
+  local ff = data._ff or 1
+  local editing = data._editing
+  local h = self._h or 25
+
+  -- Only redraw if field is within the visible viewport
+  local max_vis = math.floor((h - 4) / 2)
+  if field_idx > max_vis then return end
+
+  local row = 4 + (field_idx - 1) * 2
+
+  -- Value line
+  local val
+  if editing and not locked and field_idx == ff then
+    val = (data._eb or "") .. "_"
+  elseif f.t == "b" then
+    val = f.v and "true" or "false"
+  else
+    val = tostring(f.v or "")
+  end
+  local lb = f.l
+  if #lb > 20 then lb = lb:sub(1, 19) .. "." end
+  local fc = (field_idx == ff and not locked) and CYAN or (locked and 0x404040 or W)
+  FG(gpu, fc)
+  GS(gpu, rx, row, pad((" %-21s %s"):format(lb, val), rw))
+
+  -- Description line (always draw to clear stale text)
+  FG(gpu, 0x404040)
+  if f.d then
+    GS(gpu, rx, row + 1, pad(("   %s"):format(f.d:sub(1, rw - 4)), rw))
+  else
+    GS(gpu, rx, row + 1, string.rep(" ", rw))
   end
 end
 
@@ -751,7 +841,8 @@ function BrokerUI:run()
     if ok and w and h then mw, mh = w, h end
   end)
   pcall(self._gpu.setResolution, mw, mh)
-  self._running = true; pcall(self._refresh_data, self); pcall(self._render, self)
+  self._running = true; pcall(self._refresh_data, self)
+  self._page_dirty = true; pcall(self._render, self)
   local last_pump = 0
   while self._running do
     -- High-frequency event poll: short timeout catches keystrokes instantly
@@ -759,8 +850,6 @@ function BrokerUI:run()
     if ev[1] == "key_down" then
       self._ctrl = self._kb and self._kb.isControlDown()
       self:_handle_key(ev[4], ev[3])
-      -- Trigger immediate render for config keystroke feedback (timer-safe: only sets flag)
-      if self._current_page == "config" then self._last_render = 0 end
     elseif ev[1] == "clipboard" then
       -- Paste clipboard text into active config field (data-only, timer does the draw)
       local text = ev[3]
@@ -769,7 +858,7 @@ function BrokerUI:run()
         local data = page and page.data
         if data and data._editing and not data._locked then
           data._eb = (data._eb or "") .. text
-          self._last_render = 0  -- trigger immediate render via timer
+          self:_redraw_config_field(self._gpu, data, data._ff)
         end
       end
     end
