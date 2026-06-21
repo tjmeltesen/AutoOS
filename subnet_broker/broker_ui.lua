@@ -193,16 +193,18 @@ function BrokerUI:_build_broker_on_demand()
     self._status = "broker_main not available"
     return
   end
-  local okb, result = pcall(bm.build, self._log)
-  if not okb or not result then
-    local msg = "Build failed: " .. tostring(result or okb)
+  -- BrokerMain.build returns (ctx) on success, (nil, err_string) on failure.
+  -- Capture all three pcall returns so the build error isn't discarded.
+  local okb, result_or_nil, build_err = pcall(bm.build, self._log)
+  if not okb or not result_or_nil then
+    local msg = "Build failed: " .. tostring(build_err or result_or_nil or okb)
     self._status = msg
     return
   end
-  self._broker_ctx = result
+  self._broker_ctx = result_or_nil
   self._broker_bm = bm
-  self._rob = result.rob
-  self._config = result.config
+  self._rob = result_or_nil.rob
+  self._config = result_or_nil.config
   self._status = "Broker built -- starting..."
 end
 
