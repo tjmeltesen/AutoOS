@@ -6,13 +6,14 @@ local LaneState = require("rob_core.lane_state")
 local C = require("rob_core.constants")
 
 local MachineSelector = {}
+MachineSelector.__index = MachineSelector
 
 --- Create a new MachineSelector instance.
 function MachineSelector.new(max_parallel_lanes)
-  return {
+  return setmetatable({
     _rr_index = 1,
     _max_parallel_lanes = max_parallel_lanes,
-  }
+  }, MachineSelector)
 end
 
 --- Compute available lane budget.

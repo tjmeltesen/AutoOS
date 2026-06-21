@@ -5,13 +5,13 @@
 local C = require("rob_core.constants")
 
 local LockManager = {}
+LockManager.__index = LockManager
 
 --- Create a new LockManager instance.
---- @return table { _locks, acquire, release, release_transport, release_all, get_locks, build_resources }
 function LockManager.new()
-  return {
+  return setmetatable({
     _locks = {},  -- resource_key -> owner_machine_id
-  }
+  }, LockManager)
 end
 
 --- Build resource keys for a machine's job.
