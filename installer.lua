@@ -33,7 +33,7 @@ local TARGET_ROOT = "/home"
 -- =========================================================================
 
 local FILES = {
-  -- subnet_broker/ — broker core
+  -- subnet_broker/ — broker core (destination: /home/subnet_broker/)
   "subnet_broker/config.lua",
   "subnet_broker/registry.lua",
   "subnet_broker/hw.lua",
@@ -73,6 +73,9 @@ local FILES = {
   "subnet_broker/ui_utils.lua",
   "subnet_broker/ui_components.lua",
   "subnet_broker/class_base_page.lua",
+  -- /home/ — standalone UI scripts (repo: subnet_broker/, dest: /home/)
+  { src = "subnet_broker/broker_config.lua", dest = "broker_config.lua" },
+  { src = "subnet_broker/broker_logs.lua", dest = "broker_logs.lua" },
   -- shared/ — cross-cutting protocol definitions
   "shared/network_protocols.lua",
 
@@ -109,9 +112,13 @@ local function ensure_dir(path)
   created_dirs[dir] = true
 end
 
-local function download_file(rel_path)
-  local url = BASE .. "/" .. rel_path
-  local dest = TARGET_ROOT .. "/" .. rel_path
+local function download_file(entry)
+  -- entry is either a string (repo-relative path → same dest path)
+  -- or a table { src = "repo/path", dest = "dest/path" } (different dest)
+  local src_path = type(entry) == "table" and entry.src or entry
+  local dest_rel = type(entry) == "table" and entry.dest or entry
+  local url = BASE .. "/" .. src_path
+  local dest = TARGET_ROOT .. "/" .. dest_rel
   return os.execute("wget -f " .. url .. " " .. dest .. " -q")
 end
 
@@ -126,23 +133,25 @@ local function main()
   local fail_count = 0
   local skipped = 0
 
-  for i, rel_path in ipairs(FILES) do
+  for i, entry in ipairs(FILES) do
+    local src_path = type(entry) == "table" and entry.src or entry
+    local dest_rel = type(entry) == "table" and entry.dest or entry
     local status = string.format("[%3d/%3d]", i, total)
 
     -- Check if BASE has been configured
     if BASE:find("YOUR_USERNAME") then
-      print(status .. " SKIP (BASE URL not configured): " .. rel_path)
+      print(status .. " SKIP (BASE URL not configured): " .. src_path)
       skipped = skipped + 1
     else
       -- Skip config.lua if it already exists (preserve user config)
-      if rel_path:find("config%.lua$") then
-        local dest = TARGET_ROOT .. "/" .. rel_path
+      if src_path:find("config%.lua$") then
+        local dest = TARGET_ROOT .. "/" .. dest_rel
         local f = io.open(dest, "r")
-        if f then f:close(); print(status .. " SKIP (exists): " .. rel_path); skipped = skipped + 1; goto continue end
+        if f then f:close(); print(status .. " SKIP (exists): " .. src_path); skipped = skipped + 1; goto continue end
       end
-      ensure_dir(rel_path)
-      io.write(status .. " " .. rel_path .. " ... ")
-      local result = download_file(rel_path)
+      ensure_dir(dest_rel)
+      io.write(status .. " " .. src_path .. " ... ")
+      local result = download_file(entry)
       if result == 0 or result == true then
         print("OK")
         ok_count = ok_count + 1

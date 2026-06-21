@@ -4,7 +4,6 @@
 
 local BasePage = require("class_base_page")
 local U = require("ui_utils")
-local C = require("ui_components")
 
 local ConfigPage = setmetatable({}, {__index = BasePage})
 ConfigPage.__index = ConfigPage
