@@ -134,7 +134,7 @@ function ROBDispatcher:tick(poll_results, yield_fn)
     self._config, self._config.shared_interface_address,
     self._now, self._log, self._safe_yield
   )
-  local jobs_assigned = assign_result.events or {}
+  local jobs_assigned = assign_result.jobs_assigned or {}
   if pending_count > 0 and #jobs_assigned == 0 then
     local locks = 0
     for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end

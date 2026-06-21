@@ -37,9 +37,34 @@ if not gpu then
   return
 end
 
+-- ponytail: keep only last 150 lines. Check every 10 writes to avoid
+-- reading the file on every log call. Ring buffer in a file.
+local _log_path = "/home/subnet_broker/lane_worker.log"
+local _log_writes = 0
+local MAX_LOG_LINES = 150
+
 local function file_log(msg)
-  local f = io.open("/home/subnet_broker/lane_worker.log", "a")
+  _log_writes = _log_writes + 1
+  local f = io.open(_log_path, "a")
   if f then f:write(tostring(msg) .. "\n"); f:close() end
+
+  if _log_writes % 10 == 0 then
+    local r = io.open(_log_path, "r")
+    if r then
+      local lines = {}
+      for line in r:lines() do lines[#lines + 1] = line end
+      r:close()
+      if #lines > MAX_LOG_LINES then
+        local w = io.open(_log_path, "w")
+        if w then
+          for i = #lines - MAX_LOG_LINES + 1, #lines do
+            w:write(lines[i], "\n")
+          end
+          w:close()
+        end
+      end
+    end
+  end
 end
 
 local theme = {

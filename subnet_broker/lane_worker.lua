@@ -24,15 +24,34 @@ local FluidTanks = require("fluid_tanks")
 local LaneWorker = {}
 
 local LOG_PATH = "/home/subnet_broker/lane_worker.log"
+local MAX_LOG_LINES = 150
+local _log_writes = 0
 
--- ponytail: open/append/close each write — cooperative scheduling means
--- no interleaving within a single write call, and the filesystem handles
--- concurrent appends from different coroutines.
+-- ponytail: open/append/close each write, trim to last 150 lines every 10 writes.
 local function file_log(msg)
+  _log_writes = _log_writes + 1
   local f = io.open(LOG_PATH, "a")
   if f then
     f:write(string.format("[%s] %s\n", os.date("%Y-%m-%d %H:%M:%S"), msg))
     f:close()
+  end
+
+  if _log_writes % 10 == 0 then
+    local r = io.open(LOG_PATH, "r")
+    if r then
+      local lines = {}
+      for line in r:lines() do lines[#lines + 1] = line end
+      r:close()
+      if #lines > MAX_LOG_LINES then
+        local w = io.open(LOG_PATH, "w")
+        if w then
+          for i = #lines - MAX_LOG_LINES + 1, #lines do
+            w:write(lines[i], "\n")
+          end
+          w:close()
+        end
+      end
+    end
   end
 end
 
