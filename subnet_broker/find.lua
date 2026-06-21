@@ -19,15 +19,22 @@ package.path = here .. sep .. "?.lua;" .. package.path
 local fs = require("filesystem")
 
 local BROKER_MODULES = {
-  "config", "hw", "lane_sides", "lane_dispatch", "central_dispatch", "maintenance_parse",
-  "machine_poll", "circuit_manager", "array_watch", "network_protocols",
+  "config", "hw", "lane_sides", "maintenance_parse",
+  "machine_poll", "circuit_manager", "network_protocols",
   "broker_main", "broker_entry", "broker_bootstrap", "broker_registry_adapter",
   "broker_diagnostics", "broker_event_bus", "broker_poll_cache", "broker_test_tick",
   "dispatch_clock", "task_registry",
   "tasks/task_modem_rx", "tasks/task_component_events", "tasks/task_central_input_events",
   "tasks/task_machine_poll", "tasks/task_central_dispatch", "tasks/task_lane_worker",
   "tasks/task_heartbeat",
-  "probe_transposer", "diag", "start", "find",
+  "rob_core/constants", "rob_core/job_manifest", "rob_core/job_descriptor",
+  "rob_core/lane_state", "rob_core/lock_manager",
+  "rob_services/buffer_monitor", "rob_services/admission_control",
+  "rob_services/job_factory", "rob_services/machine_selector",
+  "rob_services/completion_detector", "rob_services/watchdog",
+  "rob_services/job_reaper", "rob_services/job_assigner",
+  "rob_tick",
+  "probe_transposer", "find",
 }
 
 local SIDE_NAMES = {
