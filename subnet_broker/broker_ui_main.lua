@@ -55,7 +55,7 @@ pcall(function() now_fn = require("computer").uptime end)
 
 -- Build broker context
 local BrokerMain = require("broker_main")
-local ctx = BrokerMain.build(file_log)
+local ctx, build_err = BrokerMain.build(file_log)
 local rob, config, broker_active, status = nil, nil, false, "Press S to start broker"
 local pump_co = nil
 
@@ -63,7 +63,7 @@ if ctx then
   rob, config = ctx.rob, ctx.config
   print(string.format("[Broker] ready — %s (press S to start)", tostring(config.subnet_id)))
 else
-  print("[Broker] build failed — display-only mode")
+  print("[Broker] build FAILED: " .. tostring(build_err or "unknown"))
   config = require("config")
 end
 

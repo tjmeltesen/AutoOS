@@ -66,7 +66,6 @@ local FILES = {
   "subnet_broker/test_recover_transfer.lua",
   -- subnet_broker/ — broker TUI (single-file, no page deps)
   "subnet_broker/broker_ui.lua",
-  "subnet_broker/broker_ui_main.lua",
   "subnet_broker/page_dashboard.lua",
   "subnet_broker/page_logs.lua",
   "subnet_broker/page_config.lua",
@@ -74,6 +73,7 @@ local FILES = {
   "subnet_broker/ui_components.lua",
   "subnet_broker/class_base_page.lua",
   -- /home/ — standalone UI scripts (repo: subnet_broker/, dest: /home/)
+  { src = "subnet_broker/broker_ui_main.lua", dest = "broker_ui_main.lua" },
   { src = "subnet_broker/broker_config.lua", dest = "broker_config.lua" },
   { src = "subnet_broker/broker_logs.lua", dest = "broker_logs.lua" },
   -- shared/ — cross-cutting protocol definitions
