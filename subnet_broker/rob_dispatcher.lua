@@ -112,6 +112,13 @@ function ROBDispatcher:tick(poll_results, yield_fn)
   if self._buf_mon._state ~= buf_state_before then
     self._log(string.format("[ROB] buf: %s -> %s", buf_state_before, self._buf_mon._state))
   end
+  -- Heartbeat when stuck in STABILIZING: log elapsed every 10 ticks
+  if self._buf_mon._state == C.DIS_STABILIZING and self._tick_n % 10 == 1 then
+    local elapsed = now - self._buf_mon._stable_since
+    local fp_slots = 0; for _ in pairs(self._buf_mon._fingerprint or {}) do fp_slots = fp_slots + 1 end
+    self._log(string.format("[ROB] buf: stabilizing for %.1fs (need %.1fs) fp_slots=%d",
+      elapsed, job_stabilize, fp_slots))
+  end
   for _, ev in ipairs(events) do
     self._log(string.format("[ROB] buf event: %s %s", ev.type, tostring(ev.detail or ev.job_id or "")))
   end
