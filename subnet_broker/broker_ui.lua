@@ -88,12 +88,11 @@ end
 -- Cooperative pump coroutine (replaces monolithic pump_fn)
 -----------------------------------------------------------------------
 
---- Resume the pump coroutine multiple times per cycle.
---- Each call does up to 12 resumes — enough to complete a full 3-phase
---- pump cycle even with internal rob_dispatcher yields.  Internal yields
---- use os.sleep(0) (quick OS breath, resume immediately); phase boundaries
---- use coroutine.yield().  Keystrokes land between _drain_pump() calls
---- via the event loop's 80ms pump gate.
+--- Resume the pump coroutine a small number of times per cycle.
+--- Each internal rob_dispatcher yield (os.sleep(0)) gives the OC kernel
+--- a micro-breath; we resume immediately.  Capped at 4 resumes per call
+--- so component I/O never blocks the event loop for more than ~40ms.
+--- At a 50ms pump gate, a full 3-phase cycle completes in ~150ms.
 --- Uses xpcall + debug.traceback so crashes are never silently swallowed.
 function BrokerUI:_drain_pump()
   if not self._pump_co then return end
@@ -101,10 +100,11 @@ function BrokerUI:_drain_pump()
     self._pump_co = nil
     return
   end
-  -- Run up to 12 consecutive resumes.  Internal rob yields (os.sleep(0))
-  -- return instantly; phase boundaries (coroutine.yield) also yield but
-  -- we keep going.  Cap prevents starvation if something goes wrong.
-  for _ = 1, 12 do
+  -- 4 resumes = ~4 internal yields processed per cycle.  Keystrokes
+  -- land between _drain_pump() calls via event.pull(0.05) in the main
+  -- loop.  If keystrokes feel laggy, drop to 2; if broker throughput
+  -- is too slow, raise to 8.
+  for _ = 1, 4 do
     if coroutine.status(self._pump_co) ~= "suspended" then break end
     local success, err = xpcall(
       function() coroutine.resume(self._pump_co) end,
@@ -549,11 +549,12 @@ function BrokerUI:run()
       end
     end
     local now = self._now()
-    -- Gate backend pump to ~12 Hz (80ms).  Each pump call does up to 12
-    -- lightweight coroutine resumes — enough for a full pump cycle even
-    -- with internal yields, but short enough that keystrokes land within
-    -- one frame.
-    if now - last_pump > 0.08 then
+    -- Gate backend pump to ~20 Hz (50ms).  Each pump call does up to 4
+    -- coroutine resumes — small enough that component I/O (~40ms worst
+    -- case) never starves keystrokes.  event.pull(0.05) processes keys
+    -- between cycles.  If keys lag: drop resumes to 2.  If broker slow:
+    -- raise resumes to 8.
+    if now - last_pump > 0.05 then
       if self._pump_fn then
         pcall(self._pump_fn)
         -- Yield to OS to ensure event processing isn't starved
