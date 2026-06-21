@@ -38,7 +38,7 @@ local function render_dashboard(gpu, w, h, data)
   local locks = data.locks or {}
   local now = data.now_fn and data.now_fn() or 0
 
-  gpu.setBackground(0x000000); gpu.fill(1, 1, w, h, " ")
+  gpu.fill(1, 1, w, h, " ")
 
   -- Row 1: title
   gpu.setForeground(GRAY)
@@ -119,7 +119,7 @@ local function render_logs(gpu, w, h, data)
   local offset = data.offset or 0
   local follow = data.follow
 
-  gpu.setBackground(0x000000); gpu.fill(1, 1, w, h, " ")
+  gpu.fill(1, 1, w, h, " ")
 
   if follow then offset = 0; data.offset = 0 end
 
@@ -278,7 +278,7 @@ local function render_config(gpu, w, h, data)
   local ff = data._ff or 1; if ff < 1 then ff = 1 elseif ff > #fields then ff = #fields end
   data._ff = ff
 
-  gpu.setBackground(0x000000); gpu.fill(1, 1, w, h, " ")
+  gpu.fill(1, 1, w, h, " ")
 
   -- Header
   gpu.setForeground(GRAY); gpu.set(1, 1, (" Config: subnet_broker/config.lua  [Ctrl+S:Save]"):sub(1, w))
