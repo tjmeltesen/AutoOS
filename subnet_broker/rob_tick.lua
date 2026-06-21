@@ -31,7 +31,11 @@ function RobTick.run(self, poll_results, yield_fn)
     self._log)
 
   -- Phase 2: Job reaping
+  local pre_reap = #self._pending_jobs
   JobReaper.reap(self._pending_jobs, self._max_job_attempts)
+  if #self._pending_jobs ~= pre_reap then
+    self._log(string.format("[ROB] reap: %d -> %d pending jobs", pre_reap, #self._pending_jobs))
+  end
 
   -- Phase 3: Watchdog
   Watchdog.check(self._lanes, self._pending_jobs, now, self._watchdog_grace_s,
@@ -40,6 +44,7 @@ function RobTick.run(self, poll_results, yield_fn)
 
   -- Phase 4: Buffer monitor
   local job_stabilize = AdmissionControl.job_stabilize_s(self._config)
+  local buf_state_before = self._buf_mon._state
   local buf_result = BufferMonitor.step(
     self._buf_mon, now, self._registry, self._config,
     {
@@ -62,22 +67,42 @@ function RobTick.run(self, poll_results, yield_fn)
     job_stabilize
   )
   local events = buf_result.events or {}
+  -- Log buffer state transitions
+  if self._buf_mon._state ~= buf_state_before then
+    self._log(string.format("[ROB] buf: %s -> %s", buf_state_before, self._buf_mon._state))
+  end
+  for _, ev in ipairs(events) do
+    self._log(string.format("[ROB] buf event: %s %s", ev.type, tostring(ev.detail or ev.job_id or "")))
+  end
 
   -- Phase 5: Job assignment
+  local pending_count = 0
+  for _, job in ipairs(self._pending_jobs) do
+    if job.status == "pending" then pending_count = pending_count + 1 end
+  end
   local assign_result = JobAssigner.assign(
     self._pending_jobs, poll_results,
     self._machine_sel, self._lock_mgr, self._lanes,
     self._config, self._config.shared_interface_address,
     self._now, self._log, self._safe_yield
   )
-  local jobs_assigned = assign_result.jobs_assigned or {}
-
-  -- Emit assignment events
+  local jobs_assigned = assign_result.events or {}
+  if pending_count > 0 and #jobs_assigned == 0 then
+    self._log(string.format("[ROB] assign: %d pending, 0 assigned — budget=%d rr=%d locks=%d",
+      pending_count,
+      self._machine_sel:available_budget(self._lanes),
+      self._machine_sel._rr_index,
+      (function() local n=0; for _ in pairs(self._lock_mgr._locks) do n=n+1 end; return n end)()))
+  end
   for _, ev in ipairs(assign_result.events or {}) do
-    events[#events + 1] = ev
+    self._log(string.format("[ROB] staged: %s -> %s", tostring(ev.job_id), tostring(ev.machine_id)))
   end
 
   self._yield_fn = prev_yield
+
+  -- Keep _job_seq in sync (belt-and-suspenders)
+  self._job_seq = self._job_seq_ref[1]
+
   return { events = events, jobs_assigned = jobs_assigned }
 end
 

@@ -77,6 +77,7 @@ end
 --- @return table  { events = {...} }
 function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs, yield_fn, job_stabilize_s)
   local events = {}
+  local log = callbacks.log
   local has_adapter = registry.central_item_adapter ~= nil
     and type(registry.central_item_side) == "number"
 
@@ -91,7 +92,7 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
   local has_items = false
 
   if self._state == C.DIS_IDLE then
-    local fp, _ = BufferMonitor.build_fingerprint(registry, config, yield_fn)
+    local fp, fp_err = BufferMonitor.build_fingerprint(registry, config, yield_fn)
     has_items = fingerprint_nonempty(fp)
 
     if not has_items then
@@ -107,8 +108,12 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
       for _, job in ipairs(pending_jobs) do
         if job.id == self._batch_job_id then job_alive = true; break end
       end
-      if job_alive then return { events = events } end
+      if job_alive then
+        if log then log(string.format("[ROB] buf: batch_claimed=true job=%s still pending — suppressing", self._batch_job_id)) end
+        return { events = events }
+      end
       -- Batch job completed and reaped — release claim
+      if log then log(string.format("[ROB] buf: batch_claimed released (job %s reaped)", tostring(self._batch_job_id))) end
       self._batch_claimed = false
       self._batch_job_id = nil
       self._last_enqueued_fp = nil
@@ -122,13 +127,18 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
     -- Admission check
     if callbacks.check_admission then
       local ok = callbacks.check_admission()
-      if not ok then return { events = events } end
+      if not ok then
+        if log then log("[ROB] buf: admission rejected — suppressing job creation") end
+        return { events = events }
+      end
     end
 
     -- New items — enter stabilizing
     self._fingerprint = fp
     self._stable_since = now
     self._state = C.DIS_STABILIZING
+    if log then log(string.format("[ROB] buf: IDLE -> STABILIZING (fp has %d slots, stabilize_s=%.1f)",
+      (function() local n=0; for _ in pairs(fp) do n=n+1 end; return n end)(), job_stabilize_s or 3.0)) end
     events[#events + 1] = { type = "central_buffer_ready", detail = "items in central chest" }
 
   elseif self._state == C.DIS_STABILIZING then
@@ -137,6 +147,7 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
 
     if not has_items then
       -- Chest emptied during stabilization
+      if log then log("[ROB] buf: STABILIZING -> IDLE (chest emptied)") end
       self._state = C.DIS_IDLE
       self._fingerprint = nil
       self._stable_since = 0
@@ -149,22 +160,28 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
     -- Admission check
     if callbacks.check_admission then
       local ok = callbacks.check_admission()
-      if not ok then return { events = events } end
+      if not ok then
+        if log then log(string.format("[ROB] buf: admission rejected during STABILIZING (stable for %.1fs)", now - self._stable_since)) end
+        return { events = events }
+      end
     end
 
     -- Fingerprint changed — restart timer
     if not fingerprint_equal(fp, self._fingerprint) then
+      if log then log(string.format("[ROB] buf: fingerprint changed — reset stabilize timer (was %.1fs)", now - self._stable_since)) end
       self._fingerprint = fp
       self._stable_since = now
       return { events = events }
     end
 
     -- Not yet stabilized
-    if now - self._stable_since < (job_stabilize_s or 3.0) then
+    local elapsed = now - self._stable_since
+    if elapsed < (job_stabilize_s or 3.0) then
       return { events = events }
     end
 
     -- Stabilized — build manifest and enqueue
+    if log then log(string.format("[ROB] buf: stabilized (%.1fs) — building manifest", elapsed)) end
     local manifest = callbacks.build_manifest and callbacks.build_manifest()
     if not manifest or not callbacks.enqueue_job then
       self._state = C.DIS_IDLE
@@ -178,8 +195,10 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
       self._last_enqueued_fp = fp
       self._batch_claimed = true
       self._batch_job_id = job.id
+      if log then log(string.format("[ROB] buf: job %s enqueued, batch_claimed=true", job.id)) end
       events[#events + 1] = { type = "central_job_enqueued", job_id = job.id, detail = "central batch queued" }
     else
+      if log then log(string.format("[ROB] buf: enqueue FAILED: %s", tostring(err))) end
       events[#events + 1] = { type = "central_enqueue_failed", detail = err or "unknown" }
     end
   end

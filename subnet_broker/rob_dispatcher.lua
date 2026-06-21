@@ -89,7 +89,21 @@ end
 ---------------------------------------------------------------------------
 
 function ROBDispatcher:tick(poll_results, yield_fn)
-  return RobTick.run(self, poll_results, yield_fn)
+  self._tick_n = (self._tick_n or 0) + 1
+  local result = RobTick.run(self, poll_results, yield_fn)
+
+  -- Periodic state dump every ~30 ticks (30s at 1s rate, ~4.5s at 0.15s rate)
+  if self._tick_n % 30 == 1 then
+    local working = 0; for _, l in pairs(self._lanes) do if require("rob_core.lane_state").is_working(l) then working = working + 1 end end
+    local faults = 0; for _, l in pairs(self._lanes) do if require("rob_core.lane_state").is_faulted(l) then faults = faults + 1 end end
+    local locks = 0; for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end
+    self._log(string.format(
+      "[ROB] tick=%d  buf=%s  pending=%d  working=%d  faulted=%d  locks=%d  batch=%s  seq=%d",
+      self._tick_n, self._buf_mon._state, #self._pending_jobs, working, faults, locks,
+      tostring(self._buf_mon._batch_claimed), self._job_seq_ref[1]))
+  end
+
+  return result
 end
 
 ---------------------------------------------------------------------------
