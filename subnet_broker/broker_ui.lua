@@ -2,16 +2,13 @@
 -- Lua 5.2, OpenComputers.
 local BrokerUI = {}; BrokerUI.__index = BrokerUI
 
------------------------------------------------------------------------
--- Constants
------------------------------------------------------------------------
-local G, W, Y, R, GRAY, CYAN = 0x00FF00, 0xFFFFFF, 0xFFFF00, 0xFF0000, 0x808080, 0x00FFFF
-
 local LOG_PATH = "/home/subnet_broker/lane_worker.log"
 
------------------------------------------------------------------------
--- Helpers
------------------------------------------------------------------------
+-- Safe GPU wrappers (pcall all calls — don't crash the UI on GPU errors)
+local function FG(g, c) if g and c then pcall(g.setForeground, c) end end
+local function GS(g, x, y, s) if g and x and y and s then pcall(g.set, x, y, tostring(s)) end end
+local function FL(g, x, y, w2, h2, ch) if g and x and y and w2 and h2 then pcall(g.fill, x, y, w2, h2, ch or " ") end end
+
 local function fmtt(sec)
   if not sec or sec < 0 then return "--" end
   if sec < 60 then return "<1m" end
@@ -28,8 +25,11 @@ local function fmtag(now, t)
   if d < 60 then return math.floor(d).."s" elseif d < 3600 then return math.floor(d/60).."m" else return math.floor(d/3600).."h" end
 end
 
+-- Colors (hex, supported on all OC GPU tiers ≥ 2; tier 1 uses palette, still works)
+local G, W, Y, R, GRAY, CYAN = 0x00FF00, 0xFFFFFF, 0xFFFF00, 0xFF0000, 0x808080, 0x00FFFF
+
 -----------------------------------------------------------------------
--- Embedded page renderers (no external files, can't stale)
+-- Dashboard renderer
 -----------------------------------------------------------------------
 local function render_dashboard(gpu, w, h, data)
   data = data or {}
@@ -37,122 +37,113 @@ local function render_dashboard(gpu, w, h, data)
   local pending = data.pending or {}
   local locks = data.locks or {}
   local now = data.now_fn and data.now_fn() or 0
-
-  gpu.fill(1, 1, w, h, " ")
+  FL(gpu, 1, 1, w, h, " ")
 
   -- Row 1: title
-  gpu.setForeground(GRAY)
-  gpu.set(1, 1, (" AutoOS Broker -- %s"):format(data.subnet_id or "?"):sub(1, w))
+  FG(gpu, GRAY); GS(gpu, 1, 1, (" AutoOS Broker -- %s"):format(data.subnet_id or "?"):sub(1, w))
 
-  -- Row 2: status (broker state + uptime + port + jobs)
+  -- Row 2: broker state + uptime + port + jobs
   local active, faulted = 0, 0
   for _, l in pairs(lanes) do
     if l.state == "WORKING" then active = active + 1 elseif l.state == "FAULTED" then faulted = faulted + 1 end
   end
   local bstate = data.broker_active and "RUNNING" or "STOPPED"
-  local bsc = data.broker_active and G or R
-  local sline = (" BROKER: %-8s  Uptime: %-6s  Port: %-3s  Jobs: %s"):format(bstate, fmtt(data.uptime or 0), tostring(data.port or "?"), tostring(active).."/"..tostring(data.max_lanes or 0))
-  gpu.setForeground(GRAY); gpu.set(1, 2, sline:sub(1, w))
-  gpu.setForeground(sc); gpu.set(9, 2, st)
+  FG(gpu, GRAY)
+  GS(gpu, 1, 2, (" BROKER: %-8s  Uptime: %-6s  Port: %-3s  Jobs: %s"):format(
+    bstate, fmtt(data.uptime or 0), tostring(data.port or "?"), tostring(active).."/"..tostring(data.max_lanes or 0)):sub(1, w))
+  FG(gpu, data.broker_active and G or R); GS(gpu, 9, 2, bstate)
 
   -- Row 3: sep
-  gpu.setForeground(GRAY); gpu.set(1, 3, string.rep("-", w))
+  FG(gpu, GRAY); GS(gpu, 1, 3, string.rep("-", w))
 
-  -- Rows 4+: lanes
-  local r = 4
-  gpu.setForeground(GRAY); gpu.set(1, r, " Lane Status"); r = r + 1
-  gpu.set(1, r, (" %-14s %-9s %-18s %s"):format("Machine","State","Job","Elapsed")); r = r + 1
+  -- Lane Status
+  local r = 4; FG(gpu, GRAY); GS(gpu, 1, r, " Lane Status"); r = r + 1
+  GS(gpu, 1, r, (" %-14s %-9s %-18s %s"):format("Machine","State","Job","Elapsed")); r = r + 1
   local keys = {}; for k in pairs(lanes) do keys[#keys+1] = k end; table.sort(keys)
-  local off = data.scroll_offset or 0
-  if off < 0 then off = 0 elseif off > math.max(0,#keys-6) then off = math.max(0,#keys-6) end
+  local off = data.scroll_offset or 0; local maxo = math.max(0, #keys - 6)
+  if off < 0 then off = 0 elseif off > maxo then off = maxo end
   data.scroll_offset = off
-  for li=1+off, math.min(off+6, #keys) do
+  for li = 1 + off, math.min(off + 6, #keys) do
     if r > h - 6 then break end
-    local k = keys[li]; local l = lanes[k] or {}
-    local nm = #k > 14 and k:sub(1,13).."." or (k..string.rep(" ",14-#k))
-    local s = l.state or "?"; local lc = s=="WORKING" and Y or s=="FAULTED" and R or s=="IDLE" and G or W
+    local k = keys[li]; local l = lanes[k] or {}; local s = l.state or "?"
+    local lc = (s=="WORKING" and Y or s=="FAULTED" and R or s=="IDLE" and G or W)
+    local nm = #k > 14 and k:sub(1,13).."." or (k..string.rep(" ", 14 - #k))
     local j = l.current_job_id or (s=="FAULTED" and (l.last_error or "?")) or "--"
-    if #j > 17 then j = j:sub(1,16).."." end; j = j..string.rep(" ",18-#j)
+    if #j > 17 then j = j:sub(1,16).."." end
+    j = j..string.rep(" ", 18 - #j)
     local el = "--"; if s=="WORKING" and l.state_entered_at then el = fmtt(now - l.state_entered_at) end
-    gpu.setForeground(GRAY); gpu.set(1, r, (" %-14s "):format(nm))
-    gpu.setForeground(lc); gpu.set(17, r, (s..string.rep(" ",9)):sub(1,9))
-    gpu.setForeground(W); gpu.set(27, r, j)
-    gpu.setForeground(GRAY); gpu.set(46, r, el); r = r + 1
+    FG(gpu, GRAY); GS(gpu, 1, r, (" %-14s "):format(nm))
+    FG(gpu, lc); GS(gpu, 17, r, (s..string.rep(" ", 9)):sub(1, 9))
+    FG(gpu, W); GS(gpu, 27, r, j)
+    FG(gpu, GRAY); GS(gpu, 46, r, el); r = r + 1
   end
-  if #keys == 0 then gpu.setForeground(GRAY); gpu.set(1, r, " (no lanes)"); r = r + 1 end
+  if #keys == 0 then FG(gpu, GRAY); GS(gpu, 1, r, " (no lanes)"); r = r + 1 end
 
-  -- Pending queue
-  r = r + 1; gpu.setForeground(GRAY); gpu.set(1, r, " Pending Queue"); r = r + 1
-  if #pending == 0 then gpu.setForeground(GRAY); gpu.set(1, r, " (empty)"); r = r + 1
+  -- Pending Queue
+  r = r + 1; FG(gpu, GRAY); GS(gpu, 1, r, " Pending Queue"); r = r + 1
+  if #pending == 0 then FG(gpu, GRAY); GS(gpu, 1, r, " (empty)"); r = r + 1
   else
-    for i=1, math.min(#pending, 3) do
+    for i = 1, math.min(#pending, 3) do
       if r > h - 4 then break end
-      local j = pending[i] or {}; local id = (j.id or "?"):sub(1,20)
-      local it = (j.manifest and j.manifest.items and #j.manifest.items) or 0
-      local fl = (j.manifest and j.manifest.fluids and #j.manifest.fluids) or 0
-      gpu.setForeground(W); gpu.set(1, r, (" %-20s  age:%-5s  a:%d  %di/%df"):format(id, fmtag(now, j.created_at), j.attempt or 1, it, fl):sub(1, w)); r = r + 1
+      local jb = pending[i] or {}
+      local it = (jb.manifest and jb.manifest.items and #jb.manifest.items) or 0
+      local fl = (jb.manifest and jb.manifest.fluids and #jb.manifest.fluids) or 0
+      FG(gpu, W); GS(gpu, 1, r, (" %-20s  age:%-5s  a:%d  %di/%df"):format(
+        (jb.id or "?"):sub(1,20), fmtag(now, jb.created_at), jb.attempt or 1, it, fl):sub(1, w)); r = r + 1
     end
   end
 
-  -- Active locks
-  r = r + 1; gpu.setForeground(GRAY); gpu.set(1, r, " Active Locks"); r = r + 1
+  -- Active Locks
+  r = r + 1; FG(gpu, GRAY); GS(gpu, 1, r, " Active Locks"); r = r + 1
   local lkeys = {}; for k in pairs(locks) do lkeys[#lkeys+1] = k end
-  if #lkeys == 0 then gpu.setForeground(GRAY); gpu.set(1, r, " (none)"); r = r + 1
+  if #lkeys == 0 then FG(gpu, GRAY); GS(gpu, 1, r, " (none)"); r = r + 1
   else
-    for i=1, math.min(#lkeys, 3) do
+    for i = 1, math.min(#lkeys, 3) do
       if r > h - 1 then break end
       local key = lkeys[i]; local disp = key:gsub(":(%x%x%x%x%x%x%x%x)%-[%x%-]+", ":%1...")
       if #disp > 45 then disp = disp:sub(1,44).."." end
-      gpu.setForeground(W); gpu.set(1, r, (" %-47s  %s"):format(disp, locks[key] or "?"):sub(1, w)); r = r + 1
+      FG(gpu, W); GS(gpu, 1, r, (" %-47s  %s"):format(disp, locks[key] or "?"):sub(1, w)); r = r + 1
     end
   end
-
-  -- Help
-  gpu.setForeground(GRAY); gpu.set(1, h, "[1]Dash  [2]Logs  [3]Config  Tab:next  Q:quit  Up/Dn:scroll")
+  FG(gpu, GRAY); GS(gpu, 1, h, "[1]Dash  [2]Logs  [3]Config  S:start/stop  Q:quit  Up/Dn:scroll")
 end
 
+-----------------------------------------------------------------------
+-- Logs renderer
+-----------------------------------------------------------------------
 local function render_logs(gpu, w, h, data)
   data = data or {}
   local path = data.path or LOG_PATH
-  local lines = data.lines
-  if type(lines) ~= "table" then lines = {} end
-  local offset = data.offset or 0
-  local follow = data.follow
-
-  gpu.fill(1, 1, w, h, " ")
-
+  local lines = data.lines; if type(lines) ~= "table" then lines = {} end
+  local offset = data.offset or 0; local follow = data.follow
+  FL(gpu, 1, 1, w, h, " ")
   if follow then offset = 0; data.offset = 0 end
-
-  gpu.setForeground(GRAY)
-  local hdr = ("--- Logs: %s"):format(path or "?")
-  gpu.set(1, 1, hdr:sub(1, w))
-
+  FG(gpu, GRAY); GS(gpu, 1, 1, ("--- Logs: %s"):format(path or "?"):sub(1, w))
   if #lines == 0 then
-    gpu.setForeground(GRAY); local msg = "(no log data)"; gpu.set(math.floor((w-#msg)/2)+1, math.floor(h/2), msg)
+    FG(gpu, GRAY); GS(gpu, math.floor((w - 12)/2)+1, math.floor(h/2), "(no log data)")
     data._h = h; data._w = w; return
   end
-
   local vis = h - 2; if vis < 1 then vis = 1 end
   local ei = #lines - offset; if ei < 1 then ei = #lines elseif ei > #lines then ei = #lines end
   local si = ei - vis + 1; if si < 1 then si = 1 end
-  local row = 2
   for i = si, ei do
-    if row > h then break end
+    local lr = 2 + i - si; if lr > h then break end
     local line = lines[i] or ""
-    if line:find("FAILED", 1, true) or line:find("ERROR", 1, true) then gpu.setForeground(R)
-    elseif line:find("Phase", 1, true) then gpu.setForeground(Y)
-    elseif line:find("dispatched", 1, true) then gpu.setForeground(G)
-    else gpu.setForeground(W) end
-    gpu.set(1, row, line:sub(1, w)); row = row + 1
+    local lc = W
+    if line:find("FAILED", 1, true) or line:find("ERROR", 1, true) then lc = R
+    elseif line:find("Phase", 1, true) then lc = Y
+    elseif line:find("dispatched", 1, true) then lc = G end
+    FG(gpu, lc); GS(gpu, 1, lr, line:sub(1, w))
   end
   local sr = h
-  if follow then gpu.setForeground(CYAN); gpu.set(1, sr, "[Follow:ON]")
-  else gpu.setForeground(GRAY); gpu.set(1, sr, "[Follow:OFF]") end
-  gpu.setForeground(GRAY); local cnt = ("L%d/%d"):format(ei, #lines); gpu.set(w - #cnt, sr, cnt)
+  FG(gpu, follow and CYAN or GRAY); GS(gpu, 1, sr, follow and "[Follow:ON]" or "[Follow:OFF]")
+  FG(gpu, GRAY); local cnt = ("L%d/%d"):format(ei, #lines); GS(gpu, w - #cnt, sr, cnt)
   data._h = h; data._w = w
 end
 
--- Serialize config data back to Lua source
+-----------------------------------------------------------------------
+-- Config renderer
+-----------------------------------------------------------------------
 local function serialize_config(cfg)
   local function sv(v)
     if v == nil then return "nil"
@@ -160,40 +151,38 @@ local function serialize_config(cfg)
     elseif type(v) == "number" then return tostring(v)
     else return string.format("%q", v) end
   end
-  local lines = {"-- AutoOS Broker Config (UI-generated)", "local Config = {}", ""}
+  local l = {"-- AutoOS Broker Config (UI-generated)", "local Config = {}", ""}
   local top = {"subnet_id","main_net_channel","input_mode","completion_mode","do_round_robin",
     "circuit_item_name","database_address","database_slot_count","interface_item_slots",
     "interface_item_slot_start","interface_fluid_side","shared_interface_address",
     "chest_slot_start","circuit_bus_slot","settle_s","tick_interval","monitor_poll_s",
     "staging_timeout_s","completion_timeout_s","require_empty_return","orchestrator_address",
     "broker_modem_port","redstone_address","redstone_side","redstone_pulse_s"}
-  for _,k in ipairs(top) do if cfg[k] ~= nil then lines[#lines+1] = "Config."..k.." = "..sv(cfg[k]) end end
+  for _,k in ipairs(top) do if cfg[k] ~= nil then l[#l+1] = "Config."..k.." = "..sv(cfg[k]) end end
   for _,sk in ipairs({"scheduler","central"}) do
-    local sub = cfg[sk] or {}; lines[#lines+1] = "\nConfig."..sk.." = {"
-    for k,v in pairs(sub) do lines[#lines+1] = "  "..k.." = "..sv(v).."," end
-    lines[#lines+1] = "}"
+    local sub = cfg[sk] or {}; l[#l+1] = "\nConfig."..sk.." = {"
+    for k,v in pairs(sub) do l[#l+1] = "  "..k.." = "..sv(v).."," end
+    l[#l+1] = "}"
   end
-  local machines = cfg.machines or {}; lines[#lines+1] = "\nConfig.machines = {"
+  local machines = cfg.machines or {}; l[#l+1] = "\nConfig.machines = {"
   for _,m in ipairs(machines) do
-    lines[#lines+1] = "  {"
-    for k,v in pairs(m) do lines[#lines+1] = "    "..k.." = "..sv(v).."," end
-    lines[#lines+1] = "  },"
+    l[#l+1] = "  {"
+    for k,v in pairs(m) do l[#l+1] = "    "..k.." = "..sv(v).."," end
+    l[#l+1] = "  },"
   end
-  lines[#lines+1] = "}\n\nreturn Config"
-  return table.concat(lines, "\n")
+  l[#l+1] = "}\n\nreturn Config"; return table.concat(l, "\n")
 end
 
 local function render_config(gpu, w, h, data)
   data = data or {}
-  if not data._cfg then
-    local ok, cfg = pcall(dofile, "/home/subnet_broker/config.lua")
-    if ok and type(cfg) == "table" then data._cfg = cfg end
-  end
-  local cfg = data._cfg or {}
-  local sc, ct = cfg.scheduler or {}, cfg.central or {}
-
-  -- Build sections from config
-  if not data._sections then
+  -- Build sections once
+  if not data._sections or #data._sections == 0 then
+    local cfg = {}
+    if not data._cfg then
+      local ok, c = pcall(dofile, "/home/subnet_broker/config.lua")
+      if ok and type(c) == "table" then data._cfg = c; cfg = c end
+    else cfg = data._cfg end
+    local sc, ct = cfg.scheduler or {}, cfg.central or {}
     data._sections = {
       {n="Network", f={
         {l="Subnet ID",       v=cfg.subnet_id or "",               t="s"},
@@ -252,77 +241,66 @@ local function render_config(gpu, w, h, data)
         {l="Req IF Staging",    v=ct.require_interface_staging or false, t="b"},
       }},
       {n="Machines", ismach=true, f={
-        {l="ID",                t="s"},
-        {l="GT Address",        t="s"},
-        {l="IF Address",        t="s"},
-        {l="Item TP Addr",      t="s"},
-        {l="Fluid TP Addr",     t="s"},
-        {l="Side Buffer",       t="n", min=0, max=5},
-        {l="Side Bus B",        t="n", min=0, max=5},
-        {l="Side Return",       t="n", min=0, max=5},
-        {l="Side Fluid Buffer", t="n", min=0, max=5},
-        {l="Side Fluid Hatch",  t="n", min=0, max=5},
-        {l="Input Slot",        t="n", min=1},
+        {l="ID",                t="s"}, {l="GT Address", t="s"}, {l="IF Address", t="s"},
+        {l="Item TP Addr",      t="s"}, {l="Fluid TP Addr", t="s"},
+        {l="Side Buffer",       t="n", min=0, max=5}, {l="Side Bus B", t="n", min=0, max=5},
+        {l="Side Return",       t="n", min=0, max=5}, {l="Side Fluid Buffer", t="n", min=0, max=5},
+        {l="Side Fluid Hatch",  t="n", min=0, max=5}, {l="Input Slot", t="n", min=1},
       }},
     }
     if not data._machines then data._machines = cfg.machines or {} end
     if not data._fs then data._fs = 1 end
     if not data._ff then data._ff = 1 end
+    if not data._editing then data._editing = false end
+    if not data._eb then data._eb = "" end
   end
 
   local sections = data._sections
+  if not sections or #sections == 0 then FG(gpu,R);GS(gpu,2,2,"Config unavailable");return end
   local fs = data._fs or 1; if fs < 1 then fs = 1 elseif fs > #sections then fs = #sections end
   data._fs = fs
   local sec = sections[fs] or sections[1]
+  if not sec then FG(gpu,R);GS(gpu,2,2,"Config section error");return end
   local fields = sec.f or {}
   local ff = data._ff or 1; if ff < 1 then ff = 1 elseif ff > #fields then ff = #fields end
   data._ff = ff
 
-  gpu.fill(1, 1, w, h, " ")
+  FL(gpu, 1, 1, w, h, " ")
+  FG(gpu, GRAY); GS(gpu, 1, 1, (" Config: subnet_broker/config.lua  [Ctrl+S:Save]"):sub(1, w))
 
-  -- Header
-  gpu.setForeground(GRAY); gpu.set(1, 1, (" Config: subnet_broker/config.lua  [Ctrl+S:Save]"):sub(1, w))
-
-  -- Left: sections
+  -- Left pane: sections
   local lw = math.floor(w * 0.35); if lw < 10 then lw = 10 end
   for i, s in ipairs(sections) do
-    if i > h-3 then break end
-    gpu.setForeground(i == fs and W or GRAY)
-    gpu.set(1, i+1, (" %d.%s"):format(i, s.n .. string.rep(" ", 22 - #s.n)):sub(1, lw))
+    if i > h - 3 then break end
+    FG(gpu, i == fs and W or GRAY)
+    GS(gpu, 1, i + 1, (" %d.%s"):format(i, s.n .. string.rep(" ", 22 - #s.n)):sub(1, lw))
   end
 
-  -- Right: fields
+  -- Right pane: fields
   local rx, rw = lw + 2, w - lw - 1
-  gpu.setForeground(Y); gpu.set(rx, 2, sec.n)
-  gpu.setForeground(GRAY); gpu.set(rx, 3, string.rep("-", rw))
-
+  FG(gpu, Y); GS(gpu, rx, 2, sec.n)
+  FG(gpu, GRAY); GS(gpu, rx, 3, string.rep("-", rw))
   local row = 4
   for i = 1, math.min(#fields, h - 3) do
-    if row > h-2 then break end
+    if row > h - 2 then break end
     local f = fields[i]
     local val = (data._editing and i == ff) and (data._eb or "").."_" or tostring(f.v or "")
     if f.t == "b" and not data._editing then val = f.v and "true" or "false" end
     local lb = f.l; if #lb > 20 then lb = lb:sub(1,19).."." end
-    local line = (" %-21s %s"):format(lb, val):sub(1, rw)
-    gpu.setForeground(i == ff and CYAN or W); gpu.set(rx, row, line); row = row + 1
+    FG(gpu, i == ff and CYAN or W); GS(gpu, rx, row, (" %-21s %s"):format(lb, val):sub(1, rw)); row = row + 1
   end
-
   -- Machines section
   if sec.ismach then
-    gpu.setForeground(GRAY); gpu.set(rx, row, (" Machines: %d"):format(#data._machines)); row = row + 1
+    FG(gpu, GRAY); GS(gpu, rx, row, (" Machines: %d"):format(#data._machines)); row = row + 1
     for i = 1, math.min(#data._machines, h - row) do
-      local m = data._machines[i]; gpu.setForeground(i==ff and CYAN or W)
-      gpu.set(rx, row, (" %d. %s"):format(i, m.id or ("#..i")):sub(1, rw)); row = row + 1
+      local m = data._machines[i]; FG(gpu, i == ff and CYAN or W)
+      GS(gpu, rx, row, (" %d. %s"):format(i, m.id or ("#"..i)):sub(1, rw)); row = row + 1
     end
   end
-
-  -- Status
-  if data._status then gpu.setForeground(data._status:find("Err") and R or G); gpu.set(1, h-1, data._status:sub(1, w)) end
-
-  -- Help
-  gpu.setForeground(0x404040)
-  local help = data._editing and "EDITING: Enter=commit Esc=cancel Bksp=delete" or "Up/Dn:field  L/R:section  Tab:next  Enter:edit  Ctrl+S:save  2-8:jump"
-  gpu.set(1, h, help:sub(1, w))
+  -- Status + help
+  if data._status then FG(gpu, data._status:find("Err") and R or G); GS(gpu, 1, h - 1, data._status:sub(1, w)) end
+  FG(gpu, 0x404040)
+  GS(gpu, 1, h, (data._editing and "EDIT: Enter=commit Bksp=delete" or "Up/Dn:field L/R:section Tab:next Enter:edit Ctrl+S:save 2-8:jump"):sub(1, w))
   data._h = h; data._w = w
 end
 
@@ -332,71 +310,76 @@ end
 local function handle_dashboard_key(code, char, data)
   data = data or {}; local n = 0; for _ in pairs(data.lanes or {}) do n = n + 1 end
   local off = data.scroll_offset or 0
-  if code == 200 then data.scroll_offset = math.max(0, off - 1)        -- Up
-  elseif code == 208 then data.scroll_offset = math.min(math.max(0,n-6), off+1) end -- Down
+  if code == 200 then data.scroll_offset = math.max(0, off - 1)
+  elseif code == 208 then data.scroll_offset = math.min(math.max(0, n - 6), off + 1) end
 end
 
 local function handle_logs_key(code, char, data)
   data = data or {}; data.lines = data.lines or {}; local hh = data._h or 20
   local mx = math.max(0, #data.lines - hh + 2)
-  if code == 200 then data.offset = (data.offset or 0) + 1            -- Up
-  elseif code == 208 then data.offset = (data.offset or 0) - 1        -- Down
-  elseif code == 201 then data.offset = (data.offset or 0) + 10       -- PgUp
-  elseif code == 209 then data.offset = (data.offset or 0) - 10       -- PgDn
-  elseif code == 199 then data.offset = #data.lines                   -- Home
-  elseif code == 207 then data.offset = 0                             -- End
-  elseif code == 57 then data.follow = not data.follow                -- Space
-  end
+  if code == 200 then data.offset = (data.offset or 0) + 1
+  elseif code == 208 then data.offset = (data.offset or 0) - 1
+  elseif code == 201 then data.offset = (data.offset or 0) + 10
+  elseif code == 209 then data.offset = (data.offset or 0) - 10
+  elseif code == 199 then data.offset = #data.lines
+  elseif code == 207 then data.offset = 0
+  elseif code == 57 then data.follow = not data.follow end
   if data.offset < 0 then data.offset = 0 elseif data.offset > mx then data.offset = mx end
 end
 
 local function handle_config_key(code, char, data)
   data = data or {}; data._sections = data._sections or {}; data._machines = data._machines or {}
-  local secs = data._sections; local fs = data._fs or 1
+  local secs = data._sections; if #secs == 0 then return end
+  local fs = data._fs or 1; if fs < 1 then fs = 1 elseif fs > #secs then fs = #secs end
+  data._fs = fs
   local sec = secs[fs] or {}; local fields = sec.f or {}; local ff = data._ff or 1
+  if ff < 1 then ff = 1 elseif ff > #fields then ff = #fields end
+  data._ff = ff
 
-  -- Ctrl+S (char=19 = ASCII DC3)
+  -- Ctrl+S (char == 19 = ASCII DC3)
   if char == 19 then
     if data._editing then data._editing = false; data._eb = "" end
     local out = data._cfg or {}
-    for _,s in ipairs(data._sections or {}) do
-      for _,f in ipairs(s.f or {}) do out[f.k or ""] = f.v end
+    for _, s in ipairs(data._sections or {}) do
+      for _, f in ipairs(s.f or {}) do
+        if f.k then out[f.k] = f.v end
+      end
     end
     out.machines = data._machines
     local content = serialize_config(out)
     local f, err = io.open("/home/subnet_broker/config.lua", "w")
     if f then f:write(content); f:close(); data._status = "Saved OK — reboot to apply"
-    else data._status = "Error: "..tostring(err) end
+    else data._status = "Error: " .. tostring(err) end
     return
   end
-  -- Backspace cancels edit (ESC is system-level keyboard release in OC)
+  -- Backspace cancels edit (ESC is OC system-level)
   if code == 14 then data._editing = false; data._eb = ""; data._status = "cancelled"; return end
 
   if not data._editing then
-    if code == 200 then data._ff = math.max(1, ff - 1)                         -- Up
-    elseif code == 208 then data._ff = math.min(#fields, ff + 1)               -- Down
-    elseif code == 203 then data._fs = fs - 1; if data._fs < 1 then data._fs = #secs end; data._ff = 1  -- Left=prev section
-    elseif code == 205 then data._fs = fs + 1; if data._fs > #secs then data._fs = 1 end; data._ff = 1  -- Right=next section
-    elseif code == 15 then                                                      -- Tab=next field, wrap to next section
+    if code == 200 then data._ff = math.max(1, ff - 1)
+    elseif code == 208 then data._ff = math.min(#fields, ff + 1)
+    elseif code == 203 then data._fs = fs - 1; if data._fs < 1 then data._fs = #secs end; data._ff = 1
+    elseif code == 205 then data._fs = fs + 1; if data._fs > #secs then data._fs = 1 end; data._ff = 1
+    elseif code == 15 then
       data._ff = ff + 1; if data._ff > #fields then data._ff = 1; data._fs = fs + 1; if data._fs > #secs then data._fs = 1 end end
-    elseif code == 28 then                                                      -- Enter
+    elseif code == 28 then
       local f = fields[ff]; if not f then return end
       if f.t == "b" then f.v = not f.v
       elseif f.t == "e" and f.c then
         local cur = tostring(f.v or f.c[1])
         for ci, cv in ipairs(f.c) do if cv == cur then f.v = f.c[(ci % #f.c) + 1]; break end end
       else data._eb = tostring(f.v or ""); data._editing = true; data._status = nil end
-    elseif char and char >= 50 and char <= 56 then data._fs = char - 49; data._ff = 1 end -- keys 2-8 = sections 1-7
+    elseif char and char >= 50 and char <= 56 then data._fs = char - 49; data._ff = 1 end
   else
     local f = fields[ff]
-    if code == 28 then                                                            -- Enter commit
+    if code == 28 then
       if f then
         if f.t == "n" then local n = tonumber(data._eb); if n then f.v = n; data._status = f.l.."="..n else data._status = "Invalid number" end
         else f.v = data._eb; data._status = f.l.." updated" end
       end; data._editing = false; data._eb = ""
-    elseif code == 14 then data._eb = data._eb:sub(1, -2)                        -- Bksp
+    elseif code == 14 then data._eb = data._eb:sub(1, -2)
     else
-      if char and char >= 32 and char <= 126 then                                -- Printable (layout-independent)
+      if char and char >= 32 and char <= 126 then
         local ch = string.char(char)
         if f and f.t == "n" then if (ch>="0" and ch<="9") or ch=="." or (ch=="-" and #data._eb==0) then data._eb = data._eb..ch end
         else data._eb = data._eb..ch end
@@ -418,24 +401,18 @@ function BrokerUI.new(rob, config, deps)
   self._current_page = "dashboard"
   self._dispatch_log = {}; self._prev_lane_states = {}
   self._running = false; self._start_time = self._now()
-
-  -- Broker lifecycle
-  self._broker_ctx = deps.broker_ctx      -- context from BrokerMain.build()
-  self._broker_bm  = deps.broker_bm       -- BrokerMain module (for attach_tasks)
+  self._broker_ctx = deps.broker_ctx; self._broker_bm = deps.broker_bm
   self._broker_active = false
-
-  -- Embedded page registry (no external files)
   self._pages = {
     dashboard = { render = render_dashboard, handle_key = handle_dashboard_key },
     logs      = { render = render_logs,      handle_key = handle_logs_key },
     config    = { render = render_config,    handle_key = handle_config_key },
   }
-
   return self
 end
 
 -----------------------------------------------------------------------
--- Broker start / stop
+-- Broker start/stop
 -----------------------------------------------------------------------
 function BrokerUI:_start_broker()
   if self._broker_active then return end
@@ -443,10 +420,7 @@ function BrokerUI:_start_broker()
   if not ctx then self._log("[Broker] no broker context — cannot start"); return end
   self._log("[Broker] starting lane workers...")
   local ok, err = pcall(function()
-    if self._broker_bm and self._broker_bm.attach_tasks then
-      self._broker_bm.attach_tasks(ctx)
-    end
-    -- Build pump with scheduler steps
+    if self._broker_bm and self._broker_bm.attach_tasks then self._broker_bm.attach_tasks(ctx) end
     if ctx.scheduler and ctx.poll and ctx.rob then
       local sched, poll, rob, st = ctx.scheduler, ctx.poll, ctx.rob, ctx.state
       self._pump_fn = function()
@@ -459,24 +433,16 @@ function BrokerUI:_start_broker()
       end
     end
   end)
-  if not ok then
-    self._log("[Broker] start FAILED: " .. tostring(err))
-    return
-  end
-  self._broker_active = true
-  self._log("[Broker] RUNNING — press Q to stop")
+  if not ok then self._log("[Broker] start FAILED: "..tostring(err)); return end
+  self._broker_active = true; self._log("[Broker] RUNNING — press Q to stop")
 end
 
 function BrokerUI:_stop_broker()
   if not self._broker_active then return end
-  self._log("[Broker] stopping lane workers...")
+  self._log("[Broker] stopping...")
   local ctx = self._broker_ctx
-  if ctx and ctx.scheduler then
-    -- Signal all coroutines to stop (they check _broker_active)
-    ctx.scheduler:clear()
-  end
+  if ctx and ctx.scheduler then pcall(ctx.scheduler.clear, ctx.scheduler) end
   self._broker_active = false
-  -- Restore basic pump (poll only, no scheduler steps)
   if ctx then
     local poll, rob, st = ctx.poll, ctx.rob, ctx.state
     self._pump_fn = function()
@@ -508,24 +474,19 @@ function BrokerUI:_track_dispatch()
   end
 end
 
------------------------------------------------------------------------
--- Data builders
------------------------------------------------------------------------
 function BrokerUI:_build_dashboard_data()
   if not self._rob then
     return { lanes={}, pending={}, locks={}, dispatch_log={}, debug={},
       subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
       port=self._config.broker_modem_port or self._config.main_net_channel or 0,
-      max_lanes=#(self._config.machines or {}), now_fn=self._now,
-      broker_active=self._broker_active }
+      max_lanes=#(self._config.machines or {}), now_fn=self._now, broker_active=self._broker_active }
   end
   local dbg = self._rob:get_debug()
   return { lanes=dbg.lanes, pending=self._rob:pending_queue(),
     locks=self._rob:get_locks(), dispatch_log=self._dispatch_log, debug=dbg,
     subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
     port=self._config.broker_modem_port or self._config.main_net_channel or 0,
-    max_lanes=#(self._config.machines or {}), now_fn=self._now,
-    broker_active=self._broker_active }
+    max_lanes=#(self._config.machines or {}), now_fn=self._now, broker_active=self._broker_active }
 end
 
 -----------------------------------------------------------------------
@@ -557,24 +518,20 @@ function BrokerUI:_nav_next()
 end
 
 -----------------------------------------------------------------------
--- Key handling (char = ASCII from event, code = scancode)
+-- Key handling (char=ASCII, code=scancode)
 -----------------------------------------------------------------------
 function BrokerUI:_handle_key(code, char)
-  -- Use 'char' for printable keys (layout-independent)
   if char then
-    if char == 49 then self:_nav_to("dashboard")                             -- '1'
-    elseif char == 50 then self:_nav_to("logs")                              -- '2'
-    elseif char == 51 then self:_nav_to("config")                            -- '3'
-    elseif char == 81 or char == 113 then self:_stop_broker(); self._running = false; return -- 'Q'
-    elseif char == 83 or char == 115 then                                    -- 'S'
-      if self._broker_active then self:_stop_broker() else self:_start_broker() end
-      return
+    if char == 49 then self:_nav_to("dashboard")
+    elseif char == 50 then self:_nav_to("logs")
+    elseif char == 51 then self:_nav_to("config")
+    elseif char == 81 or char == 113 then self:_stop_broker(); self._running = false; return
+    elseif char == 83 or char == 115 then
+      if self._broker_active then self:_stop_broker() else self:_start_broker() end; return
     end
   end
-  -- Non-printable: use 'code' (scancode) for arrows, tab, enter
-  if code == 15 then self:_nav_next()                                         -- Tab
-  elseif code == 14 and self._current_page == "config" then                  -- Bksp in config = go back to dashboard
-    self:_nav_to("dashboard"); return
+  if code == 15 then self:_nav_next()
+  elseif code == 14 and self._current_page == "config" then self:_nav_to("dashboard"); return
   else
     local page = self._pages[self._current_page]
     if page and page.handle_key then page.handle_key(code, char, page.data) end
@@ -590,7 +547,7 @@ function BrokerUI:_render()
   if not okr or not w then w, h = 80, 25 end
   if type(w) ~= "number" then w = 80 elseif type(h) ~= "number" then h = 25 end
   w, h = math.max(1, w), math.max(1, h)
-  pcall(gpu.fill, gpu, 1, 1, w, h, " ")
+  FL(gpu, 1, 1, w, h, " ")
   local page = self._pages[self._current_page]
   if page and page.render then
     local ok, err = pcall(page.render, gpu, w, h - 1, page.data)
@@ -599,7 +556,7 @@ function BrokerUI:_render()
 end
 
 -----------------------------------------------------------------------
--- Headless
+-- Headless fallback
 -----------------------------------------------------------------------
 function BrokerUI:headless_line()
   self:_track_dispatch()
@@ -615,33 +572,25 @@ end
 -- Main loop
 -----------------------------------------------------------------------
 function BrokerUI:run()
-  if not self._gpu then while true do if self._pump_fn then self._pump_fn() end; print(self:headless_line()); os.execute("sleep 1") end end
+  if not self._gpu then
+    while true do if self._pump_fn then pcall(self._pump_fn) end; print(self:headless_line()); os.execute("sleep 1") end
+  end
   local event = require("event")
-  -- Bind screen
   if self._screen_addr then pcall(self._gpu.bind, self._screen_addr) end
-  -- Get resolution safely (some GPUs lack setResolution)
   local mw, mh = 80, 25
   pcall(function()
     local ok, w, h = pcall(self._gpu.getResolution)
     if ok and w and h then mw, mh = w, h end
   end)
   pcall(self._gpu.setResolution, mw, mh)
-  self._running = true
-  pcall(self._refresh_data, self)
-  pcall(self._render, self)
-  -- Main loop
+  self._running = true; pcall(self._refresh_data, self); pcall(self._render, self)
   while self._running do
     if self._pump_fn then pcall(self._pump_fn) end
-    pcall(self._refresh_data, self)
-    local ok_render = pcall(self._render, self)
-    if not ok_render then self._log("[BrokerUI] render error — retrying") end
+    pcall(self._refresh_data, self); pcall(self._render, self)
     local ev = { event.pull(1.0, "key_down") }
     if ev[1] == "key_down" then self:_handle_key(ev[4], ev[3]) end
   end
-  -- Cleanup
-  pcall(self._gpu.fill, 1, 1, mw, mh, " ")
-  pcall(self._gpu.setForeground, W)
-  pcall(self._gpu.set, 1, 1, "AutoOS Broker stopped.")
+  FL(self._gpu, 1, 1, mw, mh, " "); FG(self._gpu, W); GS(self._gpu, 1, 1, "AutoOS Broker stopped.")
 end
 
 return BrokerUI
