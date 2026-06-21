@@ -334,10 +334,11 @@ function BrokerUI:_render()
 
   -- Only clear on page transitions; state updates skip the expensive gpu.fill
   if self._page_dirty then
-    -- gpu.fill can fail silently on some OC GPUs — fall back to manual blank-line clear
-    local fill_ok = pcall(gpu.fill, gpu, 1, 1, w, h, " ")
+    -- ponytail: gpu.fill does NOT take the proxy as first arg (unlike : syntax)
+    -- Component proxies handle dispatch internally; fill(x, y, w, h, char) takes 5 args.
+    local fill_ok = pcall(gpu.fill, 1, 1, w, h, " ")
     if not fill_ok then
-      for cr = 1, h do pcall(gpu.set, gpu, 1, cr, string.rep(" ", w)) end
+      for cr = 1, h do pcall(gpu.set, 1, cr, string.rep(" ", w)) end
     end
     self._page_dirty = false
   end
@@ -432,7 +433,7 @@ function BrokerUI:run()
     end
   end
   -- Cleanup on exit
-  pcall(self._gpu.fill, self._gpu, 1, 1, mw, mh, " ")
+  pcall(self._gpu.fill, 1, 1, mw, mh, " ")
   U.FG(self._gpu, U.W); U.GS(self._gpu, 1, 1, "AutoOS Broker stopped.")
 end
 
