@@ -441,11 +441,10 @@ function BrokerUI:_start_broker()
         if type(result) == "string" then msg = msg .. result
         elseif type(okb) == "string" then msg = msg .. okb
         else msg = msg .. tostring(result or okb) end
-        self._status = msg; self._log("[Broker] "..msg); return
+        self._status = msg; return
       end
     else self._status = "broker_main not available"; return end
   end
-  self._log("[Broker] starting lane workers...")
   local ok, err = pcall(function()
     if self._broker_bm and self._broker_bm.attach_tasks then self._broker_bm.attach_tasks(ctx) end
     if ctx.scheduler and ctx.poll and ctx.rob then
@@ -463,14 +462,12 @@ function BrokerUI:_start_broker()
       end
     end
   end)
-  if not ok then self._log("[Broker] start FAILED: "..tostring(err)); self._status = "Start FAILED: "..tostring(err); return end
+  if not ok then self._status = "Start FAILED: "..tostring(err); return end
   self._broker_active = true; self._status = "Broker RUNNING"
-  self._log("[Broker] RUNNING — press Q to stop")
 end
 
 function BrokerUI:_stop_broker()
   if not self._broker_active then return end
-  self._log("[Broker] stopping...")
   local ctx = self._broker_ctx
   if ctx and ctx.scheduler then pcall(ctx.scheduler.clear, ctx.scheduler) end
   self._broker_active = false
@@ -482,7 +479,7 @@ function BrokerUI:_stop_broker()
       pcall(rob.tick, rob, st.poll_results)
     end
   end
-  self._log("[Broker] STOPPED")
+  self._status = "Broker STOPPED"
 end
 
 -----------------------------------------------------------------------
@@ -506,18 +503,29 @@ function BrokerUI:_track_dispatch()
 end
 
 function BrokerUI:_build_dashboard_data()
-  if not self._rob then
-    return { lanes={}, pending={}, locks={}, dispatch_log={}, debug={},
-      subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
-      port=self._config.broker_modem_port or self._config.main_net_channel or 0,
-      max_lanes=#(self._config.machines or {}), now_fn=self._now, broker_active=self._broker_active, status=self._status }
-  end
-  local dbg = self._rob:get_debug()
-  return { lanes=dbg.lanes, pending=self._rob:pending_queue(),
-    locks=self._rob:get_locks(), dispatch_log=self._dispatch_log, debug=dbg,
+  local max_lanes = #(self._config.machines or {})
+  local base = {
     subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
     port=self._config.broker_modem_port or self._config.main_net_channel or 0,
-    max_lanes=#(self._config.machines or {}), now_fn=self._now, broker_active=self._broker_active, status=self._status }
+    max_lanes=max_lanes, now_fn=self._now, broker_active=self._broker_active, status=self._status }
+  -- Merge config machines into lanes: show all machines, IDLE if never dispatched
+  local lanes = {}
+  for _, m in ipairs(self._config.machines or {}) do
+    lanes[m.id] = { state = "IDLE", current_job_id = nil, last_error = nil, state_entered_at = nil }
+  end
+  if self._rob then
+    local dbg = self._rob:get_debug()
+    for mid, lane in pairs(dbg.lanes or {}) do
+      lanes[mid] = lane
+    end
+    return { lanes=lanes, pending=self._rob:pending_queue(),
+      locks=self._rob:get_locks(), dispatch_log=self._dispatch_log, debug=dbg,
+      subnet_id=base.subnet_id, uptime=base.uptime, port=base.port,
+      max_lanes=base.max_lanes, now_fn=base.now_fn, broker_active=base.broker_active, status=base.status }
+  end
+  return { lanes=lanes, pending={}, locks={}, dispatch_log=self._dispatch_log, debug={},
+    subnet_id=base.subnet_id, uptime=base.uptime, port=base.port,
+    max_lanes=base.max_lanes, now_fn=base.now_fn, broker_active=base.broker_active, status=base.status }
 end
 
 -----------------------------------------------------------------------
@@ -597,8 +605,7 @@ function BrokerUI:_render()
   FL(gpu, 1, 1, w, h, " ")
   local page = self._pages[self._current_page]
   if page and page.render then
-    local ok, err = pcall(page.render, gpu, w, h - 1, page.data)
-    if not ok then self._log("[BrokerUI] render error ("..self._current_page.."): "..tostring(err)) end
+    pcall(page.render, gpu, w, h - 1, page.data)
   end
 end
 
