@@ -6,3 +6,4 @@ fix config saving and validation when changing and augmenting config
 
 be more descriptive in config
 
+Thread api for modem communication (TO DO FOR ORCHESTRATOR UI STILL NEEDS DONE)

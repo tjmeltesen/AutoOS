@@ -410,8 +410,8 @@ function BrokerUI:_handle_key(code, char)
   if code == 2 then self:_nav_to("dashboard"); return      -- 1 key
   elseif code == 3 then self:_nav_to("logs"); return        -- 2 key
   elseif code == 4 then self:_nav_to("config"); return      -- 3 key
-  elseif code == 31 then                                    -- S key (start/stop)
-    if self._broker_active then self:_stop_broker() else self:_start_broker() end; return
+  elseif code == 31 then                                    -- S key (start)
+    if not self._broker_active then self:_start_broker() end; return
   elseif code == 15 then self:_nav_next(); return            -- Tab
   elseif code == 14 and self._current_page == "config" then -- Backspace on config = go back
     self:_nav_to("dashboard"); return
@@ -530,6 +530,7 @@ function BrokerUI:run()
     if ok and w and h then mw, mh = w, h end
   end)
   pcall(self._gpu.setResolution, mw, mh)
+  pcall(self._gpu.fill, 1, 1, mw, mh, " ")  -- clear terminal bleed
   self._running = true; pcall(self._refresh_data, self)
   self._page_dirty = true; pcall(self._render, self)
   local last_pump = 0
