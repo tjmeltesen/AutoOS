@@ -644,11 +644,8 @@ end
 function BrokerUI:_nav_to(name)
   if not self._pages[name] or self._current_page == name then return end
   self._current_page = name
-  -- One-shot screen clear on page switch — new page may be shorter
-  if self._gpu then
-    local ok, w, h = pcall(self._gpu.getResolution, self._gpu)
-    if ok and w and h then pcall(self._gpu.fill, self._gpu, 1, 1, w, h, " ") end
-  end
+  -- Flag for timer to clear screen once — no GPU calls in event handlers
+  self._needs_clear = true
   self:_refresh_data()
   -- Force immediate render so new page appears without waiting for throttle
   self._last_render = 0
@@ -700,27 +697,6 @@ function BrokerUI:_handle_key(code, char)
   end
 end
 
-
----------------------------------------------------------------------------
--- Targeted config field redraw (avoids full render on keystroke)
----------------------------------------------------------------------------
-function BrokerUI:_redraw_config_field()
-  local page = self._pages.config
-  local data = page and page.data; if not data or not data._editing then return end
-  if data._locked then return end
-  local gpu = self._gpu; if not gpu then return end
-  local ff = data._ff; local secs = data._sections; if not secs then return end
-  local fields = (secs[data._fs] or {}).f or {}
-  local f = fields[ff]; if not f then return end
-  local rx = data._rx or 22; local rw = data._rw or 58
-  local row = 2 * ff + 2  -- 2-line layout: field ff at row 4 + (ff-1)*2
-  local lb = f.l or ""; if #lb > 20 then lb = lb:sub(1,19).."." end
-  local val = (data._eb or "") .. "_"
-  pcall(gpu.setForeground, 0x00FFFF)  -- CYAN (editing color)
-  pcall(gpu.set, rx, row, (" %-21s %s"):format(lb, val) .. string.rep(" ", math.max(0, rw - 23 - #val)))
-  pcall(gpu.setForeground, 0xFFFFFF)  -- restore white
-end
-
 -----------------------------------------------------------------------
 -- Render
 -----------------------------------------------------------------------
@@ -730,10 +706,23 @@ function BrokerUI:_render()
   if not okr or not w then w, h = 80, 25 end
   if type(w) ~= "number" then w = 80 elseif type(h) ~= "number" then h = 25 end
   w, h = math.max(1, w), math.max(1, h)
-  -- No FL() — individual page renderers pad each line to width w
-  local page = self._pages[self._current_page]
-  if page and page.render then
-    pcall(page.render, gpu, w, h - 1, page.data)
+
+  -- Centralized screen clear: only on page switch, only here
+  if self._needs_clear then
+    pcall(gpu.fill, gpu, 1, 1, w, h, " ")
+    self._needs_clear = false
+  end
+
+  -- Strict page gating: only the active page renders — no bleeding
+  if self._current_page == "dashboard" then
+    local page = self._pages.dashboard
+    if page and page.render then pcall(page.render, gpu, w, h - 1, page.data) end
+  elseif self._current_page == "logs" then
+    local page = self._pages.logs
+    if page and page.render then pcall(page.render, gpu, w, h - 1, page.data) end
+  elseif self._current_page == "config" then
+    local page = self._pages.config
+    if page and page.render then pcall(page.render, gpu, w, h - 1, page.data) end
   end
 end
 
@@ -774,17 +763,17 @@ function BrokerUI:run()
     if ev[1] == "key_down" then
       self._ctrl = self._kb and self._kb.isControlDown()
       self:_handle_key(ev[4], ev[3])
-      -- Targeted redraw for config text editing (no full render needed)
-      if self._current_page == "config" then self:_redraw_config_field() end
+      -- Trigger immediate render for config keystroke feedback (timer-safe: only sets flag)
+      if self._current_page == "config" then self._last_render = 0 end
     elseif ev[1] == "clipboard" then
-      -- Paste clipboard text into active config field
+      -- Paste clipboard text into active config field (data-only, timer does the draw)
       local text = ev[3]
       if self._current_page == "config" and type(text) == "string" and #text > 0 then
         local page = self._pages.config
         local data = page and page.data
         if data and data._editing and not data._locked then
           data._eb = (data._eb or "") .. text
-          self:_redraw_config_field()
+          self._last_render = 0  -- trigger immediate render via timer
         end
       end
     end
