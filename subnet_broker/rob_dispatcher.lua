@@ -1078,10 +1078,10 @@ function ROBDispatcher:_step_buffer_monitor()
       if active then
         return events  -- job still running or pending, hold the claim
       end
-      -- Job completed — release claim and check fingerprint
+      -- Job completed — release claim and allow new items to be picked up
       self._batch_claimed = false
       self._batch_job_id = nil
-      if fingerprint_equal(fp, self._last_enqueued_fp) then return events end
+      self._last_enqueued_fp = nil  -- clear suppression: chest may have been restocked
     end
 
     -- Suppress: the fingerprint matches what we last enqueued
