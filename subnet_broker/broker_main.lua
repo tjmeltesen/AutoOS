@@ -18,29 +18,32 @@ local mode = ({...})[1]
 
 local BrokerMain = {}
 
-local function print_lane_status(poll, machines)
+local function print_lane_status(poll, machines, log)
+  log = log or print
   local results = poll:poll_all()
   for _, m in ipairs(machines) do
     local st = results[m.id]
     if not st or not st.available then
-      print(string.format("[Broker] %s OFFLINE — %s",
+      log(string.format("[Broker] %s OFFLINE — %s",
         m.id, tostring(st and st.fault_message or "no gt_machine proxy")))
     elseif st.healthy then
-      print(string.format("[Broker] %s OK (active=%s has_work=%s)",
+      log(string.format("[Broker] %s OK (active=%s has_work=%s)",
         m.id, tostring(st.active), tostring(st.has_work)))
     else
-      print(string.format("[Broker] %s FAULT — %s", m.id, tostring(st.fault_message)))
+      log(string.format("[Broker] %s FAULT — %s", m.id, tostring(st.fault_message)))
     end
   end
 end
 
-function BrokerMain.build()
-  local ok_build, ctx_or_err = pcall(BrokerMain._build_impl)
+function BrokerMain.build(log)
+  log = log or print
+  local ok_build, ctx_or_err = pcall(BrokerMain._build_impl, log)
   if ok_build then return ctx_or_err end
   return nil, tostring(ctx_or_err)
 end
 
-function BrokerMain._build_impl()
+function BrokerMain._build_impl(log)
+  log = log or print
   local component = require("component")
   local computer = require("computer")
   local event = require("event")
@@ -65,10 +68,10 @@ function BrokerMain._build_impl()
   modem.open(listen_port)
   if orch_port ~= listen_port then modem.open(orch_port) end
 
-  local scheduler = Scheduler.new({ event = event, computer = computer, log = print })
+  local scheduler = Scheduler.new({ event = event, computer = computer, log = log })
 
   -- Seed runtime deps
-  pcall(registry.seed, computer.uptime, print, registry.get_circuit_manager())
+  pcall(registry.seed, computer.uptime, log, registry.get_circuit_manager())
 
   local poll = MachinePoll.new({ config = Config, component = component })
 
@@ -76,7 +79,7 @@ function BrokerMain._build_impl()
   local ROBDispatcher = require("rob_dispatcher")
   local rob = ROBDispatcher.new(registry, Config, {
     now = computer.uptime,
-    log = print,
+    log = log,
     circuit_manager = registry.get_circuit_manager(),
   })
   -- Expose transport lock release so LaneWorker can free the transposer
@@ -95,15 +98,17 @@ function BrokerMain._build_impl()
     state = { poll_results = {}, dirty = {}, events = {} },
     listen_port = listen_port,
     orch_port = orch_port,
+    log = log,
   }
 end
 
 function BrokerMain.attach_tasks(ctx)
+  local log = ctx.log or print
   local Scheduler = require("coroutine_scheduler")
   local Protocols = require("network_protocols")
   local ok_lw, LaneWorker = pcall(require, "lane_worker")
   if not ok_lw then
-    print("[Broker] lane_worker load failed: " .. tostring(LaneWorker))
+    log("[Broker] lane_worker load failed: " .. tostring(LaneWorker))
     LaneWorker = nil
   end
   local scheduler = ctx.scheduler
@@ -129,7 +134,7 @@ function BrokerMain.attach_tasks(ctx)
       local _, _, from, _, _, message = Scheduler.wait_event("modem_message")
       local pkt = Protocols.parse(message)
       if pkt and pkt.kind == Protocols.KIND.TRIGGER_CRAFT then
-        print(string.format("[Broker] ignoring TRIGGER_CRAFT from %s (AE handles dispatch)",
+        log(string.format("[Broker] ignoring TRIGGER_CRAFT from %s (AE handles dispatch)",
           tostring(from)))
       end
       state.events[#state.events + 1] = { type = "modem_message", from = from, packet = pkt }
@@ -243,7 +248,7 @@ function BrokerMain.run_once()
 
   print(string.format("[Broker] subnet=%s listen=%d orch=%s",
     ctx.config.subnet_id, ctx.listen_port, ctx.config.orchestrator_address or "(none)"))
-  print_lane_status(ctx.poll, ctx.config.machines)
+  print_lane_status(ctx.poll, ctx.config.machines, ctx.log)
 
   -- Poll all machines once so dispatcher has data
   local results = ctx.poll:poll_all()
@@ -283,7 +288,7 @@ function BrokerMain.run()
     ctx.config.input_mode or "per_lane", ctx.config.subnet_id, ctx.listen_port, ctx.orch_port,
     ctx.config.orchestrator_address or "(none)"))
   print("[Broker] headless — no GPU UI; Ctrl+C to stop; use loadfile(...)(\"test\") for one tick")
-  print_lane_status(ctx.poll, ctx.config.machines)
+  print_lane_status(ctx.poll, ctx.config.machines, ctx.log)
 
   BrokerMain.attach_tasks(ctx)
   ctx.scheduler:run()

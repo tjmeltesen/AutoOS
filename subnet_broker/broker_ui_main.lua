@@ -83,11 +83,20 @@ function BrokerUIMain.start()
     print("[Broker] running in display-only mode (no live broker data)")
   end
 
+  -- File logger: all backend output goes to lane_worker.log, never the terminal
+  local function file_log(msg)
+    local f = io.open("/home/subnet_broker/lane_worker.log", "a")
+    if f then
+      f:write(tostring(msg) .. "\n")
+      f:close()
+    end
+  end
+
   local rob, config, broker_ctx, broker_bm
   local pump_fn = nil
 
   if BrokerMain then
-    local ok_ctx, ctx_or_err = BrokerMain.build()
+    local ok_ctx, ctx_or_err = BrokerMain.build(file_log)
     if ok_ctx and ctx_or_err then
       local ctx = ctx_or_err
       rob = ctx.rob
@@ -95,10 +104,21 @@ function BrokerUIMain.start()
       broker_ctx = ctx
       broker_bm = BrokerMain
 
-      -- Basic pump (poll only, no scheduler steps until 'S' pressed)
+      -- Incremental round-robin pump (poll 2 machines/tick, cache results)
+      local poll_mids, poll_idx = {}, 1
+      for _, m in ipairs(config.machines or {}) do
+        poll_mids[#poll_mids + 1] = m
+      end
       pump_fn = function()
-        local ok, results = pcall(ctx.poll.poll_all, ctx.poll)
-        if ok and results then for mid, r in pairs(results) do ctx.state.poll_results[mid] = r end end
+        for _ = 1, 2 do
+          local m = poll_mids[poll_idx]
+          if m then
+            local ok, result = pcall(ctx.poll.poll_machine, ctx.poll, m)
+            if ok and result then ctx.state.poll_results[m.id] = result end
+          end
+          poll_idx = poll_idx + 1
+          if poll_idx > #poll_mids then poll_idx = 1 end
+        end
         pcall(ctx.rob.tick, ctx.rob, ctx.state.poll_results)
       end
 
@@ -127,7 +147,7 @@ function BrokerUIMain.start()
     gpu = gpu,
     screen_addr = screen_addr,
     now_fn = now_fn,
-    log = print,
+    log = file_log,
     pump_fn = pump_fn,
     broker_ctx = broker_ctx,
     broker_bm = broker_bm,
