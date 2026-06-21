@@ -1,0 +1,8 @@
+Need to fix and speed up the UI so that it updates correctly adjust the layout and add maintenance tags
+
+run a marathon of the recipes to ensure reliability
+
+fix config saving and validation when changing and augmenting config
+
+be more descriptive in config
+
