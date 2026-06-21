@@ -442,18 +442,26 @@ function BrokerUI:_start_broker()
   local ctx = self._broker_ctx
   if not ctx then self._log("[Broker] no broker context — cannot start"); return end
   self._log("[Broker] starting lane workers...")
-  if self._broker_bm and self._broker_bm.attach_tasks then
-    self._broker_bm.attach_tasks(ctx)
-  end
-  -- Refresh pump function to include scheduler steps
-  if ctx.scheduler and ctx.poll and ctx.rob then
-    local sched, poll, rob, st = ctx.scheduler, ctx.poll, ctx.rob, ctx.state
-    self._pump_fn = function()
-      if sched then for _ = 1, 5 do pcall(sched.step, sched) end end
-      local ok, results = pcall(poll.poll_all, poll)
-      if ok and results then for mid, r in pairs(results) do st.poll_results[mid] = r end end
-      pcall(rob.tick, rob, st.poll_results)
+  local ok, err = pcall(function()
+    if self._broker_bm and self._broker_bm.attach_tasks then
+      self._broker_bm.attach_tasks(ctx)
     end
+    -- Build pump with scheduler steps
+    if ctx.scheduler and ctx.poll and ctx.rob then
+      local sched, poll, rob, st = ctx.scheduler, ctx.poll, ctx.rob, ctx.state
+      self._pump_fn = function()
+        pcall(function()
+          if sched then for _ = 1, 5 do pcall(sched.step, sched) end end
+          local okr, results = pcall(poll.poll_all, poll)
+          if okr and results then for mid, r in pairs(results) do st.poll_results[mid] = r end end
+          pcall(rob.tick, rob, st.poll_results)
+        end)
+      end
+    end
+  end)
+  if not ok then
+    self._log("[Broker] start FAILED: " .. tostring(err))
+    return
   end
   self._broker_active = true
   self._log("[Broker] RUNNING — press Q to stop")
@@ -578,10 +586,13 @@ end
 -----------------------------------------------------------------------
 function BrokerUI:_render()
   local gpu = self._gpu; if not gpu then return end
-  local w, h = gpu.getResolution()
-  gpu.fill(1, 1, w, h, " ")
+  local ok, w, h = pcall(gpu.getResolution, gpu)
+  if not ok or not w then w, h = 80, 25 end
+  if type(w) ~= "number" then w = 80 elseif type(h) ~= "number" then h = 25 end
+  w, h = math.max(1, w), math.max(1, h)
+  pcall(gpu.fill, gpu, 1, 1, w, h, " ")
   local page = self._pages[self._current_page]
-  if page and page.render then page.render(gpu, w, h - 1, page.data) end
+  if page and page.render then pcall(page.render, gpu, w, h - 1, page.data) end
 end
 
 -----------------------------------------------------------------------
@@ -603,18 +614,31 @@ end
 function BrokerUI:run()
   if not self._gpu then while true do if self._pump_fn then self._pump_fn() end; print(self:headless_line()); os.execute("sleep 1") end end
   local event = require("event")
-  if self._screen_addr then self._gpu.bind(self._screen_addr) end
+  -- Bind screen
+  if self._screen_addr then pcall(self._gpu.bind, self._screen_addr) end
+  -- Get resolution safely (some GPUs lack setResolution)
   local mw, mh = 80, 25
-  local okm, maxw, maxh = pcall(self._gpu.maxResolution, self._gpu)
-  if okm then mw = math.min(mw, maxw or mw); mh = math.min(mh, maxh or mh) end
-  self._gpu.setResolution(mw, mh)
-  self._running = true; self:_refresh_data(); self:_render()
+  pcall(function()
+    local ok, w, h = pcall(self._gpu.getResolution)
+    if ok and w and h then mw, mh = w, h end
+  end)
+  pcall(self._gpu.setResolution, mw, mh)
+  self._running = true
+  pcall(self._refresh_data, self)
+  pcall(self._render, self)
+  -- Main loop
   while self._running do
-    if self._pump_fn then self._pump_fn() end; self:_refresh_data(); self:_render()
+    if self._pump_fn then pcall(self._pump_fn) end
+    pcall(self._refresh_data, self)
+    local ok_render = pcall(self._render, self)
+    if not ok_render then self._log("[BrokerUI] render error — retrying") end
     local ev = { event.pull(1.0, "key_down") }
     if ev[1] == "key_down" then self:_handle_key(ev[4], ev[3]) end
   end
-  self._gpu.fill(1, 1, mw, mh, " "); self._gpu.setForeground(W); self._gpu.set(1, 1, "AutoOS Broker stopped.")
+  -- Cleanup
+  pcall(self._gpu.fill, 1, 1, mw, mh, " ")
+  pcall(self._gpu.setForeground, W)
+  pcall(self._gpu.set, 1, 1, "AutoOS Broker stopped.")
 end
 
 return BrokerUI
