@@ -334,7 +334,11 @@ function BrokerUI:_render()
 
   -- Only clear on page transitions; state updates skip the expensive gpu.fill
   if self._page_dirty then
-    pcall(gpu.fill, gpu, 1, 1, w, h, " ")
+    -- gpu.fill can fail silently on some OC GPUs — fall back to manual blank-line clear
+    local fill_ok = pcall(gpu.fill, gpu, 1, 1, w, h, " ")
+    if not fill_ok then
+      for cr = 1, h do pcall(gpu.set, gpu, 1, cr, string.rep(" ", w)) end
+    end
     self._page_dirty = false
   end
 
@@ -342,7 +346,22 @@ function BrokerUI:_render()
   local page = self._page_instances[self._current_page]
   if page and page.render then
     page._w, page._h = w, h - 1  -- update page dimensions
-    pcall(page.render, page)
+    -- xpcall error boundary: catch page render crashes, log traceback, fall back
+    local success, err_msg = xpcall(function()
+      page:render()
+    end, debug.traceback)
+    if not success then
+      self._log("[UI RENDER CRASH] page=" .. tostring(self._current_page) .. " " .. tostring(err_msg))
+      -- Fall back to logs page (simplest, no broker state needed)
+      self._current_page = "logs"
+      self._page_dirty = true
+      -- Flash error banner at bottom of screen
+      local banner = " RENDER ERROR - check logs "
+      pcall(gpu.setForeground, 0xFF0000)
+      pcall(gpu.setBackground, 0x000000)
+      pcall(gpu.set, 1, h, string.rep(" ", w))
+      pcall(gpu.set, 1, h, banner)
+    end
   end
 end
 

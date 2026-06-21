@@ -133,6 +133,19 @@ function BrokerUIMain.start()
     if ok_cfg then config = cfg end
   end
 
+  -- Centralized Theme Palette (passed to all pages via deps)
+  local theme = {
+    bg_default     = 0x000000,
+    bg_panel       = 0x1A1A1A,
+    text_primary   = 0xFFFFFF,
+    text_muted     = 0x888888,
+    accent_success = 0x00FF00,
+    accent_error   = 0xFF0000,
+    accent_warning = 0xFFA500,
+    highlight      = 0x0055FF,
+    dim_text       = 0x404040,   -- for locked/disabled/description text
+  }
+
   -- Detect uptime source
   local now_fn = os.clock
   local ok_comp, computer = pcall(require, "computer")
@@ -146,6 +159,7 @@ function BrokerUIMain.start()
   local deps = {
     gpu = gpu,
     screen_addr = screen_addr,
+    theme = theme,
     now_fn = now_fn,
     log = file_log,
     pump_fn = pump_fn,

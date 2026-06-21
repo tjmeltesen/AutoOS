@@ -67,6 +67,7 @@ end
 function ConfigPage:on_unmount()
   self._editing = false
   self._eb = ""
+  BasePage.on_unmount(self)  -- chain to parent: clears hitboxes
 end
 
 function ConfigPage:is_modal()

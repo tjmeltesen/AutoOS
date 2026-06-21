@@ -171,7 +171,7 @@ function DashboardPage:render()
   end
 
   -- Footer nav
-  C.draw_footer_nav(gpu, "[1]Dash  [2]Logs  [3]Config  S:start/stop  Q:quit  Up/Dn:scroll", w, h)
+  C.draw_footer_nav(self.deps, "[1]Dash  [2]Logs  [3]Config  S:start/stop  Q:quit  Up/Dn:scroll", w, h)
 end
 
 return DashboardPage
