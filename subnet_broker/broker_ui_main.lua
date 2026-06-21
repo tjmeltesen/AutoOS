@@ -154,6 +154,12 @@ function BrokerUIMain.start()
   }
 
   local ui = BrokerUI.new(rob, config, deps)
+
+  -- Register page instances (order matters: first = default active page)
+  ui:add_page(require("page_dashboard").new(deps))
+  ui:add_page(require("page_logs").new(deps))
+  ui:add_page(require("page_config").new(deps))
+
   ui:run()
 
   return true
