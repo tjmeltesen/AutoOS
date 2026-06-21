@@ -116,6 +116,10 @@ end
 local function render_logs(gpu, w, h, data)
   data = data or {}
   local path = data.path or LOG_PATH
+  -- DIAG: print once per page entry what we received
+  if not data._logged then gpu.setForeground(W); gpu.setBackground(0x000000)
+    gpu.fill(1, 1, w, h, " "); gpu.set(1, 1, ("DIAG render_logs: path=%s data.path=%s"):format(path, tostring(data.path))); data._logged = true; return
+  end
   local lines = data.lines
   if type(lines) ~= "table" then lines = {} end
   local offset = data.offset or 0
@@ -157,8 +161,11 @@ end
 local function render_config(gpu, w, h, data)
   data = data or {}
   if not data._cfg then
-    local ok, cfg = pcall(dofile, "subnet_broker/config.lua")
+    local ok, cfg = pcall(dofile, "/home/subnet_broker/config.lua")
     if ok and type(cfg) == "table" then data._cfg = cfg end
+    -- DIAG: log dofile result once
+    gpu.setForeground(W); gpu.setBackground(0x000000); gpu.fill(1, 1, w, h, " ")
+    gpu.set(1, 1, ("DIAG render_config: dofile ok=%s cfg_type=%s"):format(tostring(ok), type(cfg))); return
   end
   local cfg = data._cfg or {}
   local sc, ct = cfg.scheduler or {}, cfg.central or {}
@@ -435,11 +442,14 @@ function BrokerUI:_refresh_data()
   if self._current_page == "dashboard" then
     page.data = self:_build_dashboard_data()
   elseif self._current_page == "logs" then
-    local lines = {}; local f = io.open(LOG_PATH, "r")
-    if f then for line in f:lines() do lines[#lines+1] = line end; f:close() end
+    local lines = {}; local f, err = io.open(LOG_PATH, "r")
+    if f then for line in f:lines() do lines[#lines+1] = line end; f:close()
+    else self._log("[BrokerUI] log open failed: " .. LOG_PATH .. " err=" .. tostring(err)) end
+    self._log(("[BrokerUI] logs data built: path=%s lines=%d"):format(LOG_PATH, #lines))
     page.data = { lines = lines, path = LOG_PATH, follow = true, offset = 0 }
   elseif self._current_page == "config" then
-    page.data = page.data or { config_path = "subnet_broker/config.lua" }
+    page.data = page.data or { config_path = "/home/subnet_broker/config.lua" }
+    self._log(("[BrokerUI] config data: path=%s"):format(page.data.config_path or "?"))
   end
 end
 
