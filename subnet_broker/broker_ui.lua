@@ -436,7 +436,13 @@ function BrokerUI:_start_broker()
           pcall(rob.tick, rob, st.poll_results)
         end
         self._status = "Broker built — starting..."
-      else self._status = "Build failed: "..tostring(result or okb); return end
+      else
+        local msg = "Build failed: "
+        if type(result) == "string" then msg = msg .. result
+        elseif type(okb) == "string" then msg = msg .. okb
+        else msg = msg .. tostring(result or okb) end
+        self._status = msg; self._log("[Broker] "..msg); return
+      end
     else self._status = "broker_main not available"; return end
   end
   self._log("[Broker] starting lane workers...")

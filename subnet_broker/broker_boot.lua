@@ -18,9 +18,11 @@ local function boot()
   local Config    = require("config")
   local Registry  = require("registry")
 
-  local ok, err = Config.validate(Config)
-  if not ok then
-    return nil, "config invalid: " .. tostring(err)
+  if type(Config.validate) == "function" then
+    local ok, err = Config.validate(Config)
+    if not ok then
+      return nil, "config invalid: " .. tostring(err)
+    end
   end
 
   local registry, reg_err = Registry.build(Config, component)

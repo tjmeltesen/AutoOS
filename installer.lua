@@ -129,6 +129,12 @@ local function main()
       print(status .. " SKIP (BASE URL not configured): " .. rel_path)
       skipped = skipped + 1
     else
+      -- Skip config.lua if it already exists (preserve user config)
+      if rel_path:find("config%.lua$") then
+        local dest = TARGET_ROOT .. "/" .. rel_path
+        local f = io.open(dest, "r")
+        if f then f:close(); print(status .. " SKIP (exists): " .. rel_path); skipped = skipped + 1; goto continue end
+      end
       ensure_dir(rel_path)
       io.write(status .. " " .. rel_path .. " ... ")
       local result = download_file(rel_path)
@@ -139,6 +145,7 @@ local function main()
         print("FAIL (code " .. tostring(result) .. ")")
         fail_count = fail_count + 1
       end
+      ::continue::
     end
   end
 
