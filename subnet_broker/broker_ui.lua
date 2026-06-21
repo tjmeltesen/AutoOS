@@ -355,8 +355,11 @@ local function handle_config_key(code, char, data)
     else data._status = "Error: " .. tostring(err) end
     return
   end
-  -- Backspace cancels edit (ESC is OC system-level)
-  if code == 14 then data._editing = false; data._eb = ""; data._status = "cancelled"; return end
+  -- Backspace: delete char if editing, cancel if not
+  if code == 14 then
+    if data._editing then data._eb = data._eb:sub(1, -2); return
+    else data._status = nil; return end
+  end
 
   if not data._editing then
     if code == 200 then data._ff = math.max(1, ff - 1)
@@ -380,7 +383,6 @@ local function handle_config_key(code, char, data)
         if f.t == "n" then local n = tonumber(data._eb); if n then f.v = n; data._status = f.l.."="..n else data._status = "Invalid number" end
         else f.v = data._eb; data._status = f.l.." updated" end
       end; data._editing = false; data._eb = ""
-    elseif code == 14 then data._eb = data._eb:sub(1, -2)
     else
       if char and char >= 32 and char <= 126 then
         local ch = string.char(char)
@@ -420,7 +422,26 @@ end
 function BrokerUI:_start_broker()
   if self._broker_active then self._status = "Broker already running"; return end
   local ctx = self._broker_ctx
-  if not ctx then self._status = "No broker context — cannot start"; return end
+  if not ctx then
+    -- Try to build broker context on-demand
+    self._status = "Building broker..."
+    local ok, bm = pcall(require, "broker_main")
+    if ok and bm then
+      local okb, result = pcall(bm.build, bm)
+      if okb and result then
+        ctx = result; self._broker_ctx = ctx; self._broker_bm = bm
+        self._rob = ctx.rob; self._config = ctx.config
+        -- Build basic pump
+        local poll, rob, st = ctx.poll, ctx.rob, ctx.state
+        self._pump_fn = function()
+          local okr, results = pcall(poll.poll_all, poll)
+          if okr and results then for mid, r in pairs(results) do st.poll_results[mid] = r end end
+          pcall(rob.tick, rob, st.poll_results)
+        end
+        self._status = "Broker built — starting..."
+      else self._status = "Build failed: "..tostring(result or okb); return end
+    else self._status = "broker_main not available"; return end
+  end
   self._log("[Broker] starting lane workers...")
   local ok, err = pcall(function()
     if self._broker_bm and self._broker_bm.attach_tasks then self._broker_bm.attach_tasks(ctx) end
