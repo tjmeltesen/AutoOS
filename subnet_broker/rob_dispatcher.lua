@@ -103,7 +103,8 @@ function ROBDispatcher.new(registry, config, deps)
   self._fingerprint = nil          -- fingerprint currently being stabilized
   self._stable_since = 0           -- when the current fingerprint first matched itself
   self._last_enqueued_fp = nil     -- fingerprint that last produced a job
-  self._batch_claimed = false      -- suppress re-enqueue until chest contents change
+  self._batch_claimed = false      -- suppress re-enqueue until batch job completes
+  self._batch_job_id = nil         -- job ID of the currently claimed batch
 
   -- Job queue
   self._pending_jobs = {}          -- FIFO job queue
@@ -608,6 +609,9 @@ function ROBDispatcher:_enqueue_job(manifest, source)
     return nil, alloc_err or "allocation failed"
   end
 
+  if self._job_seq == 0 then
+    self._log("[ROBDispatcher] WARNING fresh _job_seq=0 — dispatcher may have been recreated")
+  end
   self._job_seq = self._job_seq + 1
 
   local job = {
@@ -1057,18 +1061,27 @@ function ROBDispatcher:_step_buffer_monitor()
       -- Chest is empty — reset all suppression state
       self._last_enqueued_fp = nil
       self._batch_claimed = false
+      self._batch_job_id = nil
       return events
     end
 
-    -- Suppress: a batch was already claimed.  If the fingerprint differs
-    -- from what we last enqueued, AE2 has already started pulling items —
-    -- release the claim so we can enqueue the next batch.
+    -- Suppress: a batch was already claimed.  Only release when the
+    -- batch's job has completed (removed from queue), not just because
+    -- AE2 pulled items and the fingerprint changed.
     if self._batch_claimed then
-      if not fingerprint_equal(fp, self._last_enqueued_fp) then
-        self._batch_claimed = false
-      else
-        return events
+      local active = false
+      if self._batch_job_id then
+        for _, j in ipairs(self._pending_jobs) do
+          if j.id == self._batch_job_id then active = true; break end
+        end
       end
+      if active then
+        return events  -- job still running or pending, hold the claim
+      end
+      -- Job completed — release claim and check fingerprint
+      self._batch_claimed = false
+      self._batch_job_id = nil
+      if fingerprint_equal(fp, self._last_enqueued_fp) then return events end
     end
 
     -- Suppress: the fingerprint matches what we last enqueued
@@ -1092,6 +1105,7 @@ function ROBDispatcher:_step_buffer_monitor()
       -- Chest emptied during stabilization — abort
       self._state = DIS_IDLE
       self._batch_claimed = false
+      self._batch_job_id = nil
       self._last_enqueued_fp = nil
       self._fingerprint = nil
       self._stable_since = 0
@@ -1129,6 +1143,7 @@ function ROBDispatcher:_step_buffer_monitor()
     local job, enqueue_err = self:_enqueue_job(manifest, "live")
     self._last_enqueued_fp = fp
     self._batch_claimed = true
+    self._batch_job_id = job and job.id or nil
     self._state = DIS_IDLE
     self._fingerprint = nil
     self._stable_since = 0

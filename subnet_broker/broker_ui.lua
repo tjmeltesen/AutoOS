@@ -152,7 +152,10 @@ function BrokerUI:_build_pump_coroutine(ctx)
         -- aren't starved, but the pump coroutine resumes within the
         -- same _drain_pump() call (no 250ms stall per yield).
         local yield_fn = function() os.sleep(0) end
-        pcall(rob.tick, rob, st.poll_results, yield_fn)
+        local ok_tick, tick_err = pcall(rob.tick, rob, st.poll_results, yield_fn)
+        if not ok_tick then
+          self._log("[UI] rob:tick crashed: " .. tostring(tick_err))
+        end
         -- Full cycle complete — push data to UI via dirty flags
         pcall(self._refresh_data, self)
         self._page_dirty = true
@@ -219,15 +222,18 @@ function BrokerUI:_start_broker()
     ctx = self._broker_ctx
     if not ctx then return end  -- _build_broker_on_demand sets _status on failure
   end
-  -- Attach scheduler tasks (idempotent — attach_tasks checks if already attached)
-  local ok, err = pcall(function()
-    if self._broker_bm and self._broker_bm.attach_tasks then
-      self._broker_bm.attach_tasks(ctx)
+  -- Attach scheduler tasks (guarded — skip if already attached to this ctx)
+  if not ctx._attached then
+    local ok, err = pcall(function()
+      if self._broker_bm and self._broker_bm.attach_tasks then
+        self._broker_bm.attach_tasks(ctx)
+      end
+    end)
+    if not ok then
+      self._status = "Attach failed: " .. tostring(err)
+      return
     end
-  end)
-  if not ok then
-    self._status = "Attach failed: " .. tostring(err)
-    return
+    ctx._attached = true
   end
   -- Build the cooperative pump coroutine (3-phase: scheduler/poll/dispatch)
   self._pump_co = self:_build_pump_coroutine(ctx)
@@ -242,30 +248,37 @@ end
 function BrokerUI:_stop_broker()
   self._broker_active = false  -- signal all coroutines/threads to stop FIRST
   local ctx = self._broker_ctx
-  -- 1. Kill the worker thread (before coroutine, thread may hold component locks)
+  -- 1. Kill modem communication threads (OC threads, each has own event registrations)
+  if ctx and ctx._modem_threads then
+    for _, t in ipairs(ctx._modem_threads) do
+      pcall(t.kill, t)
+    end
+    ctx._modem_threads = nil
+  end
+  -- 2. Kill the worker thread (before coroutine, thread may hold component locks)
   if self._worker_thread then
     pcall(self._worker_thread.kill, self._worker_thread)
     self._worker_thread = nil
   end
-  -- 2. Kill the pump coroutine
+  -- 3. Kill the pump coroutine
   self._pump_co = nil
-  -- 3. Clear scheduler tasks
+  -- 4. Clear scheduler tasks
   if ctx and ctx.scheduler then
     pcall(ctx.scheduler.clear, ctx.scheduler)
   end
-  -- 4. Invalidate cached component proxies
+  -- 5. Invalidate cached component proxies
   if ctx and ctx.poll then
     ctx.poll.proxies = {}
     ctx.poll.proxy_errors = {}
     ctx.poll.proxy_cache_stale = true
   end
-  -- 5. Clear poll results so stale data doesn't survive a restart
+  -- 6. Clear poll results so stale data doesn't survive a restart
   if ctx and ctx.state then
     ctx.state.poll_results = {}
   end
-  -- 6. Yield to let in-flight component calls drain
+  -- 7. Yield to let in-flight component calls drain
   pcall(os.sleep, 0)
-  -- 7. Clear pump_fn so the main loop doesn't keep ticking the broker
+  -- 8. Clear pump_fn so the main loop doesn't keep ticking the broker
   self._pump_fn = nil
   self._status = "Broker STOPPED"
 end

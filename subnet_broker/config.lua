@@ -39,6 +39,7 @@ Config.scheduler = {
 
 Config.orchestrator_address = "3bd12f6b-b5d6-4d0d-ad56-e1d372fdb4ac"
 Config.broker_modem_port = 106
+Config.heartbeat_interval_s = 10
 
 -- Locking card: redstone pulse after lane completes to ungate central buffer
 Config.redstone_address = "01c49b4a-5dd5-455d-8bac-8f0391272ff5"        -- set to your redstone I/O UUID

@@ -95,6 +95,8 @@ function BrokerMain._build_impl(log)
     poll = poll,
     rob = rob,
     scheduler = scheduler,
+    modem = modem,
+    computer = computer,
     state = { poll_results = {}, dirty = {}, events = {} },
     listen_port = listen_port,
     orch_port = orch_port,
@@ -128,20 +130,32 @@ function BrokerMain.attach_tasks(ctx)
     scheduler:wake_prefix("lane_")
   end
 
-  -- modem_rx: unchanged — relay modem messages to state.events
-  scheduler:spawn("modem_rx", function()
-    while true do
-      local _, _, from, _, _, message = Scheduler.wait_event("modem_message")
-      local pkt = Protocols.parse(message)
-      if pkt and pkt.kind == Protocols.KIND.TRIGGER_CRAFT then
-        log(string.format("[Broker] ignoring TRIGGER_CRAFT from %s (AE handles dispatch)",
-          tostring(from)))
+  -- Thread handles for modem comms (killed by _stop_broker)
+  ctx._modem_threads = {}
+
+  -- modem_rx: OC thread — relay modem messages to state.events
+  do
+    local thread = require("thread")
+    local event = require("event")
+    local modem = ctx.modem
+    local orch_port = ctx.orch_port
+    local rx = thread.create(function()
+      while true do
+        local _, _, from, _, _, message = event.pull("modem_message")
+        -- Back-compat: respond to PING from modem_comm_test
+        if type(message) == "string" and message == "PING" then
+          pcall(modem.send, modem, from, orch_port, "PONG")
+        else
+          local pkt = Protocols.parse(message)
+          if pkt then
+            state.events[#state.events + 1] = { type = "modem_message", from = from, packet = pkt }
+          end
+        end
       end
-      state.events[#state.events + 1] = { type = "modem_message", from = from, packet = pkt }
-      wake_dispatch()
-      Scheduler.yield_now()
-    end
-  end)
+    end)
+    rx:detach()
+    ctx._modem_threads[#ctx._modem_threads + 1] = rx
+  end
 
   -- component_events: unchanged
   scheduler:spawn("component_events", function()
@@ -230,12 +244,45 @@ function BrokerMain.attach_tasks(ctx)
     end)
   end
 
-  -- heartbeat: periodic health ping
-  scheduler:spawn("heartbeat", function()
-    while true do
-      Scheduler.sleep(10)
-    end
-  end)
+  -- modem_tx: OC thread — periodic health + event relay to orchestrator
+  do
+    local thread = require("thread")
+    local modem = ctx.modem
+    local orch_addr = cfg.orchestrator_address or ""
+    local orch_port = ctx.orch_port
+    local subnet_id = cfg.subnet_id or "?"
+    local interval = cfg.heartbeat_interval_s or 10
+    local tx = thread.create(function()
+      while true do
+        os.sleep(interval)
+        if orch_addr == "" then goto skip_tx end
+        -- Health telemetry: one BROKER_HEALTH per machine with poll data
+        for _, m in ipairs(machines) do
+          local ok, pr = pcall(function() return state.poll_results[m.id] end)
+          if ok and pr then
+            local state_str = pr.healthy and "OK" or "FAULT"
+            local detail = pr.fault_message or ""
+            modem.send(orch_addr, orch_port,
+              Protocols.broker_health(subnet_id, m.id, state_str, detail))
+          end
+        end
+        -- Drain and relay dispatcher events as BROKER_EVENT
+        local events = state.events
+        if #events > 0 then
+          state.events = {}
+          for _, ev in ipairs(events) do
+            local kind = ev.type or ev.kind or "?"
+            modem.send(orch_addr, orch_port,
+              Protocols.broker_event(subnet_id, kind, ev.label or "",
+                ev.volume or 0, ev.job_id or ev.machine_id or ""))
+          end
+        end
+        ::skip_tx::
+      end
+    end)
+    tx:detach()
+    ctx._modem_threads[#ctx._modem_threads + 1] = tx
+  end
 end
 
 function BrokerMain.run_once()
