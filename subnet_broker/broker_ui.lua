@@ -116,10 +116,6 @@ end
 local function render_logs(gpu, w, h, data)
   data = data or {}
   local path = data.path or LOG_PATH
-  -- DIAG: print once per page entry what we received
-  if not data._logged then gpu.setForeground(W); gpu.setBackground(0x000000)
-    gpu.fill(1, 1, w, h, " "); gpu.set(1, 1, ("DIAG render_logs: path=%s data.path=%s"):format(path, tostring(data.path))); data._logged = true; return
-  end
   local lines = data.lines
   if type(lines) ~= "table" then lines = {} end
   local offset = data.offset or 0
@@ -158,14 +154,42 @@ local function render_logs(gpu, w, h, data)
   data._h = h; data._w = w
 end
 
+-- Serialize config data back to Lua source
+local function serialize_config(cfg)
+  local function sv(v)
+    if v == nil then return "nil"
+    elseif type(v) == "boolean" then return v and "true" or "false"
+    elseif type(v) == "number" then return tostring(v)
+    else return string.format("%q", v) end
+  end
+  local lines = {"-- AutoOS Broker Config (UI-generated)", "local Config = {}", ""}
+  local top = {"subnet_id","main_net_channel","input_mode","completion_mode","do_round_robin",
+    "circuit_item_name","database_address","database_slot_count","interface_item_slots",
+    "interface_item_slot_start","interface_fluid_side","shared_interface_address",
+    "chest_slot_start","circuit_bus_slot","settle_s","tick_interval","monitor_poll_s",
+    "staging_timeout_s","completion_timeout_s","require_empty_return","orchestrator_address",
+    "broker_modem_port","redstone_address","redstone_side","redstone_pulse_s"}
+  for _,k in ipairs(top) do if cfg[k] ~= nil then lines[#lines+1] = "Config."..k.." = "..sv(cfg[k]) end end
+  for _,sk in ipairs({"scheduler","central"}) do
+    local sub = cfg[sk] or {}; lines[#lines+1] = "\nConfig."..sk.." = {"
+    for k,v in pairs(sub) do lines[#lines+1] = "  "..k.." = "..sv(v).."," end
+    lines[#lines+1] = "}"
+  end
+  local machines = cfg.machines or {}; lines[#lines+1] = "\nConfig.machines = {"
+  for _,m in ipairs(machines) do
+    lines[#lines+1] = "  {"
+    for k,v in pairs(m) do lines[#lines+1] = "    "..k.." = "..sv(v).."," end
+    lines[#lines+1] = "  },"
+  end
+  lines[#lines+1] = "}\n\nreturn Config"
+  return table.concat(lines, "\n")
+end
+
 local function render_config(gpu, w, h, data)
   data = data or {}
   if not data._cfg then
     local ok, cfg = pcall(dofile, "/home/subnet_broker/config.lua")
     if ok and type(cfg) == "table" then data._cfg = cfg end
-    -- DIAG: log dofile result once
-    gpu.setForeground(W); gpu.setBackground(0x000000); gpu.fill(1, 1, w, h, " ")
-    gpu.set(1, 1, ("DIAG render_config: dofile ok=%s cfg_type=%s"):format(tostring(ok), type(cfg))); return
   end
   local cfg = data._cfg or {}
   local sc, ct = cfg.scheduler or {}, cfg.central or {}
@@ -299,7 +323,7 @@ local function render_config(gpu, w, h, data)
 
   -- Help
   gpu.setForeground(0x404040)
-  local help = data._editing and "EDITING: Enter=commit Esc=cancel Bksp=delete" or "Up/Dn:nav Enter:edit Tab:next 1-7:section Ctrl+S:save"
+  local help = data._editing and "EDITING: Enter=commit Esc=cancel Bksp=delete" or "Up/Dn:field  L/R:section  Tab:next  Enter:edit  Ctrl+S:save  2-8:jump"
   gpu.set(1, h, help:sub(1, w))
   data._h = h; data._w = w
 end
@@ -333,28 +357,39 @@ local function handle_config_key(code, data)
   local secs = data._sections; local fs = data._fs or 1
   local sec = secs[fs] or {}; local fields = sec.f or {}; local ff = data._ff or 1
 
-  -- Ctrl+S
+  -- Ctrl+S: serialize and write config back to disk
   if code == 31 then
     if data._editing then data._editing = false; data._eb = "" end
-    data._status = "Save not implemented (edit config.lua directly)"
+    local out = data._cfg or {}
+    -- Apply edited section values back
+    for _,s in ipairs(data._sections or {}) do
+      for _,f in ipairs(s.f or {}) do out[f.k or ""] = f.v end
+    end
+    out.machines = data._machines
+    local content = serialize_config(out)
+    local f, err = io.open("/home/subnet_broker/config.lua", "w")
+    if f then f:write(content); f:close(); data._status = "Saved OK — reboot to apply"
+    else data._status = "Error: "..tostring(err) end
     return
   end
   -- Esc
   if code == 1 then data._editing = false; data._eb = ""; return end
 
   if not data._editing then
-    if code == 200 then data._ff = math.max(1, ff - 1)                        -- Up
-    elseif code == 208 then data._ff = math.min(#fields, ff + 1)              -- Down
-    elseif code == 15 then                                                     -- Tab
+    if code == 200 then data._ff = math.max(1, ff - 1)                         -- Up
+    elseif code == 208 then data._ff = math.min(#fields, ff + 1)               -- Down
+    elseif code == 203 then data._fs = fs - 1; if data._fs < 1 then data._fs = #secs end; data._ff = 1  -- Left=prev section
+    elseif code == 205 then data._fs = fs + 1; if data._fs > #secs then data._fs = 1 end; data._ff = 1  -- Right=next section
+    elseif code == 15 then                                                      -- Tab=next field, wrap to next section
       data._ff = ff + 1; if data._ff > #fields then data._ff = 1; data._fs = fs + 1; if data._fs > #secs then data._fs = 1 end end
-    elseif code == 28 then                                                     -- Enter
+    elseif code == 28 then                                                      -- Enter
       local f = fields[ff]; if not f then return end
       if f.t == "b" then f.v = not f.v
       elseif f.t == "e" and f.c then
         local cur = tostring(f.v or f.c[1])
         for ci, cv in ipairs(f.c) do if cv == cur then f.v = f.c[(ci % #f.c) + 1]; break end end
       else data._eb = tostring(f.v or ""); data._editing = true; data._status = nil end
-    elseif code >= 50 and code <= 56 then data._fs = code - 49; data._ff = 1 end -- 1-7
+    elseif code >= 50 and code <= 56 then data._fs = code - 49; data._ff = 1 end -- keys 2-8 = sections 1-7
   else
     local f = fields[ff]
     if code == 28 then                                                            -- Enter commit
@@ -442,14 +477,11 @@ function BrokerUI:_refresh_data()
   if self._current_page == "dashboard" then
     page.data = self:_build_dashboard_data()
   elseif self._current_page == "logs" then
-    local lines = {}; local f, err = io.open(LOG_PATH, "r")
-    if f then for line in f:lines() do lines[#lines+1] = line end; f:close()
-    else self._log("[BrokerUI] log open failed: " .. LOG_PATH .. " err=" .. tostring(err)) end
-    self._log(("[BrokerUI] logs data built: path=%s lines=%d"):format(LOG_PATH, #lines))
+    local lines = {}; local f = io.open(LOG_PATH, "r")
+    if f then for line in f:lines() do lines[#lines+1] = line end; f:close() end
     page.data = { lines = lines, path = LOG_PATH, follow = true, offset = 0 }
   elseif self._current_page == "config" then
     page.data = page.data or { config_path = "/home/subnet_broker/config.lua" }
-    self._log(("[BrokerUI] config data: path=%s"):format(page.data.config_path or "?"))
   end
 end
 

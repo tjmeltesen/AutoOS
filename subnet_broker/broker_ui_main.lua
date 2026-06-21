@@ -71,8 +71,13 @@ local function build_pump_fn(ctx)
   local rob = ctx.rob
   local registry = ctx.registry
   local state = ctx.state
+  local sched = ctx.scheduler
 
   return function()
+    -- Step scheduler to advance lane workers / machine_poll / dispatch
+    if sched then
+      for _ = 1, 5 do pcall(sched.step, sched) end
+    end
     -- Poll all machines
     local ok_poll, results = pcall(poll.poll_all, poll)
     if ok_poll and results then
@@ -86,9 +91,7 @@ local function build_pump_fn(ctx)
 
     -- Run one dispatcher tick
     local ok_tick, _ = pcall(rob.tick, rob, state.poll_results)
-    if not ok_tick then
-      -- Silent — UI will show stale data, but won't crash
-    end
+    if not ok_tick then end
   end
 end
 
@@ -126,6 +129,9 @@ function BrokerUIMain.start()
 
       -- Build broker pump function for live data updates
       pump_fn = build_pump_fn(ctx)
+
+      -- Spawn lane workers, machine_poll, central_dispatch coroutines
+      BrokerMain.attach_tasks(ctx)
 
       print(string.format("[Broker] broker online — %s",
         tostring(config.subnet_id)))

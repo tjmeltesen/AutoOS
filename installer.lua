@@ -72,16 +72,16 @@ local FILES = {
   "shared/network_protocols.lua",
 
   -- orchestrator/ — central AE orchestration
-  "orchestrator/orchestrator_main.lua",
-  "orchestrator/orchestrator.lua",
-  "orchestrator/orchestrator_config.lua",
-  "orchestrator/hw.lua",
-  "orchestrator/network_protocols.lua",
-  "orchestrator/modem_comm_test.lua",
-  "orchestrator/modem_info.lua",
-  "orchestrator/modem_listen.lua",
-  "orchestrator/modem_ping.lua",
-  "orchestrator/start.lua",
+  --"orchestrator/orchestrator_main.lua",
+  --"orchestrator/orchestrator.lua",
+  --"orchestrator/orchestrator_config.lua",
+  --"orchestrator/hw.lua",
+  --"orchestrator/network_protocols.lua",
+  --"orchestrator/modem_comm_test.lua",
+  --"orchestrator/modem_info.lua",
+  --"orchestrator/modem_listen.lua",
+  --"orchestrator/modem_ping.lua",
+  --"orchestrator/start.lua",
 
   -- tests/
   "tests/broker_ui_test.lua",
