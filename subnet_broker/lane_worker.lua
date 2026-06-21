@@ -191,6 +191,7 @@ local function bus_drained(item_tp, machine, circuit_slot)
   local bus_side = LaneSides.bus_side(machine)
   local size = pull_scan_max(item_tp, bus_side)
   for slot = 1, size do
+    if slot % 10 == 0 then coroutine.yield({ type = "yield" }) end  -- ponytail: yield per 10 slots, lets OS process keystrokes
     if slot ~= circuit_slot and safe_slot_size(item_tp, bus_side, slot) > 0 then
       return false
     end
@@ -607,6 +608,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
       end
       local size = pull_scan_max(item_tp, return_side)
       for slot = 1, size do
+        if slot % 10 == 0 then coroutine.yield({ type = "yield" }) end  -- ponytail: yield per 10 slots
         if safe_slot_size(item_tp, return_side, slot) > 0 then return false end
       end
       return true

@@ -234,60 +234,60 @@ local function render_config(gpu, w, h, data)
     local sc, ct = cfg.scheduler or {}, cfg.central or {}
     data._sections = {
       {n="Network", f={
-        {l="Subnet ID",       v=cfg.subnet_id or "",               t="s"},
-        {l="Modem Port",       v=cfg.broker_modem_port or 106,      t="n", min=1, max=65535},
-        {l="Main Channel",     v=cfg.main_net_channel or 105,       t="n", min=1, max=65535},
-        {l="Orch Addr",        v=cfg.orchestrator_address or "",    t="s"},
+        {l="Subnet ID",       v=cfg.subnet_id or "",               t="s", d="Unique name for this subnet (e.g. 'lv_crafting')"},
+        {l="Modem Port",       v=cfg.broker_modem_port or 106,      t="n", min=1, max=65535, d="Port this broker listens on for modem messages"},
+        {l="Main Channel",     v=cfg.main_net_channel or 105,       t="n", min=1, max=65535, d="Orchestrator network channel for craft requests"},
+        {l="Orch Addr",        v=cfg.orchestrator_address or "",    t="s", d="UUID of the orchestrator computer's modem"},
       }},
       {n="Mode & Timing", f={
-        {l="Input Mode",        v=cfg.input_mode or "central",      t="e", c={"per_lane","central"}},
-        {l="Completion Mode",   v=cfg.completion_mode or "both",    t="e", c={"both","adapter","drain"}},
-        {l="Round Robin",       v=cfg.do_round_robin~=false,        t="b"},
-        {l="Tick Interval (s)",  v=cfg.tick_interval or 1.0,        t="n", min=0.01},
-        {l="Settle (s)",        v=cfg.settle_s or 0.1,              t="n", min=0},
-        {l="Monitor Poll (s)",  v=cfg.monitor_poll_s or 0.15,       t="n", min=0.01},
-        {l="Staging Timeout",   v=cfg.staging_timeout_s or 60,      t="n", min=0},
-        {l="Completion TO",     v=cfg.completion_timeout_s or 300,  t="n", min=0},
-        {l="Req Empty Return",  v=cfg.require_empty_return~=false,  t="b"},
+        {l="Input Mode",        v=cfg.input_mode or "central",      t="e", c={"per_lane","central"}, d="per_lane=AE imports to each machine, central=buffer first"},
+        {l="Completion Mode",   v=cfg.completion_mode or "both",    t="e", c={"both","adapter","drain"}, d="How to detect job completion: adapter, drain bus, or both"},
+        {l="Round Robin",       v=cfg.do_round_robin~=false,        t="b", d="Distribute jobs evenly across all lanes"},
+        {l="Tick Interval (s)",  v=cfg.tick_interval or 1.0,        t="n", min=0.01, d="Seconds between dispatch checks (lower = faster, higher = less CPU)"},
+        {l="Settle (s)",        v=cfg.settle_s or 0.1,              t="n", min=0, d="Delay after stocking before checking delivery"},
+        {l="Monitor Poll (s)",  v=cfg.monitor_poll_s or 0.15,       t="n", min=0.01, d="How often to repoll machines during active jobs"},
+        {l="Staging Timeout",   v=cfg.staging_timeout_s or 60,      t="n", min=0, d="Max seconds to wait for AE2 to deliver items to interface"},
+        {l="Completion TO",     v=cfg.completion_timeout_s or 300,  t="n", min=0, d="Max seconds to wait for machine to finish crafting"},
+        {l="Req Empty Return",  v=cfg.require_empty_return~=false,  t="b", d="Require return bus to be empty before starting next job"},
       }},
       {n="AE2 & Database", f={
-        {l="DB Address",        v=cfg.database_address or "",       t="s"},
-        {l="DB Slot Count",     v=cfg.database_slot_count or 9,     t="n", min=1},
-        {l="IF Item Slots",     v=cfg.interface_item_slots or 9,    t="n", min=1},
-        {l="IF Slot Start",     v=cfg.interface_item_slot_start or 1,t="n", min=1},
-        {l="IF Fluid Side",     v=cfg.interface_fluid_side or 0,    t="n", min=0, max=5},
-        {l="Shared IF Addr",    v=cfg.shared_interface_address or "",t="s"},
-        {l="Chest Slot Start",  v=cfg.chest_slot_start or 1,        t="n", min=1},
-        {l="Circuit Bus Slot",  v=cfg.circuit_bus_slot or 1,        t="n", min=1},
-        {l="Circuit Item",      v=cfg.circuit_item_name or "gregtech:gt.integrated_circuit", t="s"},
+        {l="DB Address",        v=cfg.database_address or "",       t="s", d="UUID of the ME Database (storage bus) address"},
+        {l="DB Slot Count",     v=cfg.database_slot_count or 9,     t="n", min=1, d="Number of slots in the database (usually 9)"},
+        {l="IF Item Slots",     v=cfg.interface_item_slots or 9,    t="n", min=1, d="Number of config slots on the dual ME interface"},
+        {l="IF Slot Start",     v=cfg.interface_item_slot_start or 1,t="n", min=1, d="First config slot index on the interface (usually 1)"},
+        {l="IF Fluid Side",     v=cfg.interface_fluid_side or 0,    t="n", min=0, max=5, d="Side of interface for fluid transfer (0=none, 1-6=sides)"},
+        {l="Shared IF Addr",    v=cfg.shared_interface_address or "",t="s", d="UUID of shared ME interface (if not per-machine)"},
+        {l="Chest Slot Start",  v=cfg.chest_slot_start or 1,        t="n", min=1, d="First slot in the central buffer chest to use"},
+        {l="Circuit Bus Slot",  v=cfg.circuit_bus_slot or 1,        t="n", min=1, d="Slot on the input bus reserved for the circuit"},
+        {l="Circuit Item",      v=cfg.circuit_item_name or "gregtech:gt.integrated_circuit", t="s", d="Item name of the circuit to keep in the bus"},
       }},
       {n="Redstone Lock", f={
-        {l="RS Address",        v=cfg.redstone_address or "",       t="s"},
-        {l="RS Side",           v=cfg.redstone_side or 0,           t="n", min=0, max=5},
-        {l="Pulse Duration",    v=cfg.redstone_pulse_s or 0.5,      t="n", min=0},
+        {l="RS Address",        v=cfg.redstone_address or "",       t="s", d="UUID of redstone I/O block for machine locking"},
+        {l="RS Side",           v=cfg.redstone_side or 0,           t="n", min=0, max=5, d="Side of redstone block to pulse (0=none, 1-6=sides)"},
+        {l="Pulse Duration",    v=cfg.redstone_pulse_s or 0.5,      t="n", min=0, d="Seconds to hold the redstone pulse"},
       }},
       {n="Scheduler", f={
-        {l="Max Parallel",      v=sc.max_parallel_lanes,            t="n", min=1, nilok=true},
-        {l="Max Job Attempts",  v=sc.max_job_attempts or 2,         t="n", min=1},
-        {l="Watchdog Grace",    v=sc.watchdog_grace_s or 10,        t="n", min=0},
-        {l="Persist Jobs",      v=sc.persist_jobs or "startup_sweep", t="e", c={"startup_sweep","file"}},
-        {l="Lane Budget",       v=sc.active_lane_budget or 32,      t="n", min=1},
+        {l="Max Parallel",      v=sc.max_parallel_lanes,            t="n", min=1, nilok=true, d="Max lanes that can run jobs simultaneously (nil=unlimited)"},
+        {l="Max Job Attempts",  v=sc.max_job_attempts or 2,         t="n", min=1, d="Retry count for failed jobs before marking lane FAULTED"},
+        {l="Watchdog Grace",    v=sc.watchdog_grace_s or 10,        t="n", min=0, d="Seconds before watchdog declares a stuck lane as FAULTED"},
+        {l="Persist Jobs",      v=sc.persist_jobs or "startup_sweep", t="e", c={"startup_sweep","file"}, d="How to persist pending jobs across reboots"},
+        {l="Lane Budget",       v=sc.active_lane_budget or 32,      t="n", min=1, d="Max coroutines to allocate for lane workers"},
       }},
       {n="Central Buffer", f={
-        {l="Monitor Mode",      v=ct.monitor or "inventory_controller", t="e", c={"inventory_controller","adapter"}},
-        {l="IC Side",           v=ct.inventory_controller_side or 0, t="n", min=0, max=5},
-        {l="Buffer Adapter",    v=ct.buffer_adapter_address or "",   t="s"},
-        {l="Buffer Side",       v=ct.buffer_adapter_side or 0,       t="n", min=0, max=5},
-        {l="Fluid Adapter",     v=ct.fluid_adapter_address or "",    t="s"},
-        {l="Fluid Side",        v=ct.fluid_adapter_side or 0,        t="n", min=0, max=5},
-        {l="Chest Slot Start",  v=ct.chest_slot_start or 1,          t="n", min=1},
-        {l="Max Circuits",      v=ct.max_circuits_in_buffer or 1,    t="n", min=1},
-        {l="Ingest Mode",       v=ct.ingest_mode or "event_or_poll", t="e", c={"event_or_poll","event","poll"}},
-        {l="Job Stabilize",     v=ct.job_stabilize_s or 1.0,        t="n", min=0},
-        {l="Stabilize",         v=ct.stabilize_s or 1.0,             t="n", min=0},
-        {l="Settle",            v=ct.settle_s or 0.0,                t="n", min=0},
-        {l="IF Wait",           v=ct.interface_wait_s or 5.0,        t="n", min=0},
-        {l="Req IF Staging",    v=ct.require_interface_staging or false, t="b"},
+        {l="Monitor Mode",      v=ct.monitor or "inventory_controller", t="e", c={"inventory_controller","adapter"}, d="Use inventory controller or adapter to watch central buffer"},
+        {l="IC Side",           v=ct.inventory_controller_side or 0, t="n", min=0, max=5, d="Side of the inventory controller to read"},
+        {l="Buffer Adapter",    v=ct.buffer_adapter_address or "",   t="s", d="UUID of adapter on the central buffer chest"},
+        {l="Buffer Side",       v=ct.buffer_adapter_side or 0,       t="n", min=0, max=5, d="Side of the buffer chest to read from"},
+        {l="Fluid Adapter",     v=ct.fluid_adapter_address or "",    t="s", d="UUID of adapter on the central fluid buffer"},
+        {l="Fluid Side",        v=ct.fluid_adapter_side or 0,        t="n", min=0, max=5, d="Side of the fluid buffer to read from"},
+        {l="Chest Slot Start",  v=ct.chest_slot_start or 1,          t="n", min=1, d="First slot in the central buffer to scan"},
+        {l="Max Circuits",      v=ct.max_circuits_in_buffer or 1,    t="n", min=1, d="Max circuits allowed in the buffer for job matching"},
+        {l="Ingest Mode",       v=ct.ingest_mode or "event_or_poll", t="e", c={"event_or_poll","event","poll"}, d="How to detect new items: event-driven, polling, or both"},
+        {l="Job Stabilize",     v=ct.job_stabilize_s or 1.0,        t="n", min=0, d="Seconds to wait for AE crafting to settle before scanning"},
+        {l="Stabilize",         v=ct.stabilize_s or 1.0,             t="n", min=0, d="Seconds to wait for buffer inventory to stabilize"},
+        {l="Settle",            v=ct.settle_s or 0.0,                t="n", min=0, d="Extra settle time after buffer changes before dispatch"},
+        {l="IF Wait",           v=ct.interface_wait_s or 5.0,        t="n", min=0, d="Max seconds to wait for interface to accept config changes"},
+        {l="Req IF Staging",    v=ct.require_interface_staging or false, t="b", d="Require interface slots to be staged before job starts"},
       }},
       {n="Machines", ismach=true, f={
         {l="ID",                t="s"}, {l="GT Address", t="s"}, {l="IF Address", t="s"},
@@ -325,31 +325,46 @@ local function render_config(gpu, w, h, data)
     GS(gpu, 1, i + 1, pad((" %d.%s"):format(i, s.n), lw))
   end
 
-  -- Right pane: fields
+  -- Right pane: fields (2-line layout: value + description)
   local rx, rw = lw + 2, w - lw - 1
+  data._rx = rx; data._rw = rw  -- stash for targeted keystroke redraws
+  local locked = data._locked
   FG(gpu, Y); GS(gpu, rx, 2, pad(sec.n, rw))
-  FG(gpu, GRAY); GS(gpu, rx, 3, string.rep("-", rw))
+  if locked then
+    -- Lock guard: red warning instead of separator
+    FG(gpu, R); GS(gpu, rx, 3, pad(" *** STOP BROKER TO EDIT CONFIG ***", rw))
+  else
+    FG(gpu, GRAY); GS(gpu, rx, 3, string.rep("-", rw))
+  end
   local row = 4
-  for i = 1, math.min(#fields, h - 3) do
-    if row > h - 2 then break end
+  local max_vis = math.floor((h - row) / 2)  -- each field = 2 lines
+  for i = 1, math.min(#fields, max_vis) do
+    if row > h - 3 then break end
     local f = fields[i]
-    local val = (data._editing and i == ff) and (data._eb or "").."_" or tostring(f.v or "")
-    if f.t == "b" and not data._editing then val = f.v and "true" or "false" end
+    local val = (data._editing and not locked and i == ff) and (data._eb or "").."_" or tostring(f.v or "")
+    if f.t == "b" and not (data._editing and not locked) then val = f.v and "true" or "false" end
     local lb = f.l; if #lb > 20 then lb = lb:sub(1,19).."." end
-    FG(gpu, i == ff and CYAN or W); GS(gpu, rx, row, pad((" %-21s %s"):format(lb, val), rw)); row = row + 1
+    local fc = (i == ff and not locked) and CYAN or (locked and 0x404040 or W)
+    FG(gpu, fc); GS(gpu, rx, row, pad((" %-21s %s"):format(lb, val), rw))
+    -- Description line (muted gray)
+    if f.d then
+      FG(gpu, 0x404040)
+      GS(gpu, rx, row + 1, pad(("   %s"):format(f.d:sub(1, rw - 4)), rw))
+    end
+    row = row + 2
   end
   -- Machines section
   if sec.ismach then
     FG(gpu, GRAY); GS(gpu, rx, row, pad((" Machines: %d"):format(#data._machines), rw)); row = row + 1
     for i = 1, math.min(#data._machines, h - row) do
-      local m = data._machines[i]; FG(gpu, i == ff and CYAN or W)
+      local m = data._machines[i]; FG(gpu, i == ff and CYAN or (locked and 0x404040 or W))
       GS(gpu, rx, row, pad((" %d. %s"):format(i, m.id or ("#"..i)), rw)); row = row + 1
     end
   end
   -- Status + help
   if data._status then FG(gpu, data._status:find("Err") and R or G); GS(gpu, 1, h - 1, pad(data._status:sub(1, w), w)) end
   FG(gpu, 0x404040)
-  GS(gpu, 1, h, pad((data._editing and "EDIT: Enter=commit Bksp=delete" or "Up/Dn:field L/R:section Tab:next Enter:edit Ctrl+S:save 2-8:jump"), w))
+  GS(gpu, 1, h, pad((locked and "LOCKED: stop broker first  Q:quit" or data._editing and "EDIT: Enter=commit Bksp=delete  Ctrl+V=paste" or "Up/Dn:field L/R:section Tab:next Enter:edit Ctrl+S:save 2-8:jump"), w))
   data._h = h; data._w = w
 end
 
@@ -412,6 +427,7 @@ local function handle_config_key(code, char, data)
     elseif code == 15 then
       data._ff = ff + 1; if data._ff > #fields then data._ff = 1; data._fs = fs + 1; if data._fs > #secs then data._fs = 1 end end
     elseif code == 28 then
+      if data._locked then return end  -- blocked: stop broker first
       local f = fields[ff]; if not f then return end
       if f.t == "b" then f.v = not f.v
       elseif f.t == "e" and f.c then
@@ -618,6 +634,7 @@ function BrokerUI:_refresh_data()
     page.data = { lines = lines, path = LOG_PATH, follow = true, offset = 0 }
   elseif self._current_page == "config" then
     page.data = page.data or { config_path = "/home/subnet_broker/config.lua" }
+    page.data._locked = self._broker_active
   end
 end
 
@@ -645,6 +662,11 @@ end
 -- Key handling (char=ASCII, code=scancode)
 -----------------------------------------------------------------------
 function BrokerUI:_handle_key(code, char)
+  -- Keep config data in sync with broker state (lock guard)
+  if self._current_page == "config" then
+    local cfg = self._pages.config
+    if cfg and cfg.data then cfg.data._locked = self._broker_active end
+  end
   -- If editing a config field, route ALL keys to config handler
   -- (except Q=quit and Ctrl+S=save which are handled globally)
   if self._current_page == "config" then
@@ -678,6 +700,27 @@ function BrokerUI:_handle_key(code, char)
   end
 end
 
+
+---------------------------------------------------------------------------
+-- Targeted config field redraw (avoids full render on keystroke)
+---------------------------------------------------------------------------
+function BrokerUI:_redraw_config_field()
+  local page = self._pages.config
+  local data = page and page.data; if not data or not data._editing then return end
+  if data._locked then return end
+  local gpu = self._gpu; if not gpu then return end
+  local ff = data._ff; local secs = data._sections; if not secs then return end
+  local fields = (secs[data._fs] or {}).f or {}
+  local f = fields[ff]; if not f then return end
+  local rx = data._rx or 22; local rw = data._rw or 58
+  local row = 2 * ff + 2  -- 2-line layout: field ff at row 4 + (ff-1)*2
+  local lb = f.l or ""; if #lb > 20 then lb = lb:sub(1,19).."." end
+  local val = (data._eb or "") .. "_"
+  pcall(gpu.setForeground, 0x00FFFF)  -- CYAN (editing color)
+  pcall(gpu.set, rx, row, (" %-21s %s"):format(lb, val) .. string.rep(" ", math.max(0, rw - 23 - #val)))
+  pcall(gpu.setForeground, 0xFFFFFF)  -- restore white
+end
+
 -----------------------------------------------------------------------
 -- Render
 -----------------------------------------------------------------------
@@ -708,7 +751,7 @@ function BrokerUI:headless_line()
 end
 
 -----------------------------------------------------------------------
--- Main loop (pump every tick, render throttled to 0.5s)
+-- Main loop (event-first, backend pump gated to 1 Hz)
 -----------------------------------------------------------------------
 function BrokerUI:run()
   if not self._gpu then
@@ -724,19 +767,39 @@ function BrokerUI:run()
   end)
   pcall(self._gpu.setResolution, mw, mh)
   self._running = true; pcall(self._refresh_data, self); pcall(self._render, self)
+  local last_pump = 0
   while self._running do
-    -- Pump always runs (backend dispatch + incremental poll)
-    if self._pump_fn then pcall(self._pump_fn) end
-    -- Refresh cached data every tick (cheap, just struct copies)
-    pcall(self._refresh_data, self)
-    -- Render throttled to ~2 fps (0.5s) — GPU is the bottleneck
+    -- High-frequency event poll: short timeout catches keystrokes instantly
+    local ev = { event.pull(0.05) }
+    if ev[1] == "key_down" then
+      self._ctrl = self._kb and self._kb.isControlDown()
+      self:_handle_key(ev[4], ev[3])
+      -- Targeted redraw for config text editing (no full render needed)
+      if self._current_page == "config" then self:_redraw_config_field() end
+    elseif ev[1] == "clipboard" then
+      -- Paste clipboard text into active config field
+      local text = ev[3]
+      if self._current_page == "config" and type(text) == "string" and #text > 0 then
+        local page = self._pages.config
+        local data = page and page.data
+        if data and data._editing and not data._locked then
+          data._eb = (data._eb or "") .. text
+          self:_redraw_config_field()
+        end
+      end
+    end
     local now = self._now()
+    -- Gate backend pump to ~1 Hz — don't block input with dispatch work
+    if now - last_pump > 1.0 then
+      if self._pump_fn then pcall(self._pump_fn) end
+      pcall(self._refresh_data, self)
+      last_pump = now
+    end
+    -- Full render throttled to ~2 fps (0.5s) — GPU is the bottleneck
     if now - (self._last_render or 0) >= 0.5 then
       pcall(self._render, self)
       self._last_render = now
     end
-    local ev = { event.pull(1.0, "key_down") }
-    if ev[1] == "key_down" then self._ctrl = self._kb and self._kb.isControlDown(); self:_handle_key(ev[4], ev[3]) end
   end
   -- Cleanup on exit — one final clear is fine here
   pcall(self._gpu.fill, self._gpu, 1, 1, mw, mh, " ")
