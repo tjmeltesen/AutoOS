@@ -304,10 +304,22 @@ function BrokerUI:_build_dashboard_data()
   for _, m in ipairs(self._config.machines or {}) do
     lanes[m.id] = { state = "IDLE", current_job_id = nil, last_error = nil, state_entered_at = nil }
   end
+  -- Merge poll results (maintenance info) into lane data
+  local poll_results = self._broker_ctx and self._broker_ctx.state and self._broker_ctx.state.poll_results or {}
+  for mid, pr in pairs(poll_results) do
+    if lanes[mid] then
+      lanes[mid].maintenance_fault = pr.maintenance_fault
+      lanes[mid].fault_message = pr.fault_message
+    end
+  end
   if self._rob then
     local dbg = self._rob:get_debug()
     for mid, lane in pairs(dbg.lanes or {}) do
+      -- preserve maintenance info from poll when merging lane state
+      local maint_fault, maint_msg = lanes[mid].maintenance_fault, lanes[mid].fault_message
       lanes[mid] = lane
+      lanes[mid].maintenance_fault = maint_fault
+      lanes[mid].fault_message = maint_msg
     end
     return { lanes=lanes, pending=self._rob:pending_queue(),
       locks=self._rob:get_locks(), dispatch_log=self._dispatch_log, debug=dbg,

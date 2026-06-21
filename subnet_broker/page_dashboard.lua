@@ -78,7 +78,7 @@ function DashboardPage:render()
 
   -- Lane Status header
   local r = next_row + 1; U.FG(gpu, U.GRAY); U.GS(gpu, 1, r, U.pad(" Lane Status", w)); r = r + 1
-  U.GS(gpu, 1, r, U.pad((" %-14s %-9s %-18s %s"):format("Machine","State","Job","Elapsed"), w)); r = r + 1
+  U.GS(gpu, 1, r, U.pad((" %-12s %-8s %-12s %-14s %s"):format("Machine","State","Maint","Job","Elapsed"), w)); r = r + 1
 
   -- Sort lanes by state for color batching: WORKING > FAULTED > IDLE
   local state_order = { WORKING = 1, FAULTED = 2, IDLE = 3 }
@@ -101,16 +101,24 @@ function DashboardPage:render()
   for li = 1 + off, math.min(off + 6, #keys) do
     if r > h - 6 then break end
     local k = keys[li]; local l = lanes[k] or {}; local s = l.state or "?"
-    local nm = #k > 14 and k:sub(1,13).."." or k
+    local nm = #k > 12 and k:sub(1,11).."." or k
+    local maint = "--"
+    if l.maintenance_fault == true then
+      maint = l.fault_message and l.fault_message:sub(1,12) or "FAULT"
+    elseif l.maintenance_fault == false then
+      maint = "OK"
+    end
     local j = l.current_job_id or (s=="FAULTED" and (l.last_error or "?")) or "--"
-    if #j > 17 then j = j:sub(1,16).."." end
+    if #j > 13 then j = j:sub(1,12).."." end
     local el = "--"; if s=="WORKING" and l.state_entered_at then el = U.format_uptime(now - l.state_entered_at) end
-    local full = string.format(" %-14s %-9s %-18s %s", nm, s, j, el)
+    local full = string.format(" %-12s %-8s %-12s %-14s %s", nm, s, maint, j, el)
     visible[#visible + 1] = {
       row = r,
       line_full = U.pad(full, w),
       state_str = s,
       state_color = (s=="WORKING" and U.Y or s=="FAULTED" and U.R or s=="IDLE" and U.G or U.W),
+      maint_str = maint,
+      maint_color = (l.maintenance_fault == true and U.R or l.maintenance_fault == false and U.G or U.GRAY),
     }
     r = r + 1
   end
@@ -128,7 +136,17 @@ function DashboardPage:render()
       U.FG(gpu, v.state_color)
       last_sc = v.state_color
     end
-    U.GS(gpu, 17, v.row, v.state_str .. string.rep(" ", 9))
+    U.GS(gpu, 15, v.row, v.state_str .. string.rep(" ", 8))
+  end
+
+  -- Overlay maint status, batched by color
+  local last_mc = nil
+  for _, v in ipairs(visible) do
+    if v.maint_color ~= last_mc then
+      U.FG(gpu, v.maint_color)
+      last_mc = v.maint_color
+    end
+    U.GS(gpu, 24, v.row, v.maint_str .. string.rep(" ", 12))
   end
 
   if #keys == 0 then U.FG(gpu, U.GRAY); U.GS(gpu, 1, r, U.pad(" (no lanes)", w)); r = r + 1 end
