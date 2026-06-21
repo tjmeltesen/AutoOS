@@ -64,12 +64,9 @@ local FILES = {
   "subnet_broker/network_protocols.lua",
   "subnet_broker/start.lua",
   "subnet_broker/test_recover_transfer.lua",
-  -- subnet_broker/ — broker TUI
+  -- subnet_broker/ — broker TUI (single-file, no page deps)
   "subnet_broker/broker_ui.lua",
   "subnet_broker/broker_ui_main.lua",
-  "subnet_broker/broker_ui_dashboard.lua",
-  "subnet_broker/broker_ui_logs.lua",
-  "subnet_broker/broker_ui_config.lua",
 
   -- shared/ — cross-cutting protocol definitions
   "shared/network_protocols.lua",

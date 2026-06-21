@@ -1,492 +1,513 @@
---[[
-  AutoOS — Broker UI Page Manager
+-- broker_ui.lua - AutoOS Broker TUI (single-file, no page dependencies)
+-- Lua 5.2, OpenComputers.
+local BrokerUI = {}; BrokerUI.__index = BrokerUI
 
-  A GPU-backed status display and navigation system for the AutoOS broker.
-  Provides three pages: dashboard, logs, config. Falls back to headless
-  mode when no GPU is available.
-
-  Page modules (dashboard, logs, config) are loaded via pcall(require, ...)
-  so missing pages do not crash the broker UI — they simply show a placeholder.
-
-  Usage:
-    local BrokerUI = require("broker_ui")
-    local ui = BrokerUI.new(rob, config, { gpu = ..., screen_addr = ..., now_fn = ..., log = ... })
-    ui:run()
-]]
-
-local BrokerUI = {}
-BrokerUI.__index = BrokerUI
-
----------------------------------------------------------------------------
--- OC palette indices (0xRRGGBB)
----------------------------------------------------------------------------
-
-local COLORS = {
-  green   = 0x00FF00,
-  yellow  = 0xFFFF00,
-  red     = 0xFF0000,
-  gray    = 0x808080,
-  white   = 0xFFFFFF,
-  cyan    = 0x00FFFF,
-}
-
----------------------------------------------------------------------------
--- Keyboard codes (OpenComputers)
----------------------------------------------------------------------------
-
-local KEY = {
-  ESCAPE    = 1,
-  NUM1      = 2,
-  NUM2      = 3,
-  NUM3      = 4,
-  BACKSPACE = 14,
-  TAB       = 15,
-  Q         = 16,
-  ENTER     = 28,
-  UP        = 200,
-  DOWN      = 208,
-  PAGEUP    = 201,
-  PAGEDOWN  = 209,
-  HOME      = 199,
-  END_KEY   = 207,
-}
-
----------------------------------------------------------------------------
--- Box-drawing characters
----------------------------------------------------------------------------
-
-local BOX = {
-  H    = "\226\148\128",  -- ─
-  V    = "\226\148\130",  -- │
-  TL   = "\226\148\140",  -- ┌
-  TR   = "\226\148\144",  -- ┐
-  BL   = "\226\148\148",  -- └
-  BR   = "\226\148\152",  -- ┘
-  TL_D = "\226\148\156",  -- ├
-  TR_D = "\226\148\164",  -- ┤
-}
-
----------------------------------------------------------------------------
+-----------------------------------------------------------------------
 -- Constants
----------------------------------------------------------------------------
+-----------------------------------------------------------------------
+local G, W, Y, R, GRAY, CYAN = 0x00FF00, 0xFFFFFF, 0xFFFF00, 0xFF0000, 0x808080, 0x00FFFF
 
-local PAGE_ORDER = { "dashboard", "logs", "config" }
-local MAX_DISPATCH_LOG = 50
-local LOG_PATH = "/var/log/autoos/lane_worker.log"
+local LOG_PATH = "/home/subnet_broker/lane_worker.log"
 
----------------------------------------------------------------------------
--- Color / drawing helpers
----------------------------------------------------------------------------
-
-local function draw_text(gpu, x, y, color, str)
-  if not gpu then return end
-  gpu.setForeground(color)
-  gpu.set(x, y, tostring(str or ""))
+-----------------------------------------------------------------------
+-- Helpers
+-----------------------------------------------------------------------
+local function fmtt(sec)
+  if not sec or sec < 0 then return "--" end
+  if sec < 60 then return "<1m" end
+  local d, h, m, s = math.floor(sec/86400), math.floor((sec%86400)/3600), math.floor((sec%3600)/60), math.floor(sec%60)
+  if d > 0 then return string.format("%dd%dh", d, h) end
+  if h > 0 then return string.format("%dh%dm", h, m) end
+  if s > 0 then return string.format("%dm%ds", m, s) end
+  return string.format("%dm", m)
 end
 
-local function draw_box(gpu, x, y, w, h, color, title)
-  if not gpu then return end
-  if w < 3 or h < 2 then return end
-  local tw = w - 2 -- inner width
-  gpu.setForeground(color)
-
-  -- Top border
-  gpu.set(x, y, BOX.TL .. string.rep(BOX.H, tw) .. BOX.TR)
-  if title then
-    gpu.set(x + 2, y, title)
-  end
-
-  -- Side borders for intermediate rows
-  for row = y + 1, y + h - 2 do
-    gpu.set(x, row, BOX.V)
-    gpu.set(x + w - 1, row, BOX.V)
-  end
-
-  -- Bottom border
-  gpu.set(x, y + h - 1, BOX.BL .. string.rep(BOX.H, tw) .. BOX.BR)
+local function fmtag(now, t)
+  if not now or not t then return "--" end
+  local d = now - t; if d < 0 then return "--" end
+  if d < 60 then return math.floor(d).."s" elseif d < 3600 then return math.floor(d/60).."m" else return math.floor(d/3600).."h" end
 end
 
----------------------------------------------------------------------------
+-----------------------------------------------------------------------
+-- Embedded page renderers (no external files, can't stale)
+-----------------------------------------------------------------------
+local function render_dashboard(gpu, w, h, data)
+  data = data or {}
+  local lanes = data.lanes or {}
+  local pending = data.pending or {}
+  local locks = data.locks or {}
+  local now = data.now_fn and data.now_fn() or 0
+
+  gpu.setBackground(0x000000); gpu.fill(1, 1, w, h, " ")
+
+  -- Row 1: title
+  gpu.setForeground(GRAY)
+  gpu.set(1, 1, (" AutoOS Broker -- %s"):format(data.subnet_id or "?"):sub(1, w))
+
+  -- Row 2: status
+  local active, faulted = 0, 0
+  for _, l in pairs(lanes) do
+    if l.state == "WORKING" then active = active + 1 elseif l.state == "FAULTED" then faulted = faulted + 1 end
+  end
+  local st, sc = "OK", G
+  if next(lanes) == nil then st = "IDLE"
+  elseif faulted > 0 and active == 0 then st = "STALLED"; sc = R
+  elseif faulted > 0 then st = "WARN"; sc = Y end
+  local sline = (" STATUS: %-7s  Uptime: %-6s  Port: %-3s  Jobs: %s"):format(st, fmtt(data.uptime or 0), tostring(data.port or "?"), tostring(active).."/"..tostring(data.max_lanes or 0))
+  gpu.setForeground(GRAY); gpu.set(1, 2, sline:sub(1, w))
+  gpu.setForeground(sc); gpu.set(9, 2, st)
+
+  -- Row 3: sep
+  gpu.setForeground(GRAY); gpu.set(1, 3, string.rep("-", w))
+
+  -- Rows 4+: lanes
+  local r = 4
+  gpu.setForeground(GRAY); gpu.set(1, r, " Lane Status"); r = r + 1
+  gpu.set(1, r, (" %-14s %-9s %-18s %s"):format("Machine","State","Job","Elapsed")); r = r + 1
+  local keys = {}; for k in pairs(lanes) do keys[#keys+1] = k end; table.sort(keys)
+  local off = data.scroll_offset or 0
+  if off < 0 then off = 0 elseif off > math.max(0,#keys-6) then off = math.max(0,#keys-6) end
+  data.scroll_offset = off
+  for li=1+off, math.min(off+6, #keys) do
+    if r > h - 6 then break end
+    local k = keys[li]; local l = lanes[k] or {}
+    local nm = #k > 14 and k:sub(1,13).."." or (k..string.rep(" ",14-#k))
+    local s = l.state or "?"; local lc = s=="WORKING" and Y or s=="FAULTED" and R or s=="IDLE" and G or W
+    local j = l.current_job_id or (s=="FAULTED" and (l.last_error or "?")) or "--"
+    if #j > 17 then j = j:sub(1,16).."." end; j = j..string.rep(" ",18-#j)
+    local el = "--"; if s=="WORKING" and l.state_entered_at then el = fmtt(now - l.state_entered_at) end
+    gpu.setForeground(GRAY); gpu.set(1, r, (" %-14s "):format(nm))
+    gpu.setForeground(lc); gpu.set(17, r, (s..string.rep(" ",9)):sub(1,9))
+    gpu.setForeground(W); gpu.set(27, r, j)
+    gpu.setForeground(GRAY); gpu.set(46, r, el); r = r + 1
+  end
+  if #keys == 0 then gpu.setForeground(GRAY); gpu.set(1, r, " (no lanes)"); r = r + 1 end
+
+  -- Pending queue
+  r = r + 1; gpu.setForeground(GRAY); gpu.set(1, r, " Pending Queue"); r = r + 1
+  if #pending == 0 then gpu.setForeground(GRAY); gpu.set(1, r, " (empty)"); r = r + 1
+  else
+    for i=1, math.min(#pending, 3) do
+      if r > h - 4 then break end
+      local j = pending[i] or {}; local id = (j.id or "?"):sub(1,20)
+      local it = (j.manifest and j.manifest.items and #j.manifest.items) or 0
+      local fl = (j.manifest and j.manifest.fluids and #j.manifest.fluids) or 0
+      gpu.setForeground(W); gpu.set(1, r, (" %-20s  age:%-5s  a:%d  %di/%df"):format(id, fmtag(now, j.created_at), j.attempt or 1, it, fl):sub(1, w)); r = r + 1
+    end
+  end
+
+  -- Active locks
+  r = r + 1; gpu.setForeground(GRAY); gpu.set(1, r, " Active Locks"); r = r + 1
+  local lkeys = {}; for k in pairs(locks) do lkeys[#lkeys+1] = k end
+  if #lkeys == 0 then gpu.setForeground(GRAY); gpu.set(1, r, " (none)"); r = r + 1
+  else
+    for i=1, math.min(#lkeys, 3) do
+      if r > h - 1 then break end
+      local key = lkeys[i]; local disp = key:gsub(":(%x%x%x%x%x%x%x%x)%-[%x%-]+", ":%1...")
+      if #disp > 45 then disp = disp:sub(1,44).."." end
+      gpu.setForeground(W); gpu.set(1, r, (" %-47s  %s"):format(disp, locks[key] or "?"):sub(1, w)); r = r + 1
+    end
+  end
+
+  -- Help
+  gpu.setForeground(GRAY); gpu.set(1, h, "[1]Dash  [2]Logs  [3]Config  Tab:next  Q:quit  Up/Dn:scroll")
+end
+
+local function render_logs(gpu, w, h, data)
+  data = data or {}
+  local path = data.path or LOG_PATH
+  local lines = data.lines
+  if type(lines) ~= "table" then lines = {} end
+  local offset = data.offset or 0
+  local follow = data.follow
+
+  gpu.setBackground(0x000000); gpu.fill(1, 1, w, h, " ")
+
+  if follow then offset = 0; data.offset = 0 end
+
+  gpu.setForeground(GRAY)
+  local hdr = ("--- Logs: %s"):format(path or "?")
+  gpu.set(1, 1, hdr:sub(1, w))
+
+  if #lines == 0 then
+    gpu.setForeground(GRAY); local msg = "(no log data)"; gpu.set(math.floor((w-#msg)/2)+1, math.floor(h/2), msg)
+    data._h = h; data._w = w; return
+  end
+
+  local vis = h - 2; if vis < 1 then vis = 1 end
+  local ei = #lines - offset; if ei < 1 then ei = #lines elseif ei > #lines then ei = #lines end
+  local si = ei - vis + 1; if si < 1 then si = 1 end
+  local row = 2
+  for i = si, ei do
+    if row > h then break end
+    local line = lines[i] or ""
+    if line:find("FAILED", 1, true) or line:find("ERROR", 1, true) then gpu.setForeground(R)
+    elseif line:find("Phase", 1, true) then gpu.setForeground(Y)
+    elseif line:find("dispatched", 1, true) then gpu.setForeground(G)
+    else gpu.setForeground(W) end
+    gpu.set(1, row, line:sub(1, w)); row = row + 1
+  end
+  local sr = h
+  if follow then gpu.setForeground(CYAN); gpu.set(1, sr, "[Follow:ON]")
+  else gpu.setForeground(GRAY); gpu.set(1, sr, "[Follow:OFF]") end
+  gpu.setForeground(GRAY); local cnt = ("L%d/%d"):format(ei, #lines); gpu.set(w - #cnt, sr, cnt)
+  data._h = h; data._w = w
+end
+
+local function render_config(gpu, w, h, data)
+  data = data or {}
+  if not data._cfg then
+    local ok, cfg = pcall(dofile, "subnet_broker/config.lua")
+    if ok and type(cfg) == "table" then data._cfg = cfg end
+  end
+  local cfg = data._cfg or {}
+  local sc, ct = cfg.scheduler or {}, cfg.central or {}
+
+  -- Build sections from config
+  if not data._sections then
+    data._sections = {
+      {n="Network", f={
+        {l="Subnet ID",       v=cfg.subnet_id or "",               t="s"},
+        {l="Modem Port",       v=cfg.broker_modem_port or 106,      t="n", min=1, max=65535},
+        {l="Main Channel",     v=cfg.main_net_channel or 105,       t="n", min=1, max=65535},
+        {l="Orch Addr",        v=cfg.orchestrator_address or "",    t="s"},
+      }},
+      {n="Mode & Timing", f={
+        {l="Input Mode",        v=cfg.input_mode or "central",      t="e", c={"per_lane","central"}},
+        {l="Completion Mode",   v=cfg.completion_mode or "both",    t="e", c={"both","adapter","drain"}},
+        {l="Round Robin",       v=cfg.do_round_robin~=false,        t="b"},
+        {l="Tick Interval (s)",  v=cfg.tick_interval or 1.0,        t="n", min=0.01},
+        {l="Settle (s)",        v=cfg.settle_s or 0.1,              t="n", min=0},
+        {l="Monitor Poll (s)",  v=cfg.monitor_poll_s or 0.15,       t="n", min=0.01},
+        {l="Staging Timeout",   v=cfg.staging_timeout_s or 60,      t="n", min=0},
+        {l="Completion TO",     v=cfg.completion_timeout_s or 300,  t="n", min=0},
+        {l="Req Empty Return",  v=cfg.require_empty_return~=false,  t="b"},
+      }},
+      {n="AE2 & Database", f={
+        {l="DB Address",        v=cfg.database_address or "",       t="s"},
+        {l="DB Slot Count",     v=cfg.database_slot_count or 9,     t="n", min=1},
+        {l="IF Item Slots",     v=cfg.interface_item_slots or 9,    t="n", min=1},
+        {l="IF Slot Start",     v=cfg.interface_item_slot_start or 1,t="n", min=1},
+        {l="IF Fluid Side",     v=cfg.interface_fluid_side or 0,    t="n", min=0, max=5},
+        {l="Shared IF Addr",    v=cfg.shared_interface_address or "",t="s"},
+        {l="Chest Slot Start",  v=cfg.chest_slot_start or 1,        t="n", min=1},
+        {l="Circuit Bus Slot",  v=cfg.circuit_bus_slot or 1,        t="n", min=1},
+        {l="Circuit Item",      v=cfg.circuit_item_name or "gregtech:gt.integrated_circuit", t="s"},
+      }},
+      {n="Redstone Lock", f={
+        {l="RS Address",        v=cfg.redstone_address or "",       t="s"},
+        {l="RS Side",           v=cfg.redstone_side or 0,           t="n", min=0, max=5},
+        {l="Pulse Duration",    v=cfg.redstone_pulse_s or 0.5,      t="n", min=0},
+      }},
+      {n="Scheduler", f={
+        {l="Max Parallel",      v=sc.max_parallel_lanes,            t="n", min=1, nilok=true},
+        {l="Max Job Attempts",  v=sc.max_job_attempts or 2,         t="n", min=1},
+        {l="Watchdog Grace",    v=sc.watchdog_grace_s or 10,        t="n", min=0},
+        {l="Persist Jobs",      v=sc.persist_jobs or "startup_sweep", t="e", c={"startup_sweep","file"}},
+        {l="Lane Budget",       v=sc.active_lane_budget or 32,      t="n", min=1},
+      }},
+      {n="Central Buffer", f={
+        {l="Monitor Mode",      v=ct.monitor or "inventory_controller", t="e", c={"inventory_controller","adapter"}},
+        {l="IC Side",           v=ct.inventory_controller_side or 0, t="n", min=0, max=5},
+        {l="Buffer Adapter",    v=ct.buffer_adapter_address or "",   t="s"},
+        {l="Buffer Side",       v=ct.buffer_adapter_side or 0,       t="n", min=0, max=5},
+        {l="Fluid Adapter",     v=ct.fluid_adapter_address or "",    t="s"},
+        {l="Fluid Side",        v=ct.fluid_adapter_side or 0,        t="n", min=0, max=5},
+        {l="Chest Slot Start",  v=ct.chest_slot_start or 1,          t="n", min=1},
+        {l="Max Circuits",      v=ct.max_circuits_in_buffer or 1,    t="n", min=1},
+        {l="Ingest Mode",       v=ct.ingest_mode or "event_or_poll", t="e", c={"event_or_poll","event","poll"}},
+        {l="Job Stabilize",     v=ct.job_stabilize_s or 1.0,        t="n", min=0},
+        {l="Stabilize",         v=ct.stabilize_s or 1.0,             t="n", min=0},
+        {l="Settle",            v=ct.settle_s or 0.0,                t="n", min=0},
+        {l="IF Wait",           v=ct.interface_wait_s or 5.0,        t="n", min=0},
+        {l="Req IF Staging",    v=ct.require_interface_staging or false, t="b"},
+      }},
+      {n="Machines", ismach=true, f={
+        {l="ID",                t="s"},
+        {l="GT Address",        t="s"},
+        {l="IF Address",        t="s"},
+        {l="Item TP Addr",      t="s"},
+        {l="Fluid TP Addr",     t="s"},
+        {l="Side Buffer",       t="n", min=0, max=5},
+        {l="Side Bus B",        t="n", min=0, max=5},
+        {l="Side Return",       t="n", min=0, max=5},
+        {l="Side Fluid Buffer", t="n", min=0, max=5},
+        {l="Side Fluid Hatch",  t="n", min=0, max=5},
+        {l="Input Slot",        t="n", min=1},
+      }},
+    }
+    if not data._machines then data._machines = cfg.machines or {} end
+    if not data._fs then data._fs = 1 end
+    if not data._ff then data._ff = 1 end
+  end
+
+  local sections = data._sections
+  local fs = data._fs or 1; if fs < 1 then fs = 1 elseif fs > #sections then fs = #sections end
+  data._fs = fs
+  local sec = sections[fs] or sections[1]
+  local fields = sec.f or {}
+  local ff = data._ff or 1; if ff < 1 then ff = 1 elseif ff > #fields then ff = #fields end
+  data._ff = ff
+
+  gpu.setBackground(0x000000); gpu.fill(1, 1, w, h, " ")
+
+  -- Header
+  gpu.setForeground(GRAY); gpu.set(1, 1, (" Config: subnet_broker/config.lua  [Ctrl+S:Save]"):sub(1, w))
+
+  -- Left: sections
+  local lw = math.floor(w * 0.35); if lw < 10 then lw = 10 end
+  for i, s in ipairs(sections) do
+    if i > h-3 then break end
+    gpu.setForeground(i == fs and W or GRAY)
+    gpu.set(1, i+1, (" %d.%s"):format(i, s.n .. string.rep(" ", 22 - #s.n)):sub(1, lw))
+  end
+
+  -- Right: fields
+  local rx, rw = lw + 2, w - lw - 1
+  gpu.setForeground(Y); gpu.set(rx, 2, sec.n)
+  gpu.setForeground(GRAY); gpu.set(rx, 3, string.rep("-", rw))
+
+  local row = 4
+  for i = 1, math.min(#fields, h - 3) do
+    if row > h-2 then break end
+    local f = fields[i]
+    local val = (data._editing and i == ff) and (data._eb or "").."_" or tostring(f.v or "")
+    if f.t == "b" and not data._editing then val = f.v and "true" or "false" end
+    local lb = f.l; if #lb > 20 then lb = lb:sub(1,19).."." end
+    local line = (" %-21s %s"):format(lb, val):sub(1, rw)
+    gpu.setForeground(i == ff and CYAN or W); gpu.set(rx, row, line); row = row + 1
+  end
+
+  -- Machines section
+  if sec.ismach then
+    gpu.setForeground(GRAY); gpu.set(rx, row, (" Machines: %d"):format(#data._machines)); row = row + 1
+    for i = 1, math.min(#data._machines, h - row) do
+      local m = data._machines[i]; gpu.setForeground(i==ff and CYAN or W)
+      gpu.set(rx, row, (" %d. %s"):format(i, m.id or ("#..i")):sub(1, rw)); row = row + 1
+    end
+  end
+
+  -- Status
+  if data._status then gpu.setForeground(data._status:find("Err") and R or G); gpu.set(1, h-1, data._status:sub(1, w)) end
+
+  -- Help
+  gpu.setForeground(0x404040)
+  local help = data._editing and "EDITING: Enter=commit Esc=cancel Bksp=delete" or "Up/Dn:nav Enter:edit Tab:next 1-7:section Ctrl+S:save"
+  gpu.set(1, h, help:sub(1, w))
+  data._h = h; data._w = w
+end
+
+-----------------------------------------------------------------------
+-- Page key handlers
+-----------------------------------------------------------------------
+local function handle_dashboard_key(code, data)
+  data = data or {}; local n = 0; for _ in pairs(data.lanes or {}) do n = n + 1 end
+  local off = data.scroll_offset or 0
+  if code == 200 then data.scroll_offset = math.max(0, off - 1)        -- Up
+  elseif code == 208 then data.scroll_offset = math.min(math.max(0,n-6), off+1) end -- Down
+end
+
+local function handle_logs_key(code, data)
+  data = data or {}; data.lines = data.lines or {}; local hh = data._h or 20
+  local mx = math.max(0, #data.lines - hh + 2)
+  if code == 200 then data.offset = (data.offset or 0) + 1            -- Up
+  elseif code == 208 then data.offset = (data.offset or 0) - 1        -- Down
+  elseif code == 201 then data.offset = (data.offset or 0) + 10       -- PgUp
+  elseif code == 209 then data.offset = (data.offset or 0) - 10       -- PgDn
+  elseif code == 199 then data.offset = #data.lines                   -- Home
+  elseif code == 207 then data.offset = 0                             -- End
+  elseif code == 57 then data.follow = not data.follow                -- Space
+  end
+  if data.offset < 0 then data.offset = 0 elseif data.offset > mx then data.offset = mx end
+end
+
+local function handle_config_key(code, data)
+  data = data or {}; data._sections = data._sections or {}; data._machines = data._machines or {}
+  local secs = data._sections; local fs = data._fs or 1
+  local sec = secs[fs] or {}; local fields = sec.f or {}; local ff = data._ff or 1
+
+  -- Ctrl+S
+  if code == 31 then
+    if data._editing then data._editing = false; data._eb = "" end
+    data._status = "Save not implemented (edit config.lua directly)"
+    return
+  end
+  -- Esc
+  if code == 1 then data._editing = false; data._eb = ""; return end
+
+  if not data._editing then
+    if code == 200 then data._ff = math.max(1, ff - 1)                        -- Up
+    elseif code == 208 then data._ff = math.min(#fields, ff + 1)              -- Down
+    elseif code == 15 then                                                     -- Tab
+      data._ff = ff + 1; if data._ff > #fields then data._ff = 1; data._fs = fs + 1; if data._fs > #secs then data._fs = 1 end end
+    elseif code == 28 then                                                     -- Enter
+      local f = fields[ff]; if not f then return end
+      if f.t == "b" then f.v = not f.v
+      elseif f.t == "e" and f.c then
+        local cur = tostring(f.v or f.c[1])
+        for ci, cv in ipairs(f.c) do if cv == cur then f.v = f.c[(ci % #f.c) + 1]; break end end
+      else data._eb = tostring(f.v or ""); data._editing = true; data._status = nil end
+    elseif code >= 50 and code <= 56 then data._fs = code - 49; data._ff = 1 end -- 1-7
+  else
+    local f = fields[ff]
+    if code == 28 then                                                            -- Enter commit
+      if f then
+        if f.t == "n" then local n = tonumber(data._eb); if n then f.v = n; data._status = f.l.."="..n else data._status = "Invalid number" end
+        else f.v = data._eb; data._status = f.l.." updated" end
+      end; data._editing = false; data._eb = ""
+    elseif code == 14 then data._eb = data._eb:sub(1, -2)                        -- Bksp
+    elseif code >= 32 and code <= 126 then                                       -- Printable
+      local ch = string.char(code)
+      if f and f.t == "n" then if (ch>="0" and ch<="9") or ch=="." or (ch=="-" and #data._eb==0) then data._eb = data._eb..ch end
+      else data._eb = data._eb..ch end
+    end
+  end
+end
+
+-----------------------------------------------------------------------
 -- Constructor
----------------------------------------------------------------------------
-
---- Create a new Overseer page manager.
---- @param rob     table   ROBDispatcher instance
---- @param config  table   Validated Config table
---- @param deps    table   Runtime dependencies
----   deps.gpu          component.gpu proxy (or nil for headless)
----   deps.screen_addr  screen address string (or nil)
----   deps.now_fn       function() -> seconds (os.clock or computer.uptime)
----   deps.log          function(msg) (print)
----   deps.pump_fn      function() called before each render tick (optional)
---- @return BrokerUI
+-----------------------------------------------------------------------
 function BrokerUI.new(rob, config, deps)
   deps = deps or {}
-
   local self = setmetatable({}, BrokerUI)
-
-  self._rob = rob
-  self._config = config or {}
-  self._gpu = deps.gpu
-  self._screen_addr = deps.screen_addr
-  self._now = deps.now_fn or os.clock
-  self._log = deps.log or print
+  self._rob = rob; self._config = config or {}
+  self._gpu = deps.gpu; self._screen_addr = deps.screen_addr
+  self._now = deps.now_fn or os.clock; self._log = deps.log or print
   self._pump_fn = deps.pump_fn
-
   self._current_page = "dashboard"
-  self._page_idx = 1
-  self._pages = {}
-  self._dispatch_log = {}
-  self._prev_lane_states = {} -- { [machine_id] = state_string }
-  self._running = false
-  self._start_time = self._now()  -- for uptime display
+  self._dispatch_log = {}; self._prev_lane_states = {}
+  self._running = false; self._start_time = self._now()
 
-  self:_load_pages()
+  -- Embedded page registry (no external files)
+  self._pages = {
+    dashboard = { render = render_dashboard, handle_key = handle_dashboard_key },
+    logs      = { render = render_logs,      handle_key = handle_logs_key },
+    config    = { render = render_config,    handle_key = handle_config_key },
+  }
 
   return self
 end
 
----------------------------------------------------------------------------
--- Page loading
----------------------------------------------------------------------------
-
-function BrokerUI:_load_pages()
-  for _, name in ipairs(PAGE_ORDER) do
-    local mod_name = "broker_ui_" .. name
-    local ok, mod = pcall(require, mod_name)
-    if ok and mod then
-      self._pages[name] = mod
-      self._log("[BrokerUI] loaded page: " .. name)
-    else
-      self._log("[BrokerUI] page not available: " .. mod_name)
-    end
-  end
-end
-
----------------------------------------------------------------------------
+-----------------------------------------------------------------------
 -- Dispatch ring buffer
----------------------------------------------------------------------------
-
---- Track lane state transitions (WORKING->IDLE, IDLE->WORKING, *->FAULTED).
---- Called before each render to detect changes in rob:get_debug().lanes.
+-----------------------------------------------------------------------
 function BrokerUI:_track_dispatch()
   if not self._rob then return end
-  local dbg = self._rob:get_debug()
-  local lanes = dbg.lanes or {}
-
+  local dbg = self._rob:get_debug(); local lanes = dbg.lanes or {}
   for mid, lane in pairs(lanes) do
-    local prev = self._prev_lane_states[mid]
-    local curr = lane.state
-
+    local prev = self._prev_lane_states[mid]; local curr = lane.state
     if prev and prev ~= curr then
-      local entry = {
-        job_id = lane.current_job_id,
-        machine_id = mid,
-        time = self._now(),
-      }
-      if curr == "WORKING" then
-        entry.status = "running"
-      elseif curr == "IDLE" then
-        entry.status = prev == "WORKING" and "done" or "idle"
-      elseif curr == "FAULTED" then
-        entry.status = "failed"
-      else
-        entry.status = curr
-      end
-      self._dispatch_log[#self._dispatch_log + 1] = entry
-
-      -- Trim to last N entries
-      while #self._dispatch_log > MAX_DISPATCH_LOG do
-        table.remove(self._dispatch_log, 1)
-      end
+      local e = { job_id = lane.current_job_id, machine_id = mid, time = self._now() }
+      if curr == "WORKING" then e.status = "running"
+      elseif curr == "IDLE" then e.status = prev == "WORKING" and "done" or "idle"
+      elseif curr == "FAULTED" then e.status = "failed" else e.status = curr end
+      self._dispatch_log[#self._dispatch_log + 1] = e
+      while #self._dispatch_log > 50 do table.remove(self._dispatch_log, 1) end
     end
-
     self._prev_lane_states[mid] = curr
   end
 end
 
----------------------------------------------------------------------------
--- Data builders (called before each render for the current page)
----------------------------------------------------------------------------
-
+-----------------------------------------------------------------------
+-- Data builders
+-----------------------------------------------------------------------
 function BrokerUI:_build_dashboard_data()
   if not self._rob then
-    return {
-      lanes = {}, pending = {}, locks = {}, dispatch_log = {}, debug = {},
-      subnet_id = self._config.subnet_id or "unknown",
-      uptime = self._now() - self._start_time,
-      port = self._config.broker_modem_port or self._config.main_net_channel or 0,
-      max_lanes = #(self._config.machines or {}),
-      now_fn = self._now,
-    }
+    return { lanes={}, pending={}, locks={}, dispatch_log={}, debug={},
+      subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
+      port=self._config.broker_modem_port or self._config.main_net_channel or 0,
+      max_lanes=#(self._config.machines or {}), now_fn=self._now }
   end
   local dbg = self._rob:get_debug()
-  return {
-    lanes = dbg.lanes,
-    pending = self._rob:pending_queue(),
-    locks = self._rob:get_locks(),
-    dispatch_log = self._dispatch_log,
-    debug = dbg,
-    subnet_id = self._config.subnet_id or "unknown",
-    uptime = self._now() - self._start_time,
-    port = self._config.broker_modem_port or self._config.main_net_channel or 0,
-    max_lanes = #(self._config.machines or {}),
-    now_fn = self._now,
-  }
+  return { lanes=dbg.lanes, pending=self._rob:pending_queue(),
+    locks=self._rob:get_locks(), dispatch_log=self._dispatch_log, debug=dbg,
+    subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
+    port=self._config.broker_modem_port or self._config.main_net_channel or 0,
+    max_lanes=#(self._config.machines or {}), now_fn=self._now }
 end
 
-function BrokerUI:_read_log_lines(max_lines)
-  max_lines = max_lines or 500
-  local f, err = io.open(LOG_PATH, "r")
-  if not f then
-    return { "[log file not available: " .. tostring(err) .. "]" }
-  end
-
-  -- Read all lines, keep only the last max_lines
-  local all = {}
-  for line in f:lines() do
-    all[#all + 1] = line
-  end
-  f:close()
-
-  local start = math.max(1, #all - max_lines + 1)
-  local lines = {}
-  for i = start, #all do
-    lines[#lines + 1] = all[i]
-  end
-  return lines
-end
-
-function BrokerUI:_build_logs_data()
-  return { lines = self:_read_log_lines(500), path = LOG_PATH }
-end
-
-function BrokerUI:_build_config_data()
-  -- Config page is self-sufficient — it calls build_data() internally
-  -- if sections are missing. Just pass it a hint for config path.
-  return { config_path = "subnet_broker/config.lua" }
-end
-
----------------------------------------------------------------------------
+-----------------------------------------------------------------------
 -- Data refresh
----------------------------------------------------------------------------
-
---- Refresh the current page's .data field by pulling fresh state from
---- rob and config. Calls _track_dispatch first so the dispatch log is
---- up-to-date.
+-----------------------------------------------------------------------
 function BrokerUI:_refresh_data()
   self:_track_dispatch()
-
-  local page = self._pages[self._current_page]
-  if not page then return end
-
+  local page = self._pages[self._current_page]; if not page then return end
   if self._current_page == "dashboard" then
     page.data = self:_build_dashboard_data()
   elseif self._current_page == "logs" then
-    page.data = self:_build_logs_data()
+    local lines = {}; local f = io.open(LOG_PATH, "r")
+    if f then for line in f:lines() do lines[#lines+1] = line end; f:close() end
+    page.data = { lines = lines, path = LOG_PATH, follow = true, offset = 0 }
   elseif self._current_page == "config" then
-    page.data = self:_build_config_data()
+    page.data = page.data or { config_path = "subnet_broker/config.lua" }
   end
 end
 
----------------------------------------------------------------------------
+-----------------------------------------------------------------------
 -- Navigation
----------------------------------------------------------------------------
-
+-----------------------------------------------------------------------
 function BrokerUI:_nav_to(name)
-  if self._pages[name] then
-    self._current_page = name
-    for i, n in ipairs(PAGE_ORDER) do
-      if n == name then self._page_idx = i; break end
-    end
-    self:_refresh_data()
-  end
+  if self._pages[name] then self._current_page = name; self:_refresh_data() end
 end
-
 function BrokerUI:_nav_next()
-  local idx = self._page_idx + 1
-  if idx > #PAGE_ORDER then idx = 1 end
-  self:_nav_to(PAGE_ORDER[idx])
+  local order = {"dashboard","logs","config"}
+  for i, n in ipairs(order) do if n == self._current_page then self:_nav_to(order[i%3+1]); return end end
 end
 
-function BrokerUI:_nav_prev()
-  local idx = self._page_idx - 1
-  if idx < 1 then idx = #PAGE_ORDER end
-  self:_nav_to(PAGE_ORDER[idx])
-end
-
----------------------------------------------------------------------------
+-----------------------------------------------------------------------
 -- Key handling
----------------------------------------------------------------------------
-
+-----------------------------------------------------------------------
 function BrokerUI:_handle_key(code)
-  -- Direct page navigation
-  if code == KEY.NUM1 then
-    self:_nav_to("dashboard")
-    return
-  elseif code == KEY.NUM2 then
-    self:_nav_to("logs")
-    return
-  elseif code == KEY.NUM3 then
-    self:_nav_to("config")
-    return
-  end
-
-  -- Tab: next page
-  if code == KEY.TAB then
-    self:_nav_next()
-    return
-  end
-
-  -- Q or Escape: quit
-  if code == KEY.Q or code == KEY.ESCAPE then
-    self._running = false
-    return
-  end
-
-  -- Route remaining keys to the current page's handler
-  local page = self._pages[self._current_page]
-  if page and page.handle_key then
-    page.handle_key(code, page.data)
-  end
+  if code == 2 then self:_nav_to("dashboard")
+  elseif code == 3 then self:_nav_to("logs")
+  elseif code == 4 then self:_nav_to("config")
+  elseif code == 15 then self:_nav_next()
+  elseif code == 16 or code == 1 then self._running = false
+  else local page = self._pages[self._current_page]; if page and page.handle_key then page.handle_key(code, page.data) end end
 end
 
----------------------------------------------------------------------------
--- Rendering
----------------------------------------------------------------------------
-
---- Draw the help bar at the bottom row of the screen.
-function BrokerUI:_draw_help_bar(gpu, w, h)
-  local help = "[1]Dashboard  [2]Logs  [3]Config   Tab:next   Q:quit"
-  if #help > w then
-    help = help:sub(1, w)
-  else
-    help = help .. string.rep(" ", w - #help)
-  end
-  gpu.setForeground(COLORS.gray)
-  gpu.set(1, h, help)
-end
-
---- Full render: clear screen, render current page above help bar, draw help bar.
+-----------------------------------------------------------------------
+-- Render
+-----------------------------------------------------------------------
 function BrokerUI:_render()
-  local gpu = self._gpu
-  if not gpu then return end
-
+  local gpu = self._gpu; if not gpu then return end
   local w, h = gpu.getResolution()
-  local page = self._pages[self._current_page]
-
-  -- Clear
   gpu.fill(1, 1, w, h, " ")
-
-  if page and page.render then
-    -- Page renders into rows 1..h-1 (help bar uses row h)
-    page.render(gpu, w, h - 1, page.data)
-  else
-    -- Placeholder for missing page
-    gpu.setForeground(COLORS.red)
-    gpu.set(2, 2, "Page '" .. self._current_page .. "' not loaded")
-    gpu.setForeground(COLORS.gray)
-    gpu.set(2, 3, "Create broker_ui_" .. self._current_page .. ".lua to enable this page.")
-  end
-
-  -- Help bar at the bottom
-  self:_draw_help_bar(gpu, w, h)
+  local page = self._pages[self._current_page]
+  if page and page.render then page.render(gpu, w, h - 1, page.data) end
 end
 
----------------------------------------------------------------------------
--- Headless fallback
----------------------------------------------------------------------------
-
---- Return a one-line string with key broker status suitable for print().
---- @return string
+-----------------------------------------------------------------------
+-- Headless
+-----------------------------------------------------------------------
 function BrokerUI:headless_line()
   self:_track_dispatch()
-  if not self._rob then return "[BrokerUI] no broker data (display-only mode)" end
-  local dbg = self._rob:get_debug()
-  local pending = self._rob:pending_count()
-
-  local parts = {
-    "buf=" .. tostring(dbg.buffer_state),
-    "pending=" .. tostring(pending),
-    "locks=" .. tostring(dbg.active_locks or 0),
-  }
-
-  -- Compact lane status
-  local lane_parts = {}
-  for mid, lane in pairs(dbg.lanes or {}) do
-    lane_parts[#lane_parts + 1] = string.format("%s:%s",
-      tostring(mid):sub(1, 6),
-      tostring(lane.state))
-  end
-  if #lane_parts > 0 then
-    parts[#parts + 1] = table.concat(lane_parts, " ")
-  end
-
-  return "[BrokerUI] " .. table.concat(parts, " | ")
+  if not self._rob then return "[Broker] no data" end
+  local dbg = self._rob:get_debug(); local pending = self._rob:pending_count()
+  local parts = {"buf="..tostring(dbg.buffer_state), "pend="..tostring(pending), "locks="..tostring(dbg.active_locks or 0)}
+  local lp = {}; for mid, l in pairs(dbg.lanes or {}) do lp[#lp+1] = ("%s:%s"):format(tostring(mid):sub(1,6), tostring(l.state)) end
+  if #lp > 0 then parts[#parts+1] = table.concat(lp, " ") end
+  return "[Broker] "..table.concat(parts, " | ")
 end
 
----------------------------------------------------------------------------
+-----------------------------------------------------------------------
 -- Main loop
----------------------------------------------------------------------------
-
---- Enter the overseer event loop. Blocks until the user presses Q or Escape.
---- If no GPU is available, runs in headless mode (prints status every 1s).
+-----------------------------------------------------------------------
 function BrokerUI:run()
-  if not self._gpu then
-    -- Headless mode — infinite print loop
-    while true do
-      if self._pump_fn then self._pump_fn() end
-      print(self:headless_line())
-      os.execute("sleep 1")
-    end
-  end
-
+  if not self._gpu then while true do if self._pump_fn then self._pump_fn() end; print(self:headless_line()); os.execute("sleep 1") end end
   local event = require("event")
-
-  -- Bind screen
-  if self._screen_addr then
-    self._gpu.bind(self._screen_addr)
-  end
-
-  -- Set resolution (80x25 or detected max)
+  if self._screen_addr then self._gpu.bind(self._screen_addr) end
   local mw, mh = 80, 25
-  local ok_max, max_w, max_h = pcall(self._gpu.maxResolution, self._gpu)
-  if ok_max then
-    mw = math.min(mw, max_w or mw)
-    mh = math.min(mh, max_h or mh)
-  end
+  local okm, maxw, maxh = pcall(self._gpu.maxResolution, self._gpu)
+  if okm then mw = math.min(mw, maxw or mw); mh = math.min(mh, maxh or mh) end
   self._gpu.setResolution(mw, mh)
-
-  -- Initial paint
-  self._running = true
-  self:_refresh_data()
-  self:_render()
-
-  -- Event loop
+  self._running = true; self:_refresh_data(); self:_render()
   while self._running do
-    -- Pump broker state before waiting
-    if self._pump_fn then self._pump_fn() end
-
-    -- Refresh data and re-render
-    self:_refresh_data()
-    self:_render()
-
-    -- Wait for key press with 1s timeout
+    if self._pump_fn then self._pump_fn() end; self:_refresh_data(); self:_render()
     local ev = { event.pull(1.0, "key_down") }
-    local ev_name = ev[1]
-
-    if ev_name == "key_down" then
-      -- ev[2]=address, ev[3]=char, ev[4]=code, ev[5]=player_name
-      local code = ev[4]
-      self:_handle_key(code)
-    end
-    -- On timeout (nil event), just loop back and refresh
+    if ev[1] == "key_down" then self:_handle_key(ev[4]) end
   end
-
-  -- Clean exit: clear screen and print stop message
-  self._gpu.fill(1, 1, mw, mh, " ")
-  self._gpu.setForeground(COLORS.white)
-  self._gpu.set(1, 1, "AutoOS Broker UI stopped.")
+  self._gpu.fill(1, 1, mw, mh, " "); self._gpu.setForeground(W); self._gpu.set(1, 1, "AutoOS Broker stopped.")
 end
 
 return BrokerUI
