@@ -53,11 +53,14 @@ local function render_dashboard(gpu, w, h, data)
     bstate, fmtt(data.uptime or 0), tostring(data.port or "?"), tostring(active).."/"..tostring(data.max_lanes or 0)):sub(1, w))
   FG(gpu, data.broker_active and G or R); GS(gpu, 9, 2, bstate)
 
-  -- Row 3: sep
-  FG(gpu, GRAY); GS(gpu, 1, 3, string.rep("-", w))
+  -- Row 3: status message (if any)
+  if data.status then FG(gpu, CYAN); GS(gpu, 1, 3, data.status:sub(1, w)) end
+  local next_row = data.status and 4 or 3
+  -- Separator
+  FG(gpu, GRAY); GS(gpu, 1, next_row, string.rep("-", w))
 
   -- Lane Status
-  local r = 4; FG(gpu, GRAY); GS(gpu, 1, r, " Lane Status"); r = r + 1
+  local r = next_row + 1; FG(gpu, GRAY); GS(gpu, 1, r, " Lane Status"); r = r + 1
   GS(gpu, 1, r, (" %-14s %-9s %-18s %s"):format("Machine","State","Job","Elapsed")); r = r + 1
   local keys = {}; for k in pairs(lanes) do keys[#keys+1] = k end; table.sort(keys)
   local off = data.scroll_offset or 0; local maxo = math.max(0, #keys - 6)
@@ -402,7 +405,7 @@ function BrokerUI.new(rob, config, deps)
   self._dispatch_log = {}; self._prev_lane_states = {}
   self._running = false; self._start_time = self._now()
   self._broker_ctx = deps.broker_ctx; self._broker_bm = deps.broker_bm
-  self._broker_active = false
+  self._broker_active = false; self._status = "Press S to start broker"
   self._pages = {
     dashboard = { render = render_dashboard, handle_key = handle_dashboard_key },
     logs      = { render = render_logs,      handle_key = handle_logs_key },
@@ -415,9 +418,9 @@ end
 -- Broker start/stop
 -----------------------------------------------------------------------
 function BrokerUI:_start_broker()
-  if self._broker_active then return end
+  if self._broker_active then self._status = "Broker already running"; return end
   local ctx = self._broker_ctx
-  if not ctx then self._log("[Broker] no broker context — cannot start"); return end
+  if not ctx then self._status = "No broker context — cannot start"; return end
   self._log("[Broker] starting lane workers...")
   local ok, err = pcall(function()
     if self._broker_bm and self._broker_bm.attach_tasks then self._broker_bm.attach_tasks(ctx) end
@@ -433,8 +436,9 @@ function BrokerUI:_start_broker()
       end
     end
   end)
-  if not ok then self._log("[Broker] start FAILED: "..tostring(err)); return end
-  self._broker_active = true; self._log("[Broker] RUNNING — press Q to stop")
+  if not ok then self._log("[Broker] start FAILED: "..tostring(err)); self._status = "Start FAILED: "..tostring(err); return end
+  self._broker_active = true; self._status = "Broker RUNNING"
+  self._log("[Broker] RUNNING — press Q to stop")
 end
 
 function BrokerUI:_stop_broker()
@@ -479,14 +483,14 @@ function BrokerUI:_build_dashboard_data()
     return { lanes={}, pending={}, locks={}, dispatch_log={}, debug={},
       subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
       port=self._config.broker_modem_port or self._config.main_net_channel or 0,
-      max_lanes=#(self._config.machines or {}), now_fn=self._now, broker_active=self._broker_active }
+      max_lanes=#(self._config.machines or {}), now_fn=self._now, broker_active=self._broker_active, status=self._status }
   end
   local dbg = self._rob:get_debug()
   return { lanes=dbg.lanes, pending=self._rob:pending_queue(),
     locks=self._rob:get_locks(), dispatch_log=self._dispatch_log, debug=dbg,
     subnet_id=self._config.subnet_id or "?", uptime=self._now()-self._start_time,
     port=self._config.broker_modem_port or self._config.main_net_channel or 0,
-    max_lanes=#(self._config.machines or {}), now_fn=self._now, broker_active=self._broker_active }
+    max_lanes=#(self._config.machines or {}), now_fn=self._now, broker_active=self._broker_active, status=self._status }
 end
 
 -----------------------------------------------------------------------
@@ -533,7 +537,12 @@ function BrokerUI:_handle_key(code, char)
     if self._broker_active then self:_stop_broker() else self:_start_broker() end; return
   elseif code == 16 then self:_stop_broker(); self._running = false; return -- Q key (0x10)
   elseif code == 15 then self:_nav_next()                                   -- Tab
-  elseif code == 14 and self._current_page == "config" then self:_nav_to("dashboard"); return
+  elseif code == 14 and self._current_page == "config" then
+    -- Only exit config on Backspace if NOT editing a field
+    local page = self._pages.config
+    if page and page.data and not page.data._editing then self:_nav_to("dashboard"); return end
+    -- If editing, let config handler process the Backspace
+    if page and page.handle_key then page.handle_key(code, char, page.data) end; return
   else
     local page = self._pages[self._current_page]
     if page and page.handle_key then page.handle_key(code, char, page.data) end
