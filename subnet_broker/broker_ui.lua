@@ -625,7 +625,16 @@ end
 -- Navigation
 -----------------------------------------------------------------------
 function BrokerUI:_nav_to(name)
-  if self._pages[name] then self._current_page = name; self:_refresh_data() end
+  if not self._pages[name] or self._current_page == name then return end
+  self._current_page = name
+  -- One-shot screen clear on page switch — new page may be shorter
+  if self._gpu then
+    local ok, w, h = pcall(self._gpu.getResolution, self._gpu)
+    if ok and w and h then pcall(self._gpu.fill, self._gpu, 1, 1, w, h, " ") end
+  end
+  self:_refresh_data()
+  -- Force immediate render so new page appears without waiting for throttle
+  self._last_render = 0
 end
 function BrokerUI:_nav_next()
   local order = {"dashboard","logs","config"}
