@@ -46,7 +46,7 @@ local function _file_append(line)
   end
   local f = io.open(FAULT_LOG_PATH, mode)
   if f then
-    f:write(line, "\n")
+    f:write(line .. "\n")
     f:close()
   end
 end
@@ -125,17 +125,16 @@ end
 --   The fn receives NO special arguments beyond what is passed.
 ---------------------------------------------------------------------------
 function FaultNet.guard(ctx, tag, fn, ...)
-  -- xpcall needs the error handler as a function.
-  -- We pass nil as the message handler (first arg after fn) to get
-  -- debug.traceback called with the error object directly.
+  -- Capture varargs immediately — cannot use ... inside nested functions.
   local args = {...}
   local arg_count = select("#", ...)
+  local unpack = table.unpack or unpack
 
   local function wrapped()
     if arg_count == 0 then
       return fn()
     else
-      return fn(...)
+      return fn(unpack(args, 1, arg_count))
     end
   end
 
