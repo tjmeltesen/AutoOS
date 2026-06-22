@@ -106,7 +106,8 @@ function JobFactory.allocate_db_slots(manifest, registry, config, log_fn, yield_
       local filter = { name = step.name, damage = step.damage or 0 }
       if step.label then filter.label = step.label end
       if iface.store then
-        written = pcall(iface.store, filter, db_addr, slot, step.count or 1)
+        local ok_store, stored = pcall(iface.store, filter, db_addr, slot, step.count or 1)
+        written = ok_store and (stored ~= false)
       end
       if not written then
         local desc = { name = step.name, damage = step.damage or 0, size = step.count or 1 }
@@ -118,7 +119,8 @@ function JobFactory.allocate_db_slots(manifest, registry, config, log_fn, yield_
         -- Chest drop: filter already known
         local filter = step.fluid_filter
         if iface.store then
-          written = pcall(iface.store, filter, db_addr, slot, 1)
+          local ok_store, stored = pcall(iface.store, filter, db_addr, slot, 1)
+          written = ok_store and (stored ~= false)
         end
         if not written then
           pcall(db.set, slot, filter)
@@ -130,7 +132,8 @@ function JobFactory.allocate_db_slots(manifest, registry, config, log_fn, yield_
           local filter = { name = drop.name, damage = drop.damage or 0 }
           if drop.label then filter.label = drop.label end
           if iface.store then
-            written = pcall(iface.store, filter, db_addr, slot, 1)
+            local ok_store, stored = pcall(iface.store, filter, db_addr, slot, 1)
+            written = ok_store and (stored ~= false)
           end
           if not written then
             pcall(db.set, slot, filter)
@@ -143,7 +146,8 @@ function JobFactory.allocate_db_slots(manifest, registry, config, log_fn, yield_
             local ok_get, desc = pcall(db.get, reg_entry.slot)
             if ok_get and type(desc) == "table" and desc.name then
               if iface.store then
-                written = pcall(iface.store, desc, db_addr, slot, 1)
+                local ok_store, stored = pcall(iface.store, desc, db_addr, slot, 1)
+                written = ok_store and (stored ~= false)
               end
               if not written then
                 pcall(db.set, slot, desc)
