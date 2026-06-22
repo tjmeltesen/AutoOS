@@ -58,6 +58,10 @@ function ROBDispatcher.new(registry, config, deps)
   end
 
   self._fluid_tanks = FluidTanks
+
+  -- Lane wake callback (set by caller after construction)
+  self._wake_lane = nil
+
   self._log(string.format("[ROB] NEW dispatcher instance %s", tostring(self):sub(8)))
   return self
 end
@@ -149,6 +153,12 @@ function ROBDispatcher:tick(poll_results, yield_fn)
   end
   for _, mid in ipairs(jobs_assigned) do
     self._log(string.format("[ROB] staged: job -> %s", tostring(mid)))
+  end
+  -- Wake assigned lanes directly so we don't depend on task_central_dispatch
+  if self._wake_lane then
+    for _, mid in ipairs(jobs_assigned) do
+      self._wake_lane(mid)
+    end
   end
   self._log(string.format("[ROB] tick done: events=%d assigned=%d",
     #events, #jobs_assigned))

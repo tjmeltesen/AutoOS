@@ -52,6 +52,12 @@ function Bootstrap._build_impl(log)
   -- Inject transport lock release into registry (consumed by LaneWorker)
   RegistryAdapter.inject_transport_locks(registry, rob)
 
+  -- Give the dispatcher a direct lane-wake callback so it doesn't depend
+  -- on task_central_dispatch to relay wakes.
+  rob._wake_lane = function(machine_id)
+    scheduler:wake("lane_" .. tostring(machine_id))
+  end
+
   return {
     config = Config,
     registry = registry,
