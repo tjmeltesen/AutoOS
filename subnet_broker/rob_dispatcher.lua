@@ -58,6 +58,7 @@ function ROBDispatcher.new(registry, config, deps)
   end
 
   self._fluid_tanks = FluidTanks
+  self._log(string.format("[ROB] NEW dispatcher instance %s", tostring(self):sub(8)))
   return self
 end
 
