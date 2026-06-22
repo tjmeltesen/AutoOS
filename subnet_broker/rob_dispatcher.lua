@@ -143,10 +143,15 @@ function ROBDispatcher:tick(poll_results, yield_fn)
       pending_count, self._machine_sel:available_budget(self._lanes),
       self._machine_sel._rr_index, locks))
   end
+  -- Merge assigner events and log what we're returning in jobs_assigned
   for _, ev in ipairs(assign_result.events or {}) do
     events[#events + 1] = ev
-    self._log(string.format("[ROB] staged: %s -> %s", tostring(ev.job_id), tostring(ev.machine_id)))
   end
+  for _, mid in ipairs(jobs_assigned) do
+    self._log(string.format("[ROB] staged: job -> %s", tostring(mid)))
+  end
+  self._log(string.format("[ROB] tick done: events=%d assigned=%d",
+    #events, #jobs_assigned))
 
   self._yield_fn = prev_yield
   self._job_seq = self._job_seq_ref[1]
