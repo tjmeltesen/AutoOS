@@ -38,6 +38,7 @@ function Scheduler:spawn(name, fn)
     dead = false,
   }
   self.tasks[#self.tasks + 1] = task
+  self.log(string.format("[Scheduler] spawned task %d: %s", self._seq, name))
   return task
 end
 
@@ -112,11 +113,17 @@ function Scheduler:_resume(task, ...)
   local ok, spec = coroutine.resume(task.co, ...)
   if not ok then
     task.dead = true
-    self.log(string.format("[Scheduler] task %s failed: %s", task.name, tostring(spec)))
+    -- Try to get a traceback for better error diagnosis
+    local tb = debug and debug.traceback and debug.traceback(tostring(spec), 2) or ""
+    self.log(string.format("[Scheduler] task %s FAILED: %s\n%s", task.name, tostring(spec), tb))
+    -- Log remaining live task count
+    local alive = 0; for _, t in ipairs(self.tasks) do if not t.dead then alive = alive + 1 end end
+    self.log(string.format("[Scheduler] %d tasks still alive after %s failure", alive, task.name))
     return
   end
   if coroutine.status(task.co) == "dead" then
     task.dead = true
+    self.log(string.format("[Scheduler] task %s completed (coroutine dead)", task.name))
     return
   end
   task.wait = normalize_wait(spec, self:now())
@@ -187,14 +194,21 @@ end
 function Scheduler:run(max_cycles)
   self._running = true
   local cycles = 0
+  local live = 0; for _, t in ipairs(self.tasks) do if not t.dead then live = live + 1 end end
+  self.log(string.format("[Scheduler] run START — %d tasks (%d live)", #self.tasks, live))
   while self._running and self:has_live_tasks() do
     self:_resume_due()
     local timeout = self:_next_timeout()
     local ev = { self.event.pull(timeout) }
     if ev[1] ~= nil then self:_dispatch_event(ev) end
     cycles = cycles + 1
-    if max_cycles and cycles >= max_cycles then break end
+    if max_cycles and cycles >= max_cycles then
+      self.log(string.format("[Scheduler] run STOP — max_cycles=%d reached after %d cycles", max_cycles, cycles))
+      break
+    end
   end
+  self.log(string.format("[Scheduler] run EXIT — running=%s has_live=%s cycles=%d",
+    tostring(self._running), tostring(self:has_live_tasks()), cycles))
 end
 
 return Scheduler

@@ -75,46 +75,61 @@ end
 
 function Bootstrap.attach_tasks(ctx)
   local log = ctx.log or print
+  log("[BS] attach_tasks START")
 
   -- Load optional LaneWorker and store on context so lane tasks can reach it
   local ok_lw, LaneWorker = pcall(require, "lane_worker")
   if not ok_lw then
-    log("[Broker] lane_worker load failed: " .. tostring(LaneWorker))
+    log("[BS] lane_worker load FAILED: " .. tostring(LaneWorker))
     LaneWorker = nil
+  else
+    log("[BS] lane_worker loaded: " .. tostring(LaneWorker ~= nil))
   end
   ctx._lane_worker_module = LaneWorker
 
   -- Thread handles for modem comms (killed by _stop_broker in broker_ui)
   ctx._modem_threads = {}
 
-  -- Spawn all tasks via their respective modules.
-  -- Guard each spawn so partial contexts (tests, headless UI) don't crash
-  -- on missing hardware proxies — every task module is independently optional.
-
   -- modem_rx / heartbeat need real modem handle + orch port
   if ctx.modem and ctx.orch_port then
+    log("[BS] spawning modem_rx + heartbeat")
     require("tasks.task_modem_rx").spawn(ctx)
     require("tasks.task_heartbeat").spawn(ctx)
+  else
+    log("[BS] SKIP modem tasks (no modem or orch_port)")
   end
 
   -- component_events needs poll proxy cache
   if ctx.poll and ctx.poll.mark_proxy_cache_stale then
+    log("[BS] spawning component_events")
     require("tasks.task_component_events").spawn(ctx)
+  else
+    log("[BS] SKIP component_events (no poll.mark_proxy_cache_stale)")
   end
 
-  -- central_input_events: no special deps beyond scheduler + state (always on ctx)
+  -- central_input_events: no special deps
+  log("[BS] spawning central_input_events")
   require("tasks.task_central_input_events").spawn(ctx)
 
   -- machine_poll needs poll:poll_machine
   if ctx.poll and ctx.poll.poll_machine then
+    log("[BS] spawning machine_poll")
     require("tasks.task_machine_poll").spawn(ctx)
+  else
+    log("[BS] SKIP machine_poll (no poll.poll_machine)")
   end
 
   -- central_dispatch + lane_* need rob dispatcher
   if ctx.rob and ctx.rob.tick then
+    log(string.format("[BS] spawning central_dispatch + %d lane tasks (rob=%s)",
+      #(ctx.config.machines or {}), tostring(ctx.rob):sub(8)))
     require("tasks.task_central_dispatch").spawn(ctx)
     require("tasks.task_lane_worker").spawn_all(ctx)
+  else
+    log("[BS] SKIP central_dispatch+lane (no rob.tick)")
   end
+
+  log("[BS] attach_tasks DONE")
 end
 
 return Bootstrap

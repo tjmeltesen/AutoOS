@@ -15,13 +15,23 @@ function Task.spawn(ctx)
   local scheduler = ctx.scheduler
   local cfg = ctx.config
   local rob = ctx.rob
+  local log = ctx.log or print
 
   ctx.scheduler:spawn("machine_poll", function()
     local idx = 1
+    local poll_count = 0
     while true do
       if #machines > 0 then
         local machine = machines[idx]
         local result = ctx.poll:poll_machine(machine)
+        poll_count = poll_count + 1
+        if poll_count % 10 == 1 then
+          log(string.format("[MP] poll=%d machine=%s avail=%s healthy=%s active=%s",
+            poll_count, machine.id,
+            tostring(result and result.available),
+            tostring(result and result.healthy),
+            tostring(result and result.active)))
+        end
         PollCache.write(ctx, machine.id, result)
         PollCache.mark_dirty(ctx, machine.id)
         scheduler:wake("lane_" .. tostring(machine.id))
