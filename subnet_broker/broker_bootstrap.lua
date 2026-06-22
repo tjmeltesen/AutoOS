@@ -17,12 +17,42 @@ function Bootstrap._build_impl(log)
   local BrokerBoot = require("broker_boot")
   local RegistryAdapter = require("broker_registry_adapter")
   local Protocols = require("network_protocols")
+  local FaultNet = require("fault_net")
 
   -- Phase 1 (MMU): Static hardware registry
   local ok_boot, registry_or_err = pcall(BrokerBoot.boot)
   if not ok_boot then error("boot() crashed: " .. tostring(registry_or_err), 0) end
   local registry = registry_or_err
   if not registry then error("boot returned nil: " .. tostring(registry), 0) end
+
+  -- Config sanity checks (catch common miswires early)
+  do
+    local machines = Config.machines or {}
+    for _, m in ipairs(machines) do
+      if type(m.id) ~= "string" or m.id == "" then
+        error("config: machine has invalid id: " .. tostring(m.id), 0)
+      end
+      if not m.interface_address or m.interface_address == "" then
+        log(string.format("[BS] WARN: %s has no interface_address (shared_interface=%s)",
+          m.id, tostring(Config.shared_interface_address or "(none)")))
+      end
+      if not m.item_transposer_address or m.item_transposer_address == "" then
+        error("config: " .. m.id .. " has no item_transposer_address", 0)
+      end
+    end
+    local ids = {}
+    for _, m in ipairs(machines) do
+      if ids[m.id] then error("config: duplicate machine id: " .. m.id, 0) end
+      ids[m.id] = true
+    end
+    if Config.subnet_id == nil or Config.subnet_id == "" then
+      log("[BS] WARN: subnet_id is empty — BROKER_HEALTH will be anonymous")
+    end
+    log(string.format("[BS] config OK: subnet=%s machines=%d orch=%s ports=%d->%d",
+      tostring(Config.subnet_id), #machines,
+      tostring(Config.orchestrator_address or "(none)"),
+      Config.broker_modem_port or 106, Config.main_net_channel or 105))
+  end
 
   if not component.isAvailable("modem") then
     error("no modem — needs a network card", 0)
@@ -34,7 +64,17 @@ function Bootstrap._build_impl(log)
   modem.open(listen_port)
   if orch_port ~= listen_port then modem.open(orch_port) end
 
-  local scheduler = Scheduler.new({ event = event, computer = computer, log = log })
+  -- Fault ring buffer (shared across all fault_net captures)
+  local faults = { items = {}, head = 1, count = 0, max = 100 }
+
+  local scheduler = Scheduler.new({
+    event = event,
+    computer = computer,
+    log = log,
+    fault_capture = function(tag, err, extra)
+      FaultNet.capture({ log = log, faults = faults }, tag, err, extra)
+    end,
+  })
 
   -- Seed runtime deps (registry adapter centralizes all registry mutations)
   RegistryAdapter.seed_runtime(registry, computer.uptime, log)
@@ -56,8 +96,20 @@ function Bootstrap._build_impl(log)
   -- on task_central_dispatch to relay wakes.
   rob._wake_lane = function(machine_id)
     local name = "lane_" .. tostring(machine_id)
+    -- Gate diagnostics: log what we know before waking
+    local lane = rob._lanes and rob._lanes[machine_id]
+    local lane_state = lane and lane.state or "nil"
+    local job_id = lane and lane.current_job_id or "nil"
+    local pending_n = rob._pending_jobs and #rob._pending_jobs or 0
+
     local ok = scheduler:wake(name)
-    log(string.format("[WAKE] %s -> %s", name, tostring(ok)))
+    if ok then
+      log(string.format("[WAKE] %s -> true (lane=%s job=%s pending=%d)",
+        name, lane_state, tostring(job_id), pending_n))
+    else
+      log(string.format("[WAKE] %s -> FALSE — task not found in scheduler (lane=%s job=%s pending=%d)",
+        name, lane_state, tostring(job_id), pending_n))
+    end
   end
 
   return {
@@ -72,6 +124,8 @@ function Bootstrap._build_impl(log)
     listen_port = listen_port,
     orch_port = orch_port,
     log = log,
+    faults = faults,
+    fault_net = FaultNet,
   }
 end
 

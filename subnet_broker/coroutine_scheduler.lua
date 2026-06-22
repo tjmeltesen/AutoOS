@@ -22,6 +22,9 @@ function Scheduler.new(deps)
   self._seq = 0
   self._running = false
   self._resume_call_count = 0
+  -- Fault capture callback: function(tag, err, extra) called when a task crashes.
+  -- Injected by bootstrap to wire to fault_net.capture.
+  self._fault_capture = deps.fault_capture
   return self
 end
 
@@ -35,8 +38,10 @@ function Scheduler:spawn(name, fn)
     id = self._seq,
     name = name or ("task_" .. tostring(self._seq)),
     co = coroutine.create(fn),
+    factory = fn,  -- stored so we can re-create the coroutine on crash
     wait = { type = "ready" },
     dead = false,
+    fault_count = 0,
   }
   self.tasks[#self.tasks + 1] = task
   self.log(string.format("[Scheduler] spawned task %d: %s", self._seq, name))
@@ -49,6 +54,19 @@ function Scheduler:wake(name)
       task.wait = { type = "ready" }
       return true
     end
+  end
+  -- Diagnostic: log known task names on first miss per name
+  if not self._wake_misses then self._wake_misses = {} end
+  if not self._wake_misses[name] then
+    self._wake_misses[name] = true
+    local known = {}
+    for _, task in ipairs(self.tasks) do
+      if not task.dead and task.name then
+        known[#known + 1] = task.name
+      end
+    end
+    self.log(string.format("[Scheduler] wake MISS: %q not found — known tasks: %s",
+      tostring(name), #known > 0 and table.concat(known, ",") or "(none)"))
   end
   return false
 end
@@ -115,25 +133,69 @@ function Scheduler:_resume(task, ...)
     return
   end
   if coroutine.status(task.co) == "dead" then
+    -- Coroutine died without us catching the error (shouldn't happen normally,
+    -- but can occur if the coroutine returned normally or was killed externally).
+    if task.factory then
+      -- Re-create: silently restart tasks that exit cleanly
+      task.co = coroutine.create(task.factory)
+      task.wait = { type = "ready" }
+      self.log(string.format("[Scheduler] %s coroutine was dead — re-created", task.name))
+      return
+    end
     task.dead = true
-    self.log(string.format("[Scheduler] %s coroutine was dead before resume", task.name))
+    self.log(string.format("[Scheduler] %s coroutine was dead before resume, no factory", task.name))
     return
   end
   local ok, spec = coroutine.resume(task.co, ...)
   if not ok then
-    task.dead = true
-    local tb = debug and debug.traceback and debug.traceback(tostring(spec), 2) or ""
-    self.log(string.format("[Scheduler] task %s FAILED: %s\n%s", task.name, tostring(spec), tb))
-    local alive = 0; for _, t in ipairs(self.tasks) do if not t.dead then alive = alive + 1 end end
-    self.log(string.format("[Scheduler] %d tasks still alive after %s failure", alive, task.name))
+    -- Task crashed.  Build traceback, capture via fault_net, and re-create
+    -- the coroutine so the task survives (don't mark dead).
+    local err_msg = tostring(spec)
+    local tb = (debug and debug.traceback and debug.traceback(err_msg, 2)) or err_msg
+    self.log(string.format("[Scheduler] task %s FAULT: %s", task.name, tb))
+
+    -- Increment fault counter for backoff
+    task.fault_count = (task.fault_count or 0) + 1
+
+    -- Capture via fault_net callback if wired
+    if self._fault_capture then
+      local tag = "task." .. tostring(task.name)
+      local extra = { fault_n = task.fault_count }
+      self._fault_capture(tag, tb, extra)
+    end
+
+    -- Re-create the coroutine so the task keeps running
+    if task.factory then
+      task.co = coroutine.create(task.factory)
+      -- Backoff: if crashing rapidly, add a small delay
+      if task.fault_count > 5 then
+        task.wait = { type = "sleep", deadline = self:now() + math.min(30, task.fault_count) }
+      else
+        task.wait = { type = "ready" }
+      end
+    else
+      task.dead = true
+      self.log(string.format("[Scheduler] task %s unrecoverable — no factory to re-create", task.name))
+    end
     return
   end
   if coroutine.status(task.co) == "dead" then
+    -- Coroutine completed normally (returned).  Re-create if we have a factory.
+    if task.factory then
+      task.co = coroutine.create(task.factory)
+      task.wait = { type = "ready" }
+      self.log(string.format("[Scheduler] task %s completed — re-created", task.name))
+      return
+    end
     task.dead = true
-    self.log(string.format("[Scheduler] task %s completed (coroutine dead)", task.name))
+    self.log(string.format("[Scheduler] task %s completed (coroutine dead, no factory)", task.name))
     return
   end
   task.wait = normalize_wait(spec, self:now())
+  -- Reset fault count on successful execution
+  if task.fault_count and task.fault_count > 0 then
+    task.fault_count = 0
+  end
 end
 
 local function event_matches(filter, ev)

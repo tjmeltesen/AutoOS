@@ -10,6 +10,7 @@ function Task.spawn(ctx)
   local thread = require("thread")
   local Protocols = require("network_protocols")
   local EventBus = require("broker_event_bus")
+  local FaultNet = require("fault_net")
   local modem = ctx.modem
   local cfg = ctx.config
   local orch_addr = cfg.orchestrator_address or ""
@@ -18,30 +19,37 @@ function Task.spawn(ctx)
   local interval = cfg.heartbeat_interval_s or 10
   local machines = cfg.machines or {}
   local state = ctx.state
+  local log = ctx.log or print
+  local faults = ctx.faults or { items = {}, head = 1, count = 0, max = 100 }
 
   local tx = thread.create(function()
     while true do
       os.sleep(interval)
-      if orch_addr == "" then goto skip_tx end
-      -- Health telemetry: one BROKER_HEALTH per machine with poll data
-      for _, m in ipairs(machines) do
-        local ok, pr = pcall(function() return state.poll_results[m.id] end)
-        if ok and pr then
-          local state_str = pr.healthy and "OK" or "FAULT"
-          local detail = pr.fault_message or ""
-          modem.send(orch_addr, orch_port,
-            Protocols.broker_health(subnet_id, m.id, state_str, detail))
+      local ok, err = pcall(function()
+        if orch_addr == "" then return end
+        -- Health telemetry: one BROKER_HEALTH per machine with poll data
+        for _, m in ipairs(machines) do
+          local ok_poll, pr = pcall(function() return state.poll_results[m.id] end)
+          if ok_poll and pr then
+            local state_str = pr.healthy and "OK" or "FAULT"
+            local detail = pr.fault_message or ""
+            modem.send(orch_addr, orch_port,
+              Protocols.broker_health(subnet_id, m.id, state_str, detail))
+          end
         end
+        -- Drain and relay dispatcher events as BROKER_EVENT
+        local events = EventBus.drain(state)
+        for _, ev in ipairs(events) do
+          local kind = ev.type or ev.kind or "?"
+          modem.send(orch_addr, orch_port,
+            Protocols.broker_event(subnet_id, kind, ev.label or "",
+              ev.volume or 0, ev.job_id or ev.machine_id or ""))
+        end
+      end)
+      if not ok then
+        FaultNet.capture({ log = log, faults = faults }, "net.heartbeat", tostring(err),
+          { port = orch_port })
       end
-      -- Drain and relay dispatcher events as BROKER_EVENT
-      local events = EventBus.drain(state)
-      for _, ev in ipairs(events) do
-        local kind = ev.type or ev.kind or "?"
-        modem.send(orch_addr, orch_port,
-          Protocols.broker_event(subnet_id, kind, ev.label or "",
-            ev.volume or 0, ev.job_id or ev.machine_id or ""))
-      end
-      ::skip_tx::
     end
   end)
   tx:detach()

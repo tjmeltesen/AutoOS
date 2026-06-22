@@ -80,6 +80,7 @@ local FILES = {
   "subnet_broker/find.lua",
   "subnet_broker/maintenance_parse.lua",
   "subnet_broker/network_protocols.lua",
+  "subnet_broker/fault_net.lua",
   -- subnet_broker/ — broker TUI (single-file, no page deps)
   "subnet_broker/broker_ui.lua",
   "subnet_broker/page_dashboard.lua",

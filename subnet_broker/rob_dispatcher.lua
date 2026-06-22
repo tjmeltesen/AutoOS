@@ -262,10 +262,27 @@ end
 
 function ROBDispatcher:get_assigned_job(machine_id)
   local lane = self._lanes[machine_id]
-  if lane == nil or not LaneState.is_working(lane) then return nil end
+  if lane == nil then
+    -- No lane record at all — assignment was never made or lane was wiped
+    self._log(string.format("[ROB] get_assigned_job(%s): nil — no lane record", tostring(machine_id)))
+    return nil
+  end
+  if not LaneState.is_working(lane) then
+    self._log(string.format("[ROB] get_assigned_job(%s): nil — lane state=%s (not WORKING)",
+      tostring(machine_id), tostring(lane.state)))
+    return nil
+  end
   for _, job in ipairs(self._pending_jobs) do
     if job.id == lane.current_job_id then return job end
   end
+  -- Lane is WORKING but no matching job in pending queue — desync
+  local pending_ids = {}
+  for _, job in ipairs(self._pending_jobs) do
+    pending_ids[#pending_ids + 1] = tostring(job.id) .. "(" .. tostring(job.status) .. ")"
+  end
+  self._log(string.format("[ROB] get_assigned_job(%s): nil — lane WORKING current_job_id=%s not found in pending_jobs=%s",
+    tostring(machine_id), tostring(lane.current_job_id),
+    #pending_ids > 0 and table.concat(pending_ids, ",") or "(empty)"))
   return nil
 end
 

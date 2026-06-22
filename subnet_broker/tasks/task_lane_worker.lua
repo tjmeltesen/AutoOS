@@ -42,6 +42,12 @@ function Task.spawn(ctx, machine)
           pcall(rob.fault_lane, rob, machine.id, result.error or "lane worker failed")
         end
         scheduler:wake("central_dispatch")
+      else
+        -- Woke but no job assigned.  Log periodically to confirm liveness.
+        if wake_count % 20 == 1 then
+          log(string.format("!!! %s woke=%d — no job (did_run=%s)",
+            task_name, wake_count, tostring(did_run)))
+        end
       end
       -- Write did_run flag onto the dispatcher so periodic dump can see it
       rob._lane_ran = (rob._lane_ran or {})

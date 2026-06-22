@@ -48,6 +48,7 @@ function BrokerMain.run()
   require("broker_diagnostics").print_lane_status(ctx.poll, ctx.config.machines, ctx.log)
 
   BrokerMain.attach_tasks(ctx)
+  require("broker_diagnostics").print_rob_state(ctx.rob, ctx.log)
   ctx.scheduler:run()
 end
 
