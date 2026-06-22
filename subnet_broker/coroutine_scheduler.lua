@@ -21,6 +21,7 @@ function Scheduler.new(deps)
   self.tasks = {}
   self._seq = 0
   self._running = false
+  self._resume_call_count = 0
   return self
 end
 
@@ -109,14 +110,20 @@ local function normalize_wait(spec, now)
 end
 
 function Scheduler:_resume(task, ...)
-  if task.dead then return end
+  if task.dead then
+    self.log(string.format("[Scheduler] SKIP %s (dead)", task.name))
+    return
+  end
+  if coroutine.status(task.co) == "dead" then
+    task.dead = true
+    self.log(string.format("[Scheduler] %s coroutine was dead before resume", task.name))
+    return
+  end
   local ok, spec = coroutine.resume(task.co, ...)
   if not ok then
     task.dead = true
-    -- Try to get a traceback for better error diagnosis
     local tb = debug and debug.traceback and debug.traceback(tostring(spec), 2) or ""
     self.log(string.format("[Scheduler] task %s FAILED: %s\n%s", task.name, tostring(spec), tb))
-    -- Log remaining live task count
     local alive = 0; for _, t in ipairs(self.tasks) do if not t.dead then alive = alive + 1 end end
     self.log(string.format("[Scheduler] %d tasks still alive after %s failure", alive, task.name))
     return
@@ -166,12 +173,21 @@ end
 
 function Scheduler:_resume_due()
   local now = self:now()
+  local resumed = {}
   for _, task in ipairs(self.tasks) do
     if not task.dead then
       local wait = task.wait or { type = "ready" }
       if wait.type == "ready" or (wait.type == "sleep" and (wait.deadline or now) <= now) then
         self:_resume(task)
+        resumed[#resumed + 1] = task.name
       end
+    end
+  end
+  if #resumed > 0 and self._resume_call_count then
+    self._resume_call_count = self._resume_call_count + 1
+    if self._resume_call_count % 10 == 1 then
+      self.log(string.format("[Scheduler] _resume_due #%d: resumed=%s",
+        self._resume_call_count, table.concat(resumed, ",")))
     end
   end
 end
