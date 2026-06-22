@@ -175,9 +175,10 @@ function ROBDispatcher:tick(poll_results, yield_fn)
     end
     for _ in pairs(self._lock_mgr._locks) do locks = locks + 1 end
     self._log(string.format(
-      "[ROB] tick=%d buf=%s pending=%d working=%d faulted=%d locks=%d batch=%s seq=%d",
+      "[ROB] tick=%d buf=%s pending=%d working=%d faulted=%d locks=%d batch=%s seq=%d ran=%s",
       self._tick_n, self._buf_mon._state, #self._pending_jobs, working, faults, locks,
-      tostring(self._buf_mon._batch_claimed), self._job_seq_ref[1]))
+      tostring(self._buf_mon._batch_claimed), self._job_seq_ref[1],
+      self._lane_ran and (function() local r={}; for k,v in pairs(self._lane_ran) do r[#r+1]=k.."="..tostring(v) end; return table.concat(r,",") end)() or "nil"))
   end
 
   return { events = events, jobs_assigned = jobs_assigned }

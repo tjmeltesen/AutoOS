@@ -20,30 +20,32 @@ function Task.spawn(ctx, machine)
   log(string.format("[BS] spawning %s", task_name))
   ctx.scheduler:spawn(task_name, function()
     local wake_count = 0
-    print(string.format("[%s] STARTED", task_name))
+    local did_run = false
     while true do
       wake_count = wake_count + 1
-      local job = rob:get_assigned_job(machine.id)
-      -- print() goes to console, survives log rotation
-      print(string.format("[%s] wake=%d job=%s LW=%s",
-        task_name, wake_count, tostring(job and job.id or "nil"),
-        tostring(LaneWorker ~= nil)))
-      if job and LaneWorker then
-        print(string.format("[%s] EXEC %s", task_name, job.id))
+      local ok_get, job = pcall(rob.get_assigned_job, rob, machine.id)
+      if not ok_get then
+        log(string.format("!!! %s get_assigned_job CRASH: %s", task_name, tostring(job)))
+      elseif job then
+        did_run = true
+        log(string.format("!!! %s RUN job=%s wake=%d", task_name, job.id, wake_count))
         local ok_exec, result = pcall(LaneWorker.execute, registry, job, machine.id)
         if not ok_exec then
-          print(string.format("[%s] CRASH: %s", task_name, tostring(result)))
           result = { status = "failed", error = "LaneWorker crashed: " .. tostring(result) }
+          log(string.format("!!! %s LW_CRASH: %s", task_name, tostring(result.error)))
         else
-          print(string.format("[%s] DONE status=%s", task_name, tostring(result.status)))
+          log(string.format("!!! %s LW_DONE: %s", task_name, tostring(result.status)))
         end
-        local results_table = rob:get_results_table()
-        results_table[machine.id] = result
+        local rt = rob:get_results_table()
+        if rt then rt[machine.id] = result end
         if result.status == "failed" then
-          rob:fault_lane(machine.id, result.error or "lane worker failed")
+          pcall(rob.fault_lane, rob, machine.id, result.error or "lane worker failed")
         end
         scheduler:wake("central_dispatch")
       end
+      -- Write did_run flag onto the dispatcher so periodic dump can see it
+      rob._lane_ran = (rob._lane_ran or {})
+      rob._lane_ran[machine.id] = did_run
       Scheduler.yield_now()
       Scheduler.sleep(Clock.fast_interval(cfg, rob))
     end
