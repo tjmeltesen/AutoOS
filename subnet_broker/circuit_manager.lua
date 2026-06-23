@@ -45,9 +45,8 @@ function CircuitManager:stack_is_circuit(stack, circuit_damage)
 end
 
 function CircuitManager:_find_circuit_on_side(tp, side, circuit_damage)
-  local size = tp.getInventorySize and tp.getInventorySize(side) or 0
-  for slot = 1, size do
-    local stack = tp.getStackInSlot and tp.getStackInSlot(side, slot)
+  local stacks = HW.get_all_stacks(tp, side)
+  for slot, stack in pairs(stacks) do
     if self:_stack_is_circuit(stack, circuit_damage) then
       return slot, stack
     end

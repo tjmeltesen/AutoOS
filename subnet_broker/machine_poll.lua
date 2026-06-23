@@ -78,22 +78,31 @@ function MachinePoll:poll_machine(machine_row)
   status.available = true
 
   if proxy.isWorkAllowed then
-    status.work_allowed = proxy.isWorkAllowed()
+    local ok, v = pcall(proxy.isWorkAllowed)
+    if ok then status.work_allowed = v end
   end
   if proxy.isMachineActive then
-    status.active = proxy.isMachineActive() or false
+    local ok, v = pcall(proxy.isMachineActive)
+    if ok then status.active = v or false end
   end
   if proxy.hasWork then
-    status.has_work = proxy.hasWork() or false
+    local ok, v = pcall(proxy.hasWork)
+    if ok then status.has_work = v or false end
   end
   if proxy.getWorkProgress then
-    status.work_progress = proxy.getWorkProgress() or 0
+    local ok, v = pcall(proxy.getWorkProgress)
+    if ok then status.work_progress = v or 0 end
   end
   if proxy.getWorkMaxProgress then
-    status.work_max_progress = proxy.getWorkMaxProgress() or 0
+    local ok, v = pcall(proxy.getWorkMaxProgress)
+    if ok then status.work_max_progress = v or 0 end
   end
 
-  local sensor = proxy.getSensorInformation and proxy.getSensorInformation() or {}
+  local sensor = {}
+  if proxy.getSensorInformation then
+    local ok, s = pcall(proxy.getSensorInformation)
+    if ok and type(s) == "table" then sensor = s end
+  end
   status.sensor = sensor
 
   local faulted, message = MaintenanceParse.has_fault(sensor)

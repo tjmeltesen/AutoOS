@@ -31,59 +31,46 @@ function JobManifest.build(registry, config, fluid_tanks_mod, yield_fn)
 
   local out = { items = {}, fluids = {}, queue = {} }
   local seen_fluids = {}
-  local start = registry.chest_slot_start or config.chest_slot_start or 1
 
-  local ok_size, size = pcall(adapter.getInventorySize, side)
-  if not ok_size or type(size) ~= "number" then
-    size = start + 53  -- inventory_controller may lie about size
-  end
-
-  local function read_stack(slot)
-    if not adapter then return nil end
-    local ok, st = pcall(adapter.getStackInSlot, side, slot)
-    if not ok or type(st) ~= "table" then return nil end
-    if (st.size or 0) < 1 then return nil end
-    return st
-  end
-
-  for slot = start, size do
-    if slot % 10 == 0 and yield_fn then yield_fn() end
-    local st = read_stack(slot)
-    if st then
-      if st.name == C.FLUID_DROP_ITEM then
-        local fluid_label = st.label and st.label:gsub("^drop of ", "") or nil
-        local fluid_spec = {
-          fluid_label = fluid_label,
-          fluid_filter = { name = st.name, damage = st.damage or 0, label = st.label },
-        }
-        out.fluids[#out.fluids + 1] = fluid_spec
-        out.queue[#out.queue + 1] = {
-          kind = "fluid",
-          fluid_label = fluid_label,
-          fluid_filter = fluid_spec.fluid_filter,
-          fluid_source = "chest_drop",
-          slot = slot,
-        }
-        local key = JobManifest.norm_fluid_label(fluid_label)
-        if key then seen_fluids[key] = true end
-      else
-        local item_spec = {
-          slot = slot,
-          name = st.name,
-          damage = st.damage or 0,
-          label = st.label,
-          count = st.size or 1,
-        }
-        out.items[#out.items + 1] = item_spec
-        out.queue[#out.queue + 1] = {
-          kind = "item",
-          slot = slot,
-          name = item_spec.name,
-          damage = item_spec.damage,
-          label = item_spec.label,
-          count = item_spec.count,
-        }
-      end
+  local HW = require("hw")
+  local stacks = HW.get_all_stacks(adapter, side)
+  local count = 0
+  for slot, st in pairs(stacks) do
+    count = count + 1
+    if count % 10 == 0 and yield_fn then yield_fn() end
+    if st.name == C.FLUID_DROP_ITEM then
+      local fluid_label = st.label and st.label:gsub("^drop of ", "") or nil
+      local fluid_spec = {
+        fluid_label = fluid_label,
+        fluid_filter = { name = st.name, damage = st.damage or 0, label = st.label },
+      }
+      out.fluids[#out.fluids + 1] = fluid_spec
+      out.queue[#out.queue + 1] = {
+        kind = "fluid",
+        fluid_label = fluid_label,
+        fluid_filter = fluid_spec.fluid_filter,
+        fluid_source = "chest_drop",
+        slot = slot,
+      }
+      local key = JobManifest.norm_fluid_label(fluid_label)
+      if key then seen_fluids[key] = true end
+    else
+      local item_spec = {
+        slot = slot,
+        name = st.name,
+        damage = st.damage or 0,
+        label = st.label,
+        count = st.size or 1,
+      }
+      out.items[#out.items + 1] = item_spec
+      out.queue[#out.queue + 1] = {
+        kind = "item",
+        slot = slot,
+        name = item_spec.name,
+        damage = item_spec.damage,
+        label = item_spec.label,
+        count = item_spec.count,
+      }
     end
   end
 

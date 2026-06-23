@@ -20,26 +20,39 @@
 
 local LaneSides = require("lane_sides")
 local FluidTanks = require("fluid_tanks")
+local HW = require("hw")
 
 local LaneWorker = {}
 
 local LOG_PATH = "/home/subnet_broker/lane_worker.log"
-local MAX_LOG_LINES = 150
+local LOG_BUFFER = {}
+local LOG_BUF_MAX = 20
+local LOG_ROTATE_LINES = 150
 local _log_writes = 0
 
--- ponytail: append each write; after 150 lines, clear and restart.
+-- ponytail: buffer writes, flush every 20 lines; rotate at 150.
+local function file_flush()
+  if #LOG_BUFFER == 0 then return end
+  local f = io.open(LOG_PATH, "a")
+  if f then
+    for _, line in ipairs(LOG_BUFFER) do
+      f:write(line .. "\n")
+    end
+    f:close()
+  end
+  LOG_BUFFER = {}
+end
+
 local function file_log(msg)
   _log_writes = _log_writes + 1
-  if _log_writes > MAX_LOG_LINES then
+  if _log_writes > LOG_ROTATE_LINES then
     _log_writes = 1
+    file_flush()
     local w = io.open(LOG_PATH, "w")
     if w then w:close() end
   end
-  local f = io.open(LOG_PATH, "a")
-  if f then
-    f:write(string.format("[%s] %s\n", os.date("%Y-%m-%d %H:%M:%S"), msg))
-    f:close()
-  end
+  LOG_BUFFER[#LOG_BUFFER + 1] = string.format("[%s] %s", os.date("%Y-%m-%d %H:%M:%S"), msg)
+  if #LOG_BUFFER >= LOG_BUF_MAX then file_flush() end
 end
 
 local PULL_SCAN_MAX = 54
@@ -111,9 +124,12 @@ local function stock_item_slot(iface, slot, db_address, db_slot, count)
   if not iface or not iface.setInterfaceConfiguration then
     return false, "no setInterfaceConfiguration on interface"
   end
-  local ok, err = pcall(iface.setInterfaceConfiguration, slot, db_address, db_slot, count or 1)
-  if not ok then return false, tostring(err) end
-  if err == false then return false, "setInterfaceConfiguration returned false" end
+  local ok, ret = pcall(iface.setInterfaceConfiguration, slot, db_address, db_slot, count or 1)
+  if not ok then return false, tostring(ret) end
+  -- Reject false (explicit failure) and nil (silent no-op)
+  if ret == false or ret == nil then
+    return false, string.format("setInterfaceConfiguration returned %s", tostring(ret))
+  end
   return true
 end
 
@@ -128,9 +144,12 @@ local function stock_fluid_slot(iface, side, db_address, db_slot)
   if not iface or not iface.setFluidInterfaceConfiguration then
     return false, "no setFluidInterfaceConfiguration on interface"
   end
-  local ok, err = pcall(iface.setFluidInterfaceConfiguration, side, db_address, db_slot)
-  if not ok then return false, tostring(err) end
-  if err == false then return false, "setFluidInterfaceConfiguration returned false" end
+  local ok, ret = pcall(iface.setFluidInterfaceConfiguration, side, db_address, db_slot)
+  if not ok then return false, tostring(ret) end
+  -- Reject false (explicit failure) and nil (silent no-op)
+  if ret == false or ret == nil then
+    return false, string.format("setFluidInterfaceConfiguration returned %s", tostring(ret))
+  end
   return true
 end
 
@@ -151,10 +170,12 @@ end
 --- Check if the pull face has any items.
 local function pull_face_has_items(item_tp, machine)
   local side = LaneSides.central_item_pull_side(machine)
-  local start = machine.chest_slot_start or 1
-  local size = pull_scan_max(item_tp, side)
-  for slot = start, size do
-    if safe_slot_size(item_tp, side, slot) > 0 then return true end
+  local stacks = HW.get_all_stacks(item_tp, side)
+  local count = 0
+  for _ in pairs(stacks) do
+    count = count + 1
+    if count % 10 == 0 then coroutine.yield({ type = "sleep", seconds = 0 }) end  -- ponytail: yield every 10
+    return true  -- any non-empty stack = has items
   end
   return false
 end
@@ -162,13 +183,12 @@ end
 --- Check if a specific item step is visible on the pull face.
 local function step_visible(item_tp, machine, step)
   local side = LaneSides.central_item_pull_side(machine)
-  local start = machine.chest_slot_start or 1
-  local size = pull_scan_max(item_tp, side)
-  for slot = start, size do
-    local ok_s, st = pcall(item_tp.getStackInSlot, side, slot)
-    if ok_s and stack_matches(st, step) and (st and st.size or 0) > 0 then
-      return true
-    end
+  local stacks = HW.get_all_stacks(item_tp, side)
+  local count = 0
+  for _, st in pairs(stacks) do
+    count = count + 1
+    if count % 10 == 0 then coroutine.yield({ type = "sleep", seconds = 0 }) end  -- ponytail: yield every 10
+    if stack_matches(st, step) then return true end
   end
   return false
 end
@@ -177,11 +197,9 @@ end
 local function transfer_item_step(item_tp, machine, step)
   local from_side = LaneSides.central_item_pull_side(machine)
   local to_side = LaneSides.bus_side(machine)
-  local start = machine.chest_slot_start or 1
-  local size = pull_scan_max(item_tp, from_side)
-  for slot = start, size do
-    local ok_s, st = pcall(item_tp.getStackInSlot, from_side, slot)
-    if ok_s and stack_matches(st, step) then
+  local stacks = HW.get_all_stacks(item_tp, from_side)
+  for slot, st in pairs(stacks) do
+    if stack_matches(st, step) then
       local count = math.max(1, math.min(step.count or (st.size or 1), st.size or 1))
       local ok, moved = pcall(item_tp.transferItem, from_side, to_side, count, slot)
       if ok and moved and moved >= 1 then return moved, slot end
@@ -195,12 +213,12 @@ end
 --- Bus empty except circuit slot.
 local function bus_drained(item_tp, machine, circuit_slot)
   local bus_side = LaneSides.bus_side(machine)
-  local size = pull_scan_max(item_tp, bus_side)
-  for slot = 1, size do
-    if slot % 10 == 0 then coroutine.yield({ type = "yield" }) end  -- ponytail: yield per 10 slots, lets OS process keystrokes
-    if slot ~= circuit_slot and safe_slot_size(item_tp, bus_side, slot) > 0 then
-      return false
-    end
+  local stacks = HW.get_all_stacks(item_tp, bus_side)
+  local count = 0
+  for slot in pairs(stacks) do
+    count = count + 1
+    if count % 10 == 0 then coroutine.yield({ type = "sleep", seconds = 0 }) end  -- ponytail: yield every 10
+    if slot ~= circuit_slot then return false end
   end
   return true
 end
@@ -223,7 +241,7 @@ local function await_delivery(registry, item_tp, condition_fn,
       return false, phase_name .. " timeout after " .. tostring(timeout_s) .. "s"
     end
 
-    coroutine.yield({ type = "yield" })
+    coroutine.yield({ type = "sleep", seconds = 0 })
   end
 end
 
@@ -271,13 +289,14 @@ function LaneWorker.execute(registry, job, machine_id, event)
 
   local function fail(err)
     log("[LaneWorker] " .. machine_id .. " FAILED: " .. tostring(err))
+    file_flush()
     for _, s in ipairs(cfg_slots) do
       if s.fluid then
         clear_fluid_slot(iface, s.side)
       else
         clear_item_slot(iface, s.slot)
       end
-      coroutine.yield({ type = "yield" })
+      coroutine.yield({ type = "sleep", seconds = 0 })
     end
     return { status = "failed", error = err }
   end
@@ -298,10 +317,17 @@ function LaneWorker.execute(registry, job, machine_id, event)
 
     log(string.format("[LaneWorker] %s Phase1: stocking %d step(s)", machine_id, #queue))
     for i, step in ipairs(queue) do
+      log(string.format("[LaneWorker] %s Phase1: ENTER step %d/%d kind=%s", machine_id, i, #queue, step.kind))
       if step.kind == "fluid" then
         local side = next_fluid_side()
         if not side then return fail("no free interface sides for fluid: " .. tostring(step.fluid_label or "?")) end
         if not iface then return fail("no ME interface for fluid stock") end
+        log(string.format("[LaneWorker] %s Phase1: fluid[%d/%d] TRY %q -> side %d  DB[%s:%d] filter=%s registry=%s amount=%s",
+          machine_id, i, #queue, tostring(step.fluid_label or "?"),
+          side, tostring(step.db_address), step.db_slot or -1,
+          tostring(step.fluid_filter and step.fluid_filter.label or "nil"),
+          tostring(step.fluid_registry or "nil"),
+          tostring(step.fluid_amount_mb)))
         local ok, err = stock_fluid_slot(iface, side, step.db_address, step.db_slot)
         if not ok then return fail("fluid stock side " .. side .. ": " .. tostring(err)) end
         cfg_slots[#cfg_slots + 1] = { fluid = true, side = side }
@@ -321,8 +347,10 @@ function LaneWorker.execute(registry, job, machine_id, event)
           step.count or 1, iface_slot,
           tostring(step.db_address), step.db_slot or -1))
       end
-      coroutine.yield({ type = "yield" })
     end
+
+    log(string.format("[LaneWorker] %s Phase1: all %d steps stocked, cfg_slots=%d", machine_id, #queue, #cfg_slots))
+    coroutine.yield({ type = "sleep", seconds = 0 })
 
     -- Fill remaining free sides with duplicate fluid configs.
     -- Only duplicate fluids that need it: >16000mb (central tank) or
@@ -353,7 +381,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
           log(string.format("[LaneWorker] %s Phase1: dup fluid %q -> side %d",
             machine_id, tostring(step.fluid_label or "?"), side))
         end
-        coroutine.yield({ type = "yield" })
+        coroutine.yield({ type = "sleep", seconds = 0 })
         side = next_fluid_side()
       end
     end
@@ -407,7 +435,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
           total_moved = total_moved + moved
         else
           if not step_visible(item_tp, machine, step) then break end
-          coroutine.yield({ type = "yield" })
+          coroutine.yield({ type = "sleep", seconds = 0 })
         end
         if now_fn() >= item_deadline then
           return fail("item transfer timeout for " .. tostring(step.name or "?"))
@@ -450,7 +478,6 @@ function LaneWorker.execute(registry, job, machine_id, event)
         clear_item_slot(iface, s.slot)
         items_cleared = items_cleared + 1
       end
-      coroutine.yield({ type = "yield" })
     end
     log(string.format("[LaneWorker] %s Phase4a: cleared %d item config(s), has_fluid=%s",
       machine_id, items_cleared, tostring(has_fluid_cfgs)))
@@ -484,7 +511,6 @@ function LaneWorker.execute(registry, job, machine_id, event)
           clear_fluid_slot(iface, s.side)
           fluids_cleared = fluids_cleared + 1
         end
-        coroutine.yield({ type = "yield" })
       end
       log(string.format("[LaneWorker] %s Phase4b: cleared %d fluid config(s)", machine_id, fluids_cleared))
     end
@@ -524,7 +550,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
     local saw_active = false
     local quiet_drained_since = nil
     local completion_mode = config.completion_mode or "both"
-    local quiet_failsafe_s = config.completion_quiet_failsafe_s or 5
+    local quiet_failsafe_s = config.completion_quiet_failsafe_s or config.central and config.central.completion_quiet_failsafe_s or 2
 
     local function completion_ready()
       local poll = registry.get_poll_result(machine_id)
@@ -599,7 +625,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
         return fail("circuit extract: " .. tostring(err or "transfer failed"))
       end
       log(string.format("[LaneWorker] %s Phase6: circuit extracted (%d moved)", machine_id, moved))
-      coroutine.yield({ type = "yield" })
+      coroutine.yield({ type = "sleep", seconds = 0 })
     end
 
     -------------------------------------------------------------------------
@@ -614,7 +640,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
       end
       local size = pull_scan_max(item_tp, return_side)
       for slot = 1, size do
-        if slot % 10 == 0 then coroutine.yield({ type = "yield" }) end  -- ponytail: yield per 10 slots
+        if slot % 10 == 0 then coroutine.yield({ type = "sleep", seconds = 0 }) end  -- ponytail: yield per 10 slots
         if safe_slot_size(item_tp, return_side, slot) > 0 then return false end
       end
       return true
@@ -627,6 +653,7 @@ function LaneWorker.execute(registry, job, machine_id, event)
   end
 
   log("[LaneWorker] " .. machine_id .. " job " .. tostring(job.id) .. " DONE")
+  file_flush()
   return { status = "done" }
 end
 

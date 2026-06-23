@@ -1,5 +1,6 @@
 Need to fix and speed up the UI so that it updates correctly adjust the layout and add maintenance tags
 
+
 run a marathon of the recipes to ensure reliability
 
 fix config saving and validation when changing and augmenting config
@@ -7,3 +8,9 @@ fix config saving and validation when changing and augmenting config
 be more descriptive in config
 
 Thread api for modem communication (TO DO FOR ORCHESTRATOR UI STILL NEEDS DONE)
+
+- Dispatch and lane worker isnt wokring need to look into
+
+Test the configs and modem communication
+
+marathon testing

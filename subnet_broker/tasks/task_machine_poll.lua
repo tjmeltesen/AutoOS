@@ -23,14 +23,19 @@ function Task.spawn(ctx)
     while true do
       if #machines > 0 then
         local machine = machines[idx]
-        local result = ctx.poll:poll_machine(machine)
+        local ok_poll, result = pcall(ctx.poll.poll_machine, ctx.poll, machine)
+        if not ok_poll then
+          result = { id = machine.id, available = false, healthy = false,
+            fault_message = "poll_machine crash: " .. tostring(result) }
+        end
         poll_count = poll_count + 1
-        if poll_count % 10 == 1 then
-          log(string.format("[MP] poll=%d machine=%s avail=%s healthy=%s active=%s",
+        if poll_count % 10 == 1 or not ok_poll then
+          log(string.format("[MP] poll=%d machine=%s avail=%s healthy=%s active=%s ok=%s",
             poll_count, machine.id,
             tostring(result and result.available),
             tostring(result and result.healthy),
-            tostring(result and result.active)))
+            tostring(result and result.active),
+            tostring(ok_poll)))
         end
         PollCache.write(ctx, machine.id, result)
         PollCache.mark_dirty(ctx, machine.id)

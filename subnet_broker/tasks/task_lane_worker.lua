@@ -25,16 +25,22 @@ function Task.spawn(ctx, machine)
       wake_count = wake_count + 1
       local ok_get, job = pcall(rob.get_assigned_job, rob, machine.id)
       if not ok_get then
-        log(string.format("!!! %s get_assigned_job CRASH: %s", task_name, tostring(job)))
+        log(string.format("!!! %s get_assigned_job CRASH: %s wake=%d", task_name, tostring(job), wake_count))
       elseif job then
         did_run = true
         log(string.format("!!! %s RUN job=%s wake=%d", task_name, job.id, wake_count))
-        local ok_exec, result = pcall(LaneWorker.execute, registry, job, machine.id)
-        if not ok_exec then
-          result = { status = "failed", error = "LaneWorker crashed: " .. tostring(result) }
-          log(string.format("!!! %s LW_CRASH: %s", task_name, tostring(result.error)))
+        if not LaneWorker or type(LaneWorker.execute) ~= "function" then
+          result = { status = "failed", error = "LaneWorker module not loaded" }
+          log(string.format("!!! %s NO_LW — LaneWorker module not loaded, cannot execute", task_name))
         else
-          log(string.format("!!! %s LW_DONE: %s", task_name, tostring(result.status)))
+          local ok_exec, exec_result = pcall(LaneWorker.execute, registry, job, machine.id)
+          if not ok_exec then
+            result = { status = "failed", error = "LaneWorker crashed: " .. tostring(exec_result) }
+            log(string.format("!!! %s LW_CRASH: %s", task_name, tostring(result.error)))
+          else
+            result = exec_result
+            log(string.format("!!! %s LW_DONE: %s", task_name, tostring(result.status)))
+          end
         end
         local rt = rob:get_results_table()
         if rt then rt[machine.id] = result end
@@ -43,8 +49,8 @@ function Task.spawn(ctx, machine)
         end
         scheduler:wake("central_dispatch")
       else
-        -- Woke but no job assigned.  Log periodically to confirm liveness.
-        if wake_count % 20 == 1 then
+        -- Woke but no job assigned.  Log every wake for first 10, then periodically.
+        if wake_count <= 10 or wake_count % 20 == 1 then
           log(string.format("!!! %s woke=%d — no job (did_run=%s)",
             task_name, wake_count, tostring(did_run)))
         end
@@ -52,7 +58,6 @@ function Task.spawn(ctx, machine)
       -- Write did_run flag onto the dispatcher so periodic dump can see it
       rob._lane_ran = (rob._lane_ran or {})
       rob._lane_ran[machine.id] = did_run
-      Scheduler.yield_now()
       Scheduler.sleep(Clock.fast_interval(cfg, rob))
     end
   end)

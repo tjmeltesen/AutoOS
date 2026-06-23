@@ -1,0 +1,545 @@
+=== AutoOS In-Game API Reference ===
+Generated: 1970-06-07 04:27:18
+Computer Uptime: 933.9s
+
+=== STANDARD OC APIs ===
+
+--- component ---
+  component.list: function
+  component.proxy: function
+  component.isAvailable: function
+  component.type: function
+  component.slot: function
+  component.fields: function
+  component.doc: function
+  component.invoke: function
+
+--- computer ---
+  computer.uptime: function
+  computer.address: function
+  computer.tmpAddress: function
+  computer.freeMemory: function
+  computer.totalMemory: function
+  computer.energy: function
+  computer.maxEnergy: function
+  computer.beep: function
+  computer.getProgramLocations: function
+  computer.isRobot: nil
+  computer.maxSignal: nil
+  computer.pushSignal: function
+  computer.pullSignal: function
+  computer.realTime: nil
+
+--- event ---
+  event.pull: function
+  event.pullFiltered: function
+  event.listen: function
+  event.ignore: function
+  event.cancel: function
+  event.timer: function
+  event.on: nil
+  event.off: nil
+
+--- thread ---
+  thread.create: function
+  thread.list: nil
+
+--- os ---
+  os.sleep: function
+  os.date: function
+  os.time: function
+  os.difftime: function
+  os.clock: function
+  os.exit: function
+  os.setenv: function
+  os.getenv: function
+
+--- term ---
+  term.read: function
+  term.write: function
+  term.clear: function
+  term.getCursor: function
+  term.setCursor: function
+  term.getViewport: function
+  term.setViewport: function
+  term.gpu: function
+  term.isAvailable: function
+
+--- serialization ---
+  serialization.serialize: function
+  serialization.unserialize: function
+
+--- sides ---
+  sides.down: number
+  sides.up: number
+  sides.north: number
+  sides.south: number
+  sides.west: number
+  sides.east: number
+
+--- keyboard ---
+  keyboard.isControlDown: function
+  keyboard.isKeyDown: function
+  keyboard.isShiftDown: function
+  keyboard.isAltDown: function
+
+=== CONNECTED COMPONENTS ===
+
+Component type summary:
+  me_interface: 4
+  screen: 1
+  transposer: 4
+  database: 1
+  inventory_controller: 1
+  modem: 1
+  tank_controller: 1
+  gpu: 1
+  keyboard: 1
+  drawer: 1
+  eeprom: 1
+  redstone: 1
+  computer: 1
+  filesystem: 3
+  gt_machine: 5
+  internet: 1
+
+=== COMPONENT METHODS BY TYPE ===
+
+(Methods discovered via component.proxy + type inspection)
+(Methods marked [nil] exist but returned nil on info-style call — likely state-dependent)
+(Methods marked [f] are fields, not functions)
+
+--- transposer (d9df7f7f…) ---
+  Fields (27):
+    address = d9df7f7f-e157-44c8-8584-2e92f142ea81
+    areStacksEquivalent = function(side:number, slotA:number, slotB:number):boolean -- Get whether the ite
+    compareStackToDatabase = function(side:number, slot:number, dbAddress:string, dbSlot:number[, checkNBT:bo
+    compareStacks = function(side:number, slotA:number, slotB:number[, checkNBT:boolean=false]):bool
+    getAllStacks = function(side:number):userdata -- Get a description of all stacks in the invento
+    getContainerCapacityInSlot = function(side:number, slot:number):number -- Get the capacity of the fluid conta
+    getContainerLevelInSlot = function(side:number, slot:number):number -- Get the capacity the fluid containe
+    getFluidInContainerInSlot = function(side:number, slot:number):table -- Get a description of the fluid in th
+    getFluidInTank = function(side:number [, tank:number]):table -- Get a description of the fluid in
+    getFluidTransferRate = function():number -- Returns the fluid transfer rate in liters per second.
+    getInventoryName = function(side:number):string -- Get the the name of the inventory on the specifi
+    getInventorySize = function(side:number):number -- Get the number of slots in the inventory on the 
+    getSlotMaxStackSize = function(side:number, slot:number):number -- Get the maximum number of items in 
+    getSlotStackSize = function(side:number, slot:number):number -- Get number of items in the specifie
+    getStackInSlot = function(side:number, slot:number):table -- Get a description of the stack in th
+    getTankCapacity = function(side:number [, tank:number]):number -- Get the capacity of the specifie
+    getTankCount = function(side:number):number -- Get the number of tanks available on the specifi
+    getTankLevel = function(side:number [, tank:number]):number -- Get the amount of fluid in the s
+    setStackDisplayName = function(side:number, slot:number, label:string):boolean -- Change the display n
+    slot = -1
+    store = function(side:number, slot:number, dbAddress:string, dbSlot:number):boolean -- S
+    transferFluid = function(sourceSide:number, sinkSide:number[, count:number [, sourceTank:number]
+    transferFluidBetweenContainers = function(sourceSide:number, sourceSlot:number, sinkSide:number, sinkSlot:number[
+    transferFluidFromContainerToTank = function(inventorySide:number, inventorySlot:number, tankSide:number [, count:nu
+    transferFluidFromTankToContainer = function(tankSide:number, inventorySide:number, inventorySlot:number [, count:nu
+    transferItem = function(sourceSide:number, sinkSide:number[, count:number[, sourceSlot:number[,
+    type = transposer
+
+--- redstone (bf265d88…) ---
+  Fields (12):
+    address = bf265d88-b18e-43f0-ba1c-939767fcc22d
+    getBundledInput = function([side:number[, color:number]]):number or table -- Fewer params returns 
+    getBundledOutput = function([side:number[, color:number]]):number or table -- Fewer params returns 
+    getComparatorInput = function(side:number):number -- Get the comparator input on the specified side.
+    getInput = function([side:number]):number or table -- Get the redstone input (all sides, or
+    getOutput = function([side:number]):number or table -- Get the redstone output (all sides, o
+    getWakeThreshold = function():number -- Get the current wake-up threshold.
+    setBundledOutput = function([side:number[, color:number,]] value:number or table):number or table -
+    setOutput = function([side:number, ]value:number or table):number or table --  Set the redst
+    setWakeThreshold = function(threshold:number):number -- Set the wake-up threshold.
+    slot = -1
+    type = redstone
+
+--- database (9c22064e…) ---
+  Fields (10):
+    address = 9c22064e-7ddc-4d9a-a6a5-b732d1cba18a
+    clear = function(slot:number):boolean -- Clears the specified slot. Returns true if ther
+    clone = function(address:string):number -- Copies the data stored in this database to an
+    computeHash = function(slot:number):string -- Computes a hash value for the item stack in the 
+    copy = function(fromSlot:number, toSlot:number[, address:string]):boolean -- Copies an 
+    get = function(slot:number):table -- Get the representation of the item stack stored i
+    indexOf = function(hash:string):number -- Get the index of an item stack with the specifie
+    set = function(slot:number, id:string, damage:number, nbt:string):boolean - Set an ite
+    slot = -1
+    type = database
+
+--- me_interface (32332048…) ---
+  Fields (28):
+    address = 32332048-d9e0-4c43-9c9d-7378e668e2cb
+    allItems = function():userdata -- Get an iterator object for the list of the items in the n
+    clearInterfacePatternInput = function(slot:number, index:number):boolean -- Clear pattern input at the given 
+    clearInterfacePatternOutput = function(slot:number, index:number):boolean -- Clear pattern output at the given
+    getAvgPowerInjection = function():number -- Get the average power injection into the network.
+    getAvgPowerUsage = function():number -- Get the average power usage of the network.
+    getCpus = function():table -- Get a list of tables representing the available CPUs in the 
+    getCraftables = function([filter:table]):table -- Get a list of known item recipes. These can be
+    getEssentiaInNetwork = function():table -- Get a list of the stored essentia in the network.
+    getFluidInterfaceConfiguration = function(index:number):table -- Get the configuration of the dual fluid interfac
+    getFluidsInNetwork = function():table -- Get a list of the stored fluids in the network.
+    getIdlePowerUsage = function():number -- Get the idle power usage of the network.
+    getInterfaceConfiguration = function([slot:number]):table -- Get the configuration of the interface.
+    getInterfacePattern = function([slot:number]):table -- Get the given pattern in the interface.
+    getItemInNetwork = function(name:string[, damage:number[, nbt:string]]):table -- Retrieves the stor
+    getItemsInNetwork = function([filter:table]):table -- Get a list of the stored items in the network.
+    getItemsInNetworkById = function(filter:table):table -- Get a list of the stored items in the network ma
+    getMaxStoredPower = function():number -- Get the maximum stored power in the network.
+    getStoredPower = function():number -- Get the stored power in the network. 
+    setFluidInterfaceConfiguration = function(index:number[, database:address, entry:number]):boolean -- Configure th
+    setInterfaceConfiguration = function([slot:number][, database:address, entry:number[, size:number]]):boolean
+    setInterfacePatternInput = function(slot:number, database:address, entry:number, size:number, index:number)
+    setInterfacePatternOutput = function(slot:number, database:address, entry:number, size:number, index:number)
+    slot = -1
+    store = function(filter:table, dbAddress:string[, startSlot:number[, count:number]]): Bo
+    storeInterfacePatternInput = function(slot:number, index:number, database:address, entry:number):boolean -- S
+    storeInterfacePatternOutput = function(slot:number, index:number, database:address, entry:number):boolean -- S
+    type = me_interface
+
+--- eeprom (23d5dba4…) ---
+  Fields (13):
+    address = 23d5dba4-68f9-40f5-b4ea-94e41f6c1248
+    get = function():string -- Get the currently stored byte array.
+    getChecksum = function():string -- Get the checksum of the data on this EEPROM.
+    getData = function():string -- Get the currently stored byte array.
+    getDataSize = function():number -- Get the storage capacity of this EEPROM.
+    getLabel = function():string -- Get the label of the EEPROM.
+    getSize = function():number -- Get the storage capacity of this EEPROM.
+    makeReadonly = function(checksum:string):boolean -- Make this EEPROM readonly if it isn't alrea
+    set = function(data:string) -- Overwrite the currently stored byte array.
+    setData = function(data:string) -- Overwrite the currently stored byte array.
+    setLabel = function(data:string):string -- Set the label of the EEPROM.
+    slot = 12
+    type = eeprom
+
+--- inventory_controller (30c39ca2…) ---
+  Fields (14):
+    address = 30c39ca2-68b9-4f71-8b0d-291cd6bcdc01
+    areStacksEquivalent = function(side:number, slotA:number, slotB:number):boolean -- Get whether the ite
+    compareStackToDatabase = function(side:number, slot:number, dbAddress:string, dbSlot:number[, checkNBT:bo
+    compareStacks = function(side:number, slotA:number, slotB:number[, checkNBT:boolean=false]):bool
+    getAllStacks = function(side:number):userdata -- Get a description of all stacks in the invento
+    getInventoryName = function(side:number):string -- Get the the name of the inventory on the specifi
+    getInventorySize = function(side:number):number -- Get the number of slots in the inventory on the 
+    getSlotMaxStackSize = function(side:number, slot:number):number -- Get the maximum number of items in 
+    getSlotStackSize = function(side:number, slot:number):number -- Get number of items in the specifie
+    getStackInSlot = function(side:number, slot:number):table -- Get a description of the stack in th
+    setStackDisplayName = function(side:number, slot:number, label:string):boolean -- Change the display n
+    slot = -1
+    store = function(side:number, slot:number, dbAddress:string, dbSlot:number):boolean -- S
+    type = inventory_controller
+
+--- internet (37f9ec38…) ---
+  Fields (7):
+    address = 37f9ec38-d2a1-484e-8e02-b76086dc2d75
+    connect = function(address:string[, port:number]):userdata -- Opens a new TCP connection. 
+    isHttpEnabled = function():boolean -- Returns whether HTTP requests can be made (config setting)
+    isTcpEnabled = function():boolean -- Returns whether TCP connections can be made (config settin
+    request = function(url:string[, postData:string[, headers:table[, method:string]]]):userda
+    slot = 1
+    type = internet
+
+--- gt_machine (ed859452…) ---
+  Fields (30):
+    address = ed859452-2cd0-48bf-85cc-7bc3bca4f29d
+    getAverageElectricInput = function():number -- Returns the amount of Electricity, accepted by this Block t
+    getAverageElectricOutput = function():number -- Returns the amount of Electricity, outputted by this Block 
+    getCoordinates = function():table; Returns machine coordinates
+    getEUCapacity = function():number --  Returns the amount of electricity containable in this Bloc
+    getEUCapacityString = function():number --  Returns the amount of electricity containable in this Bloc
+    getEUInputAverage = function():number; Returns the average EU input of this block
+    getEUMaxStored = function():number; Returns the max EU that can be stored in this block
+    getEUOutputAverage = function():number; Returns the average EU output of this block
+    getEUStored = function():number; Returns the EU stored in this block
+    getInputVoltage = function():number -- Gets the maximum Input in EU/p.
+    getName = function():string; Returns the machine's name
+    getOutputAmperage = function():number -- Gets the amount of Energy Packets per tick.
+    getOutputVoltage = function():number --  Gets the Output in EU/p.
+    getOwnerName = function():string; Returns the name of this block's owner
+    getSensorInformation = function():table; Returns sensor information about this block
+    getSteamCapacity = function():number --  Returns the amount of Steam containable in this Block, in 
+    getSteamMaxStored = function():number; Returns the max steam that can be stored in this block
+    getSteamStored = function():number; Returns the steam stored in this block
+    getStoredEU = function():number --  Returns the amount of electricity contained in this Block,
+    getStoredEUString = function():string --  Returns the amount of electricity contained in this Block,
+    getStoredSteam = function():number --  Returns the amount of Steam contained in this Block, in EU
+    getWorkMaxProgress = function():number; Returns the max progress of this block
+    getWorkProgress = function():number; Returns the current progress of this block
+    hasWork = function():boolean; Returns true if the machine currently has work to do
+    isMachineActive = function():boolean; Returns whether the machine is currently active
+    isWorkAllowed = function():boolean; Returns whether this block is currently allowed to work
+    setWorkAllowed = function(work:boolean); Sets whether this block is currently allowed to work
+    slot = -1
+    type = gt_machine
+
+--- filesystem (2f73aba1…) ---
+  Fields (22):
+    address = 2f73aba1-c663-4ca1-8fc3-a62447d7f980
+    close = function(handle:userdata) -- Closes an open file descriptor with the specified h
+    exists = function(path:string):boolean -- Returns whether an object exists at the specifi
+    fsnode = table: 0000025052ec0950
+    getLabel = function():string -- Get the current label of the drive.
+    isDirectory = function(path:string):boolean -- Returns whether the object at the specified abs
+    isReadOnly = function():boolean -- Returns whether the file system is read-only.
+    lastModified = function(path:string):number -- Returns the (real world) timestamp of when the o
+    list = function(path:string):table -- Returns a list of names of objects in the directo
+    makeDirectory = function(path:string):boolean -- Creates a directory at the specified absolute p
+    open = function(path:string[, mode:string='r']):userdata -- Opens a new file descriptor
+    read = function(handle:userdata, count:number):string or nil -- Reads up to the specifi
+    remove = function(path:string):boolean -- Removes the object at the specified absolute pa
+    rename = function(from:string, to:string):boolean -- Renames/moves an object from the fir
+    seek = function(handle:userdata, whence:string, offset:number):number -- Seeks in an op
+    setLabel = function(value:string):string -- Sets the label of the drive. Returns the new va
+    size = function(path:string):number -- Returns the size of the object at the specified 
+    slot = -1
+    spaceTotal = function():number -- The overall capacity of the file system, in bytes.
+    spaceUsed = function():number -- The currently used capacity of the file system, in bytes.
+    type = filesystem
+    write = function(handle:userdata, value:string):boolean -- Writes the specified data to 
+
+--- tank_controller (9a4d0d5f…) ---
+  Fields (7):
+    address = 9a4d0d5f-26e4-4f0e-9330-9d416433c657
+    getFluidInTank = function(side:number [, tank:number]):table -- Get a description of the fluid in
+    getTankCapacity = function(side:number [, tank:number]):number -- Get the capacity of the specifie
+    getTankCount = function(side:number):number -- Get the number of tanks available on the specifi
+    getTankLevel = function(side:number [, tank:number]):number -- Get the amount of fluid in the s
+    slot = -1
+    type = tank_controller
+
+--- computer (ba8150d3…) ---
+  Fields (9):
+    address = ba8150d3-efa9-4c43-bacc-350fa309eca2
+    beep = function([frequency:string or number[, duration:number]]) -- Plays a tone, usefu
+    getDeviceInfo = function():table -- Collect information on all connected devices.
+    getProgramLocations = function():table -- Returns a map of program name to disk label for known progra
+    isRunning = function():boolean -- Returns whether the computer is running.
+    slot = -1
+    start = function():boolean -- Starts the computer. Returns true if the state changed.
+    stop = function():boolean -- Stops the computer. Returns true if the state changed.
+    type = computer
+
+--- drawer (1689b5c4…) ---
+  Fields (8):
+    address = 1689b5c4-845d-42d4-8f02-d3b396086618
+    getDrawerCount = function():number; Returns the number of drawers in this block.
+    getItemCount = function(drawerslot:number):number; Returns the number of items in the specified
+    getItemDamage = function(drawerslot:number):number; Returns the damage value of the item in the 
+    getItemName = function(drawerslot:number):string; Returns the name of the item in the specifie
+    getMaxCapacity = function(drawerslot:number):number; Returns the maximum number of items that can
+    slot = -1
+    type = drawer
+
+--- keyboard (d352019a…) ---
+  Fields (3):
+    address = d352019a-2aa5-4b46-ae76-f8a0af16e91f
+    slot = -1
+    type = keyboard
+
+--- gpu (6e007c8e…) ---
+  Methods (2):
+    setResolution()
+    setViewport()
+  Fields (31):
+    address = 6e007c8e-06bb-4125-90aa-dba18086518a
+    allocateBuffer = function([width: number, height: number]): number -- allocates a new buffer with
+    bind = function(address:string[, reset:boolean=true]):boolean -- Binds the GPU to the s
+    bitblt = function([dst: number, col: number, row: number, width: number, height: number, 
+    buffers = function(): number -- Returns an array of indexes of the allocated buffers
+    copy = function(x:number, y:number, width:number, height:number, tx:number, ty:number):
+    fill = function(x:number, y:number, width:number, height:number, char:string):boolean -
+    freeAllBuffers = function(): number -- Closes all buffers and returns the count. If the active bu
+    freeBuffer = function(index: number): boolean -- Closes buffer at `index`. Returns true if a 
+    freeMemory = function(): number -- returns the total free memory not allocated to buffers. Th
+    get = function(x:number, y:number):string, number, number, number or nil, number or ni
+    getActiveBuffer = function(): number -- returns the index of the currently selected buffer. 0 is r
+    getBackground = function():number, boolean -- Get the current background color and whether it's 
+    getBufferSize = function(index: number): number, number -- returns the buffer size at index. Ret
+    getDepth = function():number -- Returns the currently set color depth.
+    getForeground = function():number, boolean -- Get the current foreground color and whether it's 
+    getPaletteColor = function(index:number):number -- Get the palette color at the specified palette 
+    getResolution = function():number, number -- Get the current screen resolution.
+    getScreen = function():string -- Get the address of the screen the GPU is currently bound to
+    getViewport = function():number, number -- Get the current viewport resolution.
+    maxDepth = function():number -- Get the maximum supported color depth.
+    maxResolution = function():number, number -- Get the maximum screen resolution.
+    set = function(x:number, y:number, value:string[, vertical:boolean]):boolean -- Plots 
+    setActiveBuffer = function(index: number): number -- Sets the active buffer to `index`. 1 is the f
+    setBackground = function(value:number[, palette:boolean]):number, number or nil -- Sets the back
+    setDepth = function(depth:number):number -- Set the color depth. Returns the previous value
+    setForeground = function(value:number[, palette:boolean]):number, number or nil -- Sets the fore
+    setPaletteColor = function(index:number, color:number):number -- Set the palette color at the spec
+    slot = 0
+    totalMemory = function(): number -- returns the total memory size of the gpu vram. This does n
+    type = gpu
+
+--- modem (9f5e577e…) ---
+  Fields (15):
+    address = 9f5e577e-5481-4fd2-97b4-c143f57b4565
+    broadcast = function(port:number, data...) -- Broadcasts the specified data on the specified
+    close = function([port:number]):boolean -- Closes the specified port (default: all ports
+    getStrength = function():number -- Get the signal strength (range) used when sending messages.
+    getWakeMessage = function():string, boolean -- Get the current wake-up message.
+    isOpen = function(port:number):boolean -- Whether the specified port is open.
+    isWired = function():boolean -- Whether this card has wired networking capability.
+    isWireless = function():boolean -- Whether this card has wireless networking capability.
+    maxPacketSize = function():number -- Gets the maximum packet size (config setting).
+    open = function(port:number):boolean -- Opens the specified port. Returns true if the p
+    send = function(address:string, port:number, data...) -- Sends the specified data to th
+    setStrength = function(strength:number):number -- Set the signal strength (range) used when se
+    setWakeMessage = function(message:string[, fuzzy:boolean]):string -- Set the wake-up message and 
+    slot = 11
+    type = modem
+
+--- screen (7253a539…) ---
+  Fields (12):
+    address = 7253a539-4658-4479-a1b3-158196647a4a
+    getAspectRatio = function():number, number -- The aspect ratio of the screen. For multi-block scr
+    getKeyboards = function():table -- The list of keyboards attached to the screen.
+    isOn = function():boolean -- Returns whether the screen is currently on.
+    isPrecise = function():boolean -- Returns whether the screen is in high precision mode (sub-
+    isTouchModeInverted = function():boolean -- Whether touch mode is inverted (sneak-activate opens GUI, 
+    setPrecise = function(enabled:boolean):boolean -- Set whether to use high precision mode (sub
+    setTouchModeInverted = function(value:boolean):boolean -- Sets whether to invert touch mode (sneak-acti
+    slot = -1
+    turnOff = function():boolean -- Turns off the screen. Returns whether the state changed, a
+    turnOn = function():boolean -- Turns the screen on. Returns whether the state changed, an
+    type = screen
+
+
+=== DETAILED KEY COMPONENTS ===
+
+--- me_interface @ 32332048-d9e0-4c43-9c9d-7378e668e2cb ---
+Full address: 32332048-d9e0-4c43-9c9d-7378e668e2cb
+Method list (0):
+
+  --- me_interface detail ---
+  getItemsInNetwork({name="gregtech:gt.integrated_circuit"}): 1 results
+    Example: name=gregtech:gt.integrated_circuit damage=9 label=Programmed Circuit size=1
+  getFluidsInNetwork(): 2 results
+    Example: name=oxygen amount=7000
+  setInterfaceConfiguration(slot, dbAddress, dbSlot, count?) — configures item stocking
+  setInterfaceConfiguration(slot) — clears item config
+  setFluidInterfaceConfiguration(side, dbAddress, dbSlot) — configures fluid stocking
+  setFluidInterfaceConfiguration(side) — clears fluid config
+  store(filter, dbAddress, dbSlot, count) — samples item to database
+
+--- transposer @ d9df7f7f-e157-44c8-8584-2e92f142ea81 ---
+Full address: d9df7f7f-e157-44c8-8584-2e92f142ea81
+Method list (0):
+
+  --- transposer detail ---
+  getInventorySize(0): 17
+  getInventorySize(2): 9
+  getInventorySize(5): 27
+  getFluidInTank(2): 6 tanks
+  transferItem(fromSide, toSide, count, fromSlot, toSlot?)
+
+--- database @ 9c22064e-7ddc-4d9a-a6a5-b732d1cba18a ---
+Full address: 9c22064e-7ddc-4d9a-a6a5-b732d1cba18a
+Method list (0):
+
+  --- database detail ---
+  slot 1: name=gregtech:gt.integrated_circuit damage=9 label=Programmed Circuit size=0
+  slot 2: name=ae2fc:fluid_drop damage=0 label=drop of Oxygen size=0
+  slot 3: name=ae2fc:fluid_drop damage=0 label=drop of Ethylene size=0
+  slot 4: name=ae2fc:fluid_drop damage=0 label=drop of Water size=0
+  slot 5: name=ae2fc:fluid_drop damage=0 label=drop of Water size=0
+  slot 6: name=ae2fc:fluid_drop damage=0 label=drop of Ethylene size=0
+  slot 7: name=gregtech:gt.metaitem.01 damage=2022 label=Sulfur Dust size=0
+  slot 8: name=gregtech:gt.integrated_circuit damage=7 label=Programmed Circuit size=0
+  slot 9: name=ae2fc:fluid_drop damage=0 label=drop of Water size=0
+  get(slot) — read entry
+  set(slot, descriptor) — write entry
+  clear(slot) — clear slot
+
+--- gt_machine @ ed859452-2cd0-48bf-85cc-7bc3bca4f29d ---
+Full address: ed859452-2cd0-48bf-85cc-7bc3bca4f29d
+Method list (0):
+
+  --- gt_machine detail ---
+  isWorkAllowed(): true
+  isMachineActive(): false
+  hasWork(): false
+  getWorkProgress(): 0
+  getWorkMaxProgress(): 0
+  getSensorInformation(): table: 000002506c38a0c0
+  Sensor info keys: 1, 2, 3, 4, 5, 6
+
+--- redstone @ bf265d88-b18e-43f0-ba1c-939767fcc22d ---
+Full address: bf265d88-b18e-43f0-ba1c-939767fcc22d
+Method list (0):
+
+  --- redstone detail ---
+  setOutput(side, value) — set redstone output (0-15)
+  getOutput(0): 0
+  getOutput(1): 0
+  getOutput(2): 0
+  getOutput(3): 0
+  getOutput(4): 0
+  getOutput(5): 0
+  getInput(0): 0
+  getInput(1): 0
+  getInput(2): 0
+  getInput(3): 0
+  getInput(4): 0
+  getInput(5): 0
+
+--- modem @ 9f5e577e-5481-4fd2-97b4-c143f57b4565 ---
+Full address: 9f5e577e-5481-4fd2-97b4-c143f57b4565
+Method list (0):
+
+  --- modem detail ---
+  open(port) — open port
+  close(port) — close port
+  send(address, port, payload) — send message
+  port 105: OPEN
+  port 106: OPEN
+  getStrength(): 400.0
+
+--- inventory_controller @ 30c39ca2-68b9-4f71-8b0d-291cd6bcdc01 ---
+Full address: 30c39ca2-68b9-4f71-8b0d-291cd6bcdc01
+Method list (0):
+
+  --- inventory_controller detail ---
+  getInventorySize(0): 8
+  getInventorySize(5): 1
+    Sample slots: OpenComputers:itemx1
+
+--- tank_controller @ 9a4d0d5f-26e4-4f0e-9330-9d416433c657 ---
+Full address: 9a4d0d5f-26e4-4f0e-9330-9d416433c657
+Method list (0):
+
+=== ALL COMPONENT ADDRESSES ===
+
+(format: type = uuid)
+  transposer = d9df7f7f-e157-44c8-8584-2e92f142ea81
+  redstone = bf265d88-b18e-43f0-ba1c-939767fcc22d
+  database = 9c22064e-7ddc-4d9a-a6a5-b732d1cba18a
+  me_interface = 32332048-d9e0-4c43-9c9d-7378e668e2cb
+  me_interface = 74e982ba-35e4-4b94-900e-0919f76e7098
+  me_interface = ae1fbbba-ad3a-4a5b-b624-66c1ac11afec
+  me_interface = 453091f9-9f78-4d07-a487-74afe5d170d2
+  eeprom = 23d5dba4-68f9-40f5-b4ea-94e41f6c1248
+  transposer = de4705f9-faae-4ce0-bbaf-74d9cd5f382d
+  inventory_controller = 30c39ca2-68b9-4f71-8b0d-291cd6bcdc01
+  internet = 37f9ec38-d2a1-484e-8e02-b76086dc2d75
+  gt_machine = ed859452-2cd0-48bf-85cc-7bc3bca4f29d
+  gt_machine = d0713001-d339-4272-a7cf-cce61c2360d0
+  filesystem = 2f73aba1-c663-4ca1-8fc3-a62447d7f980
+  tank_controller = 9a4d0d5f-26e4-4f0e-9330-9d416433c657
+  computer = ba8150d3-efa9-4c43-bacc-350fa309eca2
+  gt_machine = a4bd12cb-8d12-4d86-86db-131dbd5cd076
+  transposer = 18dd04a6-1f7f-4df5-a2b4-3191768d9c6d
+  gt_machine = b1a8e372-7aaf-4d9b-b1f8-eed37a7e678d
+  transposer = c531d5a8-c65d-471d-9057-00bf235404cf
+  filesystem = 7cf0246e-161b-465c-a54c-573ebedd93c1
+  filesystem = 83e5bafc-9b8c-43cf-b1ad-df292cb9085b
+  drawer = 1689b5c4-845d-42d4-8f02-d3b396086618
+  gt_machine = 28d9de66-3f71-48fe-9f8b-fdc4d7332794
+  keyboard = d352019a-2aa5-4b46-ae76-f8a0af16e91f
+  gpu = 6e007c8e-06bb-4125-90aa-dba18086518a
+  modem = 9f5e577e-5481-4fd2-97b4-c143f57b4565
+  screen = 7253a539-4658-4479-a1b3-158196647a4a

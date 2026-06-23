@@ -9,16 +9,21 @@
 
 local FluidTanks = {}
 
+local _label_cache = {}
+
 local function lower(s)
   return type(s) == "string" and string.lower(s) or nil
 end
 
 local function normalize_label(s)
-  s = lower(s)
   if not s then return nil end
-  s = s:gsub("^drop of ", "")
-  s = s:gsub("^molten ", "")
-  return s
+  if _label_cache[s] then return _label_cache[s] end
+  local v = lower(s)
+  if not v then return nil end
+  v = v:gsub("^drop of ", "")
+  v = v:gsub("^molten ", "")
+  _label_cache[s] = v
+  return v
 end
 
 function FluidTanks.fluid_rows(dev, side)

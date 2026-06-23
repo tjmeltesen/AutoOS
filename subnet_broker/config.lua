@@ -66,7 +66,7 @@ Config.central = {
   job_stabilize_s = 1.0,
   stabilize_s = 1.0,
   settle_s = 0.0,
-  interface_wait_s = 5.0,
+  interface_wait_s = 60.0,
   require_interface_staging = false,
 }
 

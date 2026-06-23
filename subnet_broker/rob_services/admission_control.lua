@@ -29,16 +29,15 @@ function AdmissionControl.count_circuits(registry, config, circuit_manager, yiel
   local side = registry.central_item_side
   if type(side) ~= "number" then return 0 end
 
+  local HW = require("hw")
+  local stacks = HW.get_all_stacks(adapter, side)
   local n = 0
-  local start = registry.chest_slot_start or config.chest_slot_start or 1
-  local ok_size, size = pcall(adapter.getInventorySize, side)
-  if not ok_size or type(size) ~= "number" then return 0 end
-
-  for slot = start, size do
-    if slot % 10 == 0 and yield_fn then yield_fn() end
-    local ok_st, st = pcall(adapter.getStackInSlot, side, slot)
-    if ok_st and circuit_manager.stack_is_circuit
-      and circuit_manager:stack_is_circuit(st) then
+  local count = 0
+  for _, stack in pairs(stacks) do
+    count = count + 1
+    if count % 10 == 0 and yield_fn then yield_fn() end
+    if circuit_manager.stack_is_circuit
+      and circuit_manager:stack_is_circuit(stack) then
       n = n + 1
     end
   end

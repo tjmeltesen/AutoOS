@@ -29,7 +29,6 @@ function Task.spawn(ctx)
       for _, ev in ipairs(result.events or {}) do
         state.events[#state.events + 1] = ev
       end
-      Scheduler.yield_now()
       Scheduler.sleep(Clock.fast_interval(cfg, rob))
     end
   end)

@@ -74,6 +74,49 @@ end
 ---@param hint string|nil
 ---@return table|nil proxy
 ---@return string|nil err
+--- Bulk read all stacks from a transposer/inventory_controller side.
+--- Replaces getInventorySize + N x getStackInSlot with a single call.
+--- getAllStacks returns userdata; indexable by slot number [1..N].
+--- Returns a plain table {[slot] = stack_table, ...} for safe iteration.
+--- Falls back to manual scan if getAllStacks is unavailable.
+function HW.get_all_stacks(proxy, side)
+  if not proxy or not side then return {} end
+  if proxy.getAllStacks then
+    local ok, stacks = pcall(proxy.getAllStacks, side)
+    if ok and type(stacks) == "userdata" then
+      local size = 0
+      if proxy.getInventorySize then
+        local ok_sz, n = pcall(proxy.getInventorySize, side)
+        if ok_sz and type(n) == "number" then size = n end
+      end
+      if size <= 0 then size = 64 end  -- fallback: inventory_controller may report 0
+      local out = {}
+      for slot = 1, size do
+        local stack = stacks[slot]
+        if type(stack) == "table" and (stack.size or 0) > 0 then
+          out[slot] = stack
+        end
+      end
+      return out
+    end
+  end
+  -- Fallback: manual slot scan
+  local out = {}
+  local size = 0
+  if proxy.getInventorySize then
+    local ok, n = pcall(proxy.getInventorySize, side)
+    if ok and type(n) == "number" then size = n end
+  end
+  if size <= 0 then return out end
+  for slot = 1, size do
+    local ok, stack = pcall(proxy.getStackInSlot, side, slot)
+    if ok and type(stack) == "table" and (stack.size or 0) > 0 then
+      out[slot] = stack
+    end
+  end
+  return out
+end
+
 function HW.require_proxy(component, label, address, hint)
   if not address or address == "" then
     return nil, label .. " address not configured"

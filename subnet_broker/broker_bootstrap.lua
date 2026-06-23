@@ -92,6 +92,11 @@ function Bootstrap._build_impl(log)
   -- Inject transport lock release into registry (consumed by LaneWorker)
   RegistryAdapter.inject_transport_locks(registry, rob)
 
+  -- Wire fault_net into the dispatcher so services can capture silent failures
+  rob._fault = function(tag, err, extra)
+    FaultNet.capture({ log = log, faults = faults }, tag, err, extra)
+  end
+
   -- Give the dispatcher a direct lane-wake callback so it doesn't depend
   -- on task_central_dispatch to relay wakes.
   rob._wake_lane = function(machine_id)

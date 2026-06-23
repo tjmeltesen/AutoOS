@@ -228,8 +228,12 @@ function Scheduler:_next_timeout()
       end
     end
   end
-  if any_ready then return 0 end
-  if next_deadline then return math.max(0, next_deadline - now) end
+  if any_ready then return 0.05 end  -- ponytail: never 0; OC event.pull(0) blocks until event
+  -- DEBUG
+  if not any_ready and next_deadline then
+    self.log(string.format("[Scheduler] DBG _next_timeout: no-ready next=%.3fs now=%.3f", next_deadline - now, now))
+  end
+  if next_deadline then return math.max(0.05, next_deadline - now) end
   return nil
 end
 
@@ -245,12 +249,19 @@ function Scheduler:_resume_due()
       end
     end
   end
-  if #resumed > 0 and self._resume_call_count then
-    self._resume_call_count = self._resume_call_count + 1
-    if self._resume_call_count % 10 == 1 then
-      self.log(string.format("[Scheduler] _resume_due #%d: resumed=%s",
-        self._resume_call_count, table.concat(resumed, ",")))
+  self._resume_call_count = (self._resume_call_count or 0) + 1
+  -- DEBUG: dump lane_machine_01 wait state on every _resume_due call
+  for _, t in ipairs(self.tasks) do
+    if t.name == "lane_machine_01" then
+      self.log(string.format("[Scheduler] DBG _resume_due #%d: lane_01 wait.type=%s wait.deadline=%.3f now=%.3f status=%s resumed=%s",
+        self._resume_call_count, tostring(t.wait and t.wait.type), t.wait and t.wait.deadline or 0, now,
+        coroutine.status(t.co), tostring(#resumed > 0 and table.concat(resumed, ",") or "(none)")))
+      break
     end
+  end
+  if #resumed > 0 and self._resume_call_count % 10 == 1 then
+    self.log(string.format("[Scheduler] _resume_due #%d: resumed=%s",
+      self._resume_call_count, table.concat(resumed, ",")))
   end
 end
 
@@ -272,10 +283,15 @@ end
 function Scheduler:run(max_cycles)
   self._running = true
   local cycles = 0
+  local _MIN_TIMEOUT = 0.05
   local live = 0; for _, t in ipairs(self.tasks) do if not t.dead then live = live + 1 end end
   self.log(string.format("[Scheduler] run START — %d tasks (%d live)", #self.tasks, live))
   while self._running and self:has_live_tasks() do
-    self:_resume_due()
+    -- Drain all ready tasks repeatedly — a resumed task may yield sleep@now
+    -- and be ready again in the same cycle.  Loop until nothing is ready.
+    repeat
+      self:_resume_due()
+    until self:_next_timeout() > _MIN_TIMEOUT
     local timeout = self:_next_timeout()
     local ev = { self.event.pull(timeout) }
     if ev[1] ~= nil then self:_dispatch_event(ev) end

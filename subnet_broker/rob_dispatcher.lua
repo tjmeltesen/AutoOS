@@ -62,6 +62,9 @@ function ROBDispatcher.new(registry, config, deps)
   -- Lane wake callback (set by caller after construction)
   self._wake_lane = nil
 
+  -- Fault capture callback (set by caller after construction)
+  self._fault = nil
+
   self._log(string.format("[ROB] NEW dispatcher instance %s", tostring(self):sub(8)))
   return self
 end
@@ -99,17 +102,32 @@ function ROBDispatcher:tick(poll_results, yield_fn)
     self._buf_mon, now, self._registry, self._config,
     {
       build_manifest = function()
-        return JobManifest.build(self._registry, self._config, self._fluid_tanks, self._safe_yield)
+        local ok, m = pcall(JobManifest.build, self._registry, self._config,
+          self._fluid_tanks, self._safe_yield)
+        if not ok then
+          if self._fault then self._fault("rob.build_manifest", tostring(m)) end
+          return nil
+        end
+        return m
       end,
       enqueue_job = function(manifest)
-        return JobFactory.enqueue(manifest, "central", self._registry, self._config,
+        local job, err = JobFactory.enqueue(manifest, "central", self._registry, self._config,
           self._log, self._now, self._pending_jobs, self._job_seq_ref, self._safe_yield)
+        if not job and self._fault then
+          self._fault("rob.enqueue_job", err or "enqueue returned nil")
+        end
+        return job, err
       end,
       check_admission = function()
-        return AdmissionControl.is_ok(self._registry, self._config,
+        local ok, err = pcall(AdmissionControl.is_ok, self._registry, self._config,
           self._circuit_manager, self._lanes, self._log, self._safe_yield, C)
+        if not ok and self._fault then
+          self._fault("rob.check_admission", tostring(err))
+        end
+        return ok
       end,
       log = self._log,
+      fault = self._fault,
     },
     self._pending_jobs, self._safe_yield, job_stabilize
   )
