@@ -23,6 +23,14 @@ local FAULT_LOG_PATH = "/home/subnet_broker/fault.log"
 local _file_write_count = 0
 local _MAX_FILE_LINES = 500  -- rotate after this many writes
 
+-- Ensure log directory exists (io.open doesn't create parent dirs in OC)
+do
+  local ok, fs = pcall(require, "filesystem")
+  if ok and type(fs) == "table" and fs.makeDirectory then
+    pcall(fs.makeDirectory, "/home/subnet_broker")
+  end
+end
+
 ---------------------------------------------------------------------------
 -- Internal: build a timestamp string (OC-compatible).
 -- Uses os.date if available; falls back to os.time.
@@ -44,11 +52,13 @@ local function _file_append(line)
     _file_write_count = 1
     mode = "w"
   end
-  local f = io.open(FAULT_LOG_PATH, mode)
-  if f then
-    f:write(line .. "\n")
-    f:close()
+  local f, open_err = io.open(FAULT_LOG_PATH, mode)
+  if not f then
+    print("[fault_net] ERROR opening " .. FAULT_LOG_PATH .. ": " .. tostring(open_err or "nil"))
+    return
   end
+  f:write(line .. "\n")
+  f:close()
 end
 
 ---------------------------------------------------------------------------
