@@ -26,9 +26,10 @@ jobs:
 
       - name: Run Horizon-QA tests
         run: |
-          ./gradlew :horizon-qa-tests:runServer \
+          cd horizon-qa-tests && \
+          ../gradlew :runServer \
             --stacktrace \
-            --mcJvmArgs="-Dhorizonqa.mode=ci -Dhorizonqa.reportDir=horizon-qa-tests/build/horizonqa"
+            --mcJvmArgs="-Dhorizonqa.mode=ci -Dhorizonqa.reportDir=build/horizonqa"
 
       - name: Upload JUnit reports
         if: always()
