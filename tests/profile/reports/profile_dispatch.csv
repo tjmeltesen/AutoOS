@@ -1,0 +1,4 @@
+name,samples,total_s,mean_ms,median_ms,p95_ms,min_ms,max_ms
+lock_ops,50,0.001000,0.020,0.000,0.000,0.000,1.000
+lane_state_ops,50,0.000000,0.000,0.000,0.000,0.000,0.000
+full_tick,50,0.001000,0.020,0.000,0.000,0.000,1.000

@@ -1,0 +1,19 @@
+name: Setup Lua 5.2
+description: Install Lua 5.2 and LuaRocks with caching
+
+runs:
+  using: composite
+  steps:
+    - name: Install Lua 5.2 and LuaRocks
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq lua5.2 luarocks
+
+    - name: Cache LuaRocks
+      uses: actions/cache@v4
+      with:
+        path: ~/.luarocks
+        key: luarocks-${{ runner.os }}-${{ hashFiles('.luacheckrc') }}
+        restore-keys: |
+          luarocks-${{ runner.os }}-

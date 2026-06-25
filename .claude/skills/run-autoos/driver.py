@@ -17,11 +17,40 @@ TEST_FILES = [
     "tests/coroutine_scheduler_test.lua",
     "tests/fluid_tanks_test.lua",
     "tests/descriptor_cache_test.lua",
-    "tests/array_watch_test.lua",
-    "tests/broker_scheduler_test.lua",
-    "tests/lane_coroutine_test.lua",
-    "tests/lane_dispatch_test.lua",
-    "tests/central_dispatch_test.lua",
+]
+
+UNIT_TEST_FILES = [
+    "tests/unit/lane_state_test.lua",
+    "tests/unit/lock_manager_test.lua",
+    "tests/unit/job_descriptor_test.lua",
+    "tests/unit/buffer_monitor_test.lua",
+    "tests/unit/job_assigner_test.lua",
+    "tests/unit/job_reaper_test.lua",
+    "tests/unit/watchdog_test.lua",
+    "tests/unit/completion_detector_test.lua",
+    "tests/unit/circuit_manager_test.lua",
+    "tests/unit/network_protocols_test.lua",
+]
+
+INTEGRATION_TEST_FILES = [
+    "tests/integration/hardware_contract_test.lua",
+    "tests/integration/adapter_connectivity_test.lua",
+    "tests/integration/full_lane_stack_test.lua",
+    "tests/integration/network_card_test.lua",
+    "tests/integration/oc_boot_smoke_test.lua",
+]
+
+SOAK_TEST_FILES = [
+    "tests/soak/soak_thousands_test.lua",
+    "tests/soak/soak_stuck_phase5_test.lua",
+    "tests/soak/soak_queue_saturation_test.lua",
+    "tests/soak/soak_circuit_leak_test.lua",
+]
+
+PROFILE_TEST_FILES = [
+    "tests/profile/profile_dispatch_test.lua",
+    "tests/profile/profile_serialization_test.lua",
+    "tests/profile/profile_retry_test.lua",
 ]
 
 

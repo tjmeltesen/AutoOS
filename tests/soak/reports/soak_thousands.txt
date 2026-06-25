@@ -1,0 +1,9 @@
+=== Soak Report (5000 cycles) ===
+  Dispatched:  1007
+  Completed:   952
+  Failed:      53
+  Retried:     0
+  Peak queue:  4
+  Peak circuits: 0
+  Stuck lanes: 0
+  Invariants broken: 0
