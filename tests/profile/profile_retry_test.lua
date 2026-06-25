@@ -59,7 +59,7 @@ check("0% rate measured", profiler.results.retry_0pct ~= nil)
 check("80% rate measured", profiler.results.retry_80pct ~= nil)
 check("80% cost is acceptable",
   profiler.results.retry_80pct.mean < profiler.results.retry_0pct.mean * 5,
-  string.format("0%:%.3fms 80%:%.3fms",
+  string.format("0%%:%.3fms 80%%:%.3fms",
     profiler.results.retry_0pct.mean * 1000,
     profiler.results.retry_80pct.mean * 1000))
 

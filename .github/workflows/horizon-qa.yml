@@ -8,6 +8,9 @@ jobs:
   horizon-qa:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+      ORG_GRADLE_JVMARGS: "-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
     steps:
       - uses: actions/checkout@v4
 
@@ -17,12 +20,13 @@ jobs:
           java-version: 8
 
       - uses: gradle/actions/setup-gradle@v4
+
       - name: Verify Gradle wrapper exists
         run: test -x ./gradlew
+
       - name: Run Horizon-QA tests
         run: |
           ./gradlew :horizon-qa-tests:runServer \
-            --no-daemon \
             --stacktrace \
             --mcJvmArgs="-Dhorizonqa.mode=ci -Dhorizonqa.reportDir=horizon-qa-tests/build/horizonqa"
 
