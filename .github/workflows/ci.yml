@@ -120,11 +120,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
       - name: Create release artifacts
-        run: python .claude/skills/run-autoos/driver.py --release
+        run: |
+          mkdir -p release
+          cp -r subnet_broker release/
+          cp -r orchestrator release/
+          cp -r shared release/
+          echo "Release package ready: $(find release -name '*.lua' | wc -l) .lua files"
       - name: Upload release bundles
         uses: actions/upload-artifact@v4
         with:
