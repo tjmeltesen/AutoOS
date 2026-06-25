@@ -234,7 +234,9 @@ function Scheduler:_next_timeout()
     self.log(string.format("[Scheduler] DBG _next_timeout: no-ready next=%.3fs now=%.3f", next_deadline - now, now))
   end
   if next_deadline then return math.max(0.05, next_deadline - now) end
-  return nil
+  -- No ready tasks and no sleep deadlines: all live tasks are event-waiting.
+  -- Return a large timeout so the drain loop exits and event.pull blocks for events.
+  return 86400  -- 24h sentinel: "wait for any event"
 end
 
 function Scheduler:_resume_due()
@@ -291,8 +293,8 @@ function Scheduler:run(max_cycles)
     -- and be ready again in the same cycle.  Loop until nothing is ready.
     repeat
       self:_resume_due()
-    until (self:_next_timeout() or math.huge) > _MIN_TIMEOUT
-    local timeout = self:_next_timeout() or 0.05
+    until self:_next_timeout() > _MIN_TIMEOUT
+    local timeout = self:_next_timeout()
     local ev = { self.event.pull(timeout) }
     if ev[1] ~= nil then self:_dispatch_event(ev) end
     cycles = cycles + 1
