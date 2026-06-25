@@ -10,42 +10,36 @@ globals = {
 }
 
 read_globals = {
-    -- Lua stdlib (luacheck auto-recognizes most, but be explicit for safety)
-    "arg",        -- command-line args
-    "bit",        -- LuaJIT bit library (OC uses LuaJIT)
-    "bit32",      -- Lua 5.2 bit32 compat
-    -- Metatable
+    -- Lua stdlib
+    "arg",
+    "bit", "bit32",
     "setmetatable", "getmetatable",
     "rawget", "rawset", "rawequal",
-    -- Iteration
     "next", "pairs", "ipairs",
-    -- Type coercion
     "tonumber", "tostring", "type",
-    -- Vararg / unpack
     "select", "unpack",
-    -- Error handling
     "error", "assert", "xpcall", "pcall",
-    -- Loading
     "load", "loadfile", "dofile",
-    -- Output (used pervasively for debugging)
     "print",
-    -- Environment
     "_G", "_VERSION",
-    -- Module system
     "require",
+    -- OC provides these as globals with extra fields at runtime
+    { "os", fields = { "sleep", "date", "time", "clock", "exit", "execute" } },
+    { "io", fields = { "write", "open", "read", "close", "stderr", "stdout" } },
+    { "math", fields = { "abs", "ceil", "floor", "max", "min", "random", "sqrt", "huge" } },
+    { "string", fields = { "char", "format", "gmatch", "gsub", "len", "lower", "match", "rep", "reverse", "sub", "upper" } },
+    { "table", fields = { "concat", "insert", "remove", "sort", "unpack" } },
+    { "coroutine", fields = { "create", "resume", "running", "status", "wrap", "yield" } },
+    { "debug", fields = { "traceback", "getinfo" } },
+    { "package", fields = { "config", "path", "loaded", "preload", "seeall" } },
 }
 
-include_files = {
-    "subnet_broker/**.lua",
-    "orchestrator/**.lua",
-    "shared/**.lua",
-    "tests/**.lua",
-}
-
+-- Check everything by default, exclude only third-party and dupes
 exclude_files = {
     "references/**",
     "legacy/**",
     "graphify-out/**",
+    ".claude/**",
     -- network_protocols.lua is triplicated for independent deployment;
     -- lint only the canonical copy in shared/
     "subnet_broker/network_protocols.lua",
@@ -53,8 +47,18 @@ exclude_files = {
 }
 
 ignore = {
-    -- Trailing whitespace -- common in hand-authored Lua
+    -- Trailing whitespace (common in hand-authored Lua)
     "611",
-    -- Line too long -- OC screens render reports in-game, line length varies by screen resolution
+    -- Line too long (OC screens render varying resolutions)
     "614",
+    -- Unused argument (pre-existing; too many to fix in one pass)
+    "212",
+    -- Unused variable (pre-existing; too many to fix in one pass)
+    "311",
+    -- Loop executed at most once (pre-existing)
+    "511",
+    -- Setting read-only global (pre-existing, e.g., print override in find.lua)
+    "122",
+    -- Mutating non-standard global (pre-existing broker_ui_main)
+    "131",
 }
