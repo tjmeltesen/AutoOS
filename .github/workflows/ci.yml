@@ -133,39 +133,3 @@ jobs:
           name: autos-release
           path: release/
           retention-days: 90
-
-  # ── Stage 6: Deploy to Game Directory (self-hosted runner) ───────────
-  deploy:
-    needs: release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, autos-deploy]
-    timeout-minutes: 5
-    steps:
-      - name: Download release artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: autos-release
-          path: ${{ runner.temp }}/autos-release
-
-      - name: Deploy to PrismLauncher game directory
-        shell: powershell
-        run: |
-          $GameHome = "$env:APPDATA\PrismLauncher\instances\GT_New_Horizons_2.8.4_Java_17-25\.minecraft\saves\AutoOS\opencomputers\0f6fe1af-265f-4dcf-be91-d707dc877e0d\home"
-          $ArtifactDir = "${{ runner.temp }}\autos-release"
-          $BrokerDest = "$GameHome\subnet_broker"
-          $OrchDest   = "$GameHome\orchestrator"
-          New-Item -ItemType Directory -Force -Path $BrokerDest | Out-Null
-          New-Item -ItemType Directory -Force -Path $OrchDest | Out-Null
-          Get-ChildItem -Recurse -File -Path $ArtifactDir -Filter "*.lua" | ForEach-Object {
-            $rel = $_.FullName.Replace($ArtifactDir, "").TrimStart("\")
-            if ($rel -match "subnet_broker\\") { Copy-Item $_.FullName -Destination $BrokerDest -Force }
-            elseif ($rel -match "orchestrator\\") { Copy-Item $_.FullName -Destination $OrchDest -Force }
-            elseif ($rel -match "shared\\") {
-              Copy-Item $_.FullName -Destination $BrokerDest -Force
-              Copy-Item $_.FullName -Destination $OrchDest -Force
-            }
-          }
-          Write-Host "Deployed to $GameHome"
-          Get-ChildItem -Recurse -File "$GameHome\*.lua" | Measure-Object | ForEach-Object {
-            Write-Host "  $($_.Count) .lua files in game directory"
-          }
