@@ -7,10 +7,13 @@ globals = {
     "term", "robot", "unicode", "filesystem", "serialization",
     -- OC threading
     "thread",
+    -- Stdlib with OC-extended fields (os.sleep, etc.)
+    { "os", fields = { "sleep", "date", "time", "clock", "exit", "execute" } },
+    { "io", fields = { "write", "open", "read", "close", "stderr", "stdout" } },
+    { "package", fields = { "config", "path", "loaded", "preload", "seeall" } },
 }
 
 read_globals = {
-    -- Lua stdlib
     "arg",
     "bit", "bit32",
     "setmetatable", "getmetatable",
@@ -23,15 +26,7 @@ read_globals = {
     "print",
     "_G", "_VERSION",
     "require",
-    -- OC provides these as globals with extra fields at runtime
-    { "os", fields = { "sleep", "date", "time", "clock", "exit", "execute" } },
-    { "io", fields = { "write", "open", "read", "close", "stderr", "stdout" } },
-    { "math", fields = { "abs", "ceil", "floor", "max", "min", "random", "sqrt", "huge" } },
-    { "string", fields = { "char", "format", "gmatch", "gsub", "len", "lower", "match", "rep", "reverse", "sub", "upper" } },
-    { "table", fields = { "concat", "insert", "remove", "sort", "unpack" } },
-    { "coroutine", fields = { "create", "resume", "running", "status", "wrap", "yield" } },
-    { "debug", fields = { "traceback", "getinfo" } },
-    { "package", fields = { "config", "path", "loaded", "preload", "seeall" } },
+    "math", "string", "table", "coroutine", "debug",
 }
 
 -- Check everything by default, exclude only third-party and dupes
