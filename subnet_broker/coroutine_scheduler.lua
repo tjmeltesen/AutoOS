@@ -180,15 +180,10 @@ function Scheduler:_resume(task, ...)
     return
   end
   if coroutine.status(task.co) == "dead" then
-    -- Coroutine completed normally (returned).  Re-create if we have a factory.
-    if task.factory then
-      task.co = coroutine.create(task.factory)
-      task.wait = { type = "ready" }
-      self.log(string.format("[Scheduler] task %s completed — re-created", task.name))
-      return
-    end
+    -- Coroutine completed normally (returned). One-shot task — mark dead.
+    -- Production tasks use internal while-true loops and never reach here.
     task.dead = true
-    self.log(string.format("[Scheduler] task %s completed (coroutine dead, no factory)", task.name))
+    self.log(string.format("[Scheduler] task %s completed", task.name))
     return
   end
   task.wait = normalize_wait(spec, self:now())
@@ -293,7 +288,7 @@ function Scheduler:run(max_cycles)
       self:_resume_due()
       local nt = self:_next_timeout()
       if nt == nil then break end  -- only event-waiting tasks left, nothing to drain
-    until nt > _MIN_TIMEOUT
+    until nt >= _MIN_TIMEOUT  -- >= prevents infinite drain when tasks are perpetually ready (factory recreation)
     local timeout = self:_next_timeout() or 0.05
     local ev = { self.event.pull(timeout) }
     if ev[1] ~= nil then self:_dispatch_event(ev) end

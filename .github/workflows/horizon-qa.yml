@@ -17,11 +17,14 @@ jobs:
           java-version: 8
 
       - uses: gradle/actions/setup-gradle@v4
-
+      - name: Verify Gradle wrapper exists
+        run: test -x ./gradlew
       - name: Run Horizon-QA tests
         run: |
-          cd horizon-qa-tests
-          ./gradlew runServer --mcJvmArgs="-Dhorizonqa.mode=ci -Dhorizonqa.reportDir=build/horizonqa"
+          ./gradlew :horizon-qa-tests:runServer \
+            --no-daemon \
+            --stacktrace \
+            --mcJvmArgs="-Dhorizonqa.mode=ci -Dhorizonqa.reportDir=horizon-qa-tests/build/horizonqa"
 
       - name: Upload JUnit reports
         if: always()
