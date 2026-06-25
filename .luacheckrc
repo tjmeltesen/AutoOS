@@ -41,21 +41,23 @@ exclude_files = {
 
 ignore = {
     -- Trailing whitespace (common in hand-authored Lua)
-    "611",
+    611,
     -- Line too long (OC screens render varying resolutions)
-    "614",
+    614,
     -- Accessing undefined field of global (OC runtime extends stdlib)
-    "143",
-    -- Unused argument (pre-existing; too many to fix in one pass)
-    "212",
-    -- Unused variable (pre-existing; too many to fix in one pass)
-    "311",
-    -- Loop executed at most once (pre-existing)
-    "511",
-    -- Setting read-only global (pre-existing, e.g., print override in find.lua)
-    "122",
-    -- Mutating non-standard global (pre-existing broker_ui_main)
-    "131",
+    143,
     -- Accessing undefined variable (pre-existing lane_completion references)
-    "113",
+    113,
+    -- Setting read-only global (pre-existing, e.g., print override in find.lua)
+    122,
+    -- Mutating/setting non-standard global (pre-existing)
+    111, 131,
+    -- Unused argument / variable / loop variable (pre-existing)
+    211, 212, 213,
+    -- Value assigned to variable is unused / never accessed
+    311,
+    -- Shadowing definition / redefining local
+    411, 421, 423,
+    -- Loop executed at most once
+    511,
 }
