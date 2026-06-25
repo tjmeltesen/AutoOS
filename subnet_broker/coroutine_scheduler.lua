@@ -291,8 +291,8 @@ function Scheduler:run(max_cycles)
     -- and be ready again in the same cycle.  Loop until nothing is ready.
     repeat
       self:_resume_due()
-    until self:_next_timeout() > _MIN_TIMEOUT
-    local timeout = self:_next_timeout()
+    until (self:_next_timeout() or math.huge) > _MIN_TIMEOUT
+    local timeout = self:_next_timeout() or 0.05
     local ev = { self.event.pull(timeout) }
     if ev[1] ~= nil then self:_dispatch_event(ev) end
     cycles = cycles + 1
