@@ -28,8 +28,8 @@ exclude_files = {
 }
 
 ignore = {
-    "611",  -- Trailing whitespace
-    "614",  -- Line too long
+    "614",  -- Trailing whitespace
+    "631",  -- Line too long
     "143",  -- Accessing undefined field of global
     "113",  -- Accessing undefined variable
     "122",  -- Setting read-only global
@@ -42,5 +42,6 @@ ignore = {
     "411",
     "421",
     "423",  -- Shadowing/redefining local
-    "511",  -- Loop executed at most once
+    "611",  --  	A line consists of nothing but whitespace.
+    
 }
