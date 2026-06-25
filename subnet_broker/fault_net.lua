@@ -15,21 +15,11 @@
 
 local FaultNet = {}
 
+local Logger = require("logger")
+
 -- Max lines kept in the in-memory ring buffer.
 local RING_MAX = 100
 
--- Path for persistent fault log on the OC filesystem.
-local FAULT_LOG_PATH = "/home/subnet_broker/fault.log"
-local _file_write_count = 0
-local _MAX_FILE_LINES = 500  -- rotate after this many writes
-
--- Ensure log directory exists (io.open doesn't create parent dirs in OC)
-do
-  local ok, fs = pcall(require, "filesystem")
-  if ok and type(fs) == "table" and fs.makeDirectory then
-    pcall(fs.makeDirectory, "/home/subnet_broker")
-  end
-end
 
 ---------------------------------------------------------------------------
 -- Internal: build a timestamp string (OC-compatible).
@@ -41,25 +31,6 @@ local function _timestamp()
   return tostring(os.time and os.time() or 0)
 end
 
----------------------------------------------------------------------------
--- Internal: append one line to the persistent fault log.
--- Rotates (truncates) after MAX_FILE_LINES writes to bound disk usage.
----------------------------------------------------------------------------
-local function _file_append(line)
-  _file_write_count = _file_write_count + 1
-  local mode = "a"
-  if _file_write_count > _MAX_FILE_LINES then
-    _file_write_count = 1
-    mode = "w"
-  end
-  local f, open_err = io.open(FAULT_LOG_PATH, mode)
-  if not f then
-    print("[fault_net] ERROR opening " .. FAULT_LOG_PATH .. ": " .. tostring(open_err or "nil"))
-    return
-  end
-  f:write(line .. "\n")
-  f:close()
-end
 
 ---------------------------------------------------------------------------
 -- Ensure ctx.faults ring buffer exists.
@@ -123,7 +94,7 @@ function FaultNet.capture(ctx, tag, err, extra)
   end
 
   -- Persistent file (best-effort)
-  pcall(_file_append, line)
+  Logger.fault(line)
 end
 
 ---------------------------------------------------------------------------

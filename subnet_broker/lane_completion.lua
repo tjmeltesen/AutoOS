@@ -21,6 +21,9 @@ function Completion.run(ctx)
     ctx.machine_id, config.completion_mode or "both",
     config.completion_timeout_s or staging_timeout_s))
 
+  -- ponytail: phase5 hard deadline — watchdog double-check
+  ctx.phase5_deadline_at = ctx.now_fn() + (config.completion_timeout_s or ctx.staging_timeout_s or 60)
+
   local complete_start = ctx.now_fn()
   local saw_active = false
   local quiet_drained_since = nil
@@ -30,8 +33,18 @@ function Completion.run(ctx)
     or 2
   local circuit_bus_slot = ctx.circuit_bus_slot
 
+  local _stuck_warned = false
+
   -- The decision tree — every return path documented in the analysis.
   local function completion_ready()
+    -- ponytail: one-shot stuck warning at half-timeout
+    if not _stuck_warned and ctx.now_fn() - complete_start > (completion_timeout * 0.5) then
+      _stuck_warned = true
+      ctx:log(string.format("[LaneWorker] %s Phase5 STUCK_WARNING: elapsed=%.1fs timeout=%.1fs poll=%s",
+        ctx.machine_id, ctx.now_fn() - complete_start, completion_timeout,
+        tostring(ctx.registry.get_poll_result(ctx.machine_id) and "ok" or "nil")))
+    end
+
     local poll = ctx.registry.get_poll_result(ctx.machine_id)
     if poll and poll.active then
       if not saw_active then

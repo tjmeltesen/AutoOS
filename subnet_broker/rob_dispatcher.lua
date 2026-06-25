@@ -119,12 +119,13 @@ function ROBDispatcher:tick(poll_results, yield_fn)
         return job, err
       end,
       check_admission = function()
-        local ok, err = pcall(AdmissionControl.is_ok, self._registry, self._config,
+        local pcall_ok, result = pcall(AdmissionControl.is_ok, self._registry, self._config,
           self._circuit_manager, self._lanes, self._log, self._safe_yield, C)
-        if not ok and self._fault then
-          self._fault("rob.check_admission", tostring(err))
+        if not pcall_ok then
+          if self._fault then self._fault("rob.check_admission", tostring(result)) end
+	        return false
         end
-        return ok
+        return result  -- ponytail: was returning pcall_ok (always true), now returns actual is_ok result
       end,
       log = self._log,
       fault = self._fault,

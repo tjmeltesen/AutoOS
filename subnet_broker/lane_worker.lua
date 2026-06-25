@@ -43,6 +43,10 @@ function LaneWorker.execute(registry, job, machine_id, event)
   local ok, err = FaultNet.guard(ctx, "lane.stocking." .. machine_id, LaneStocking.run, ctx)
   if not ok then return { status = "failed", error = err } end
 
+  -- RAW TRACE: proves we reached Phase 5 code
+  local tf3 = io.open("/home/subnet_broker/lane_worker.log", "a")
+  if tf3 then tf3:write("[TRACE] entering Phase 5 now\n") tf3:close() end
+
   -- Phase 5: Wait for machine completion
   ok, err = FaultNet.guard(ctx, "lane.completion." .. machine_id, LaneCompletion.run, ctx)
   if not ok then return { status = "failed", error = err } end

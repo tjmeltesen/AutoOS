@@ -242,6 +242,9 @@ function Stocking.run(ctx)
         local pulse_s = ctx.config.redstone_pulse_s or 0.1
         pcall(rs.setOutput, rs_side, 15)
         coroutine.yield({ type = "sleep", seconds = pulse_s })
+        -- RAW TRACE 1: proves coroutine resumed from yield (no pcall wrapper)
+        local tf = io.open("/home/subnet_broker/lane_worker.log", "a")
+        if tf then tf:write("[TRACE] RESUMED after redstone yield\n") tf:close() end
         pcall(rs.setOutput, rs_side, 0)
       end
     end
@@ -252,6 +255,10 @@ function Stocking.run(ctx)
   if ctx.registry.release_transport_locks then
     ctx.registry.release_transport_locks(ctx.machine_id)
   end
+
+  -- RAW TRACE 2: proves function is about to return
+  local tf2 = io.open("/home/subnet_broker/lane_worker.log", "a")
+  if tf2 then tf2:write("[TRACE] LaneStocking.run about to return true\n") tf2:close() end
 
   return true
 end

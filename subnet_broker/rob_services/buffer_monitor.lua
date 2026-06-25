@@ -44,7 +44,15 @@ end
 --- @return table|nil fp   { slot = count, ... }
 --- @return string|nil err
 function BufferMonitor.build_fingerprint(registry, config, yield_fn)
-  local adapter = registry.central_item_adapter
+  -- inventory_controller proxy goes stale in OC — refresh every scan
+  local monitor_mode = (config.central and config.central.monitor) or "adapter"
+  local adapter
+  if monitor_mode == "inventory_controller" then
+    local ok, ic = pcall(function() return require("component").inventory_controller end)
+    adapter = ok and ic or registry.central_item_adapter
+  else
+    adapter = registry.central_item_adapter
+  end
   if not adapter then return nil, "central item adapter not available" end
   local side = registry.central_item_side
   if type(side) ~= "number" then return nil, "central item side not set" end
@@ -112,6 +120,17 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
       self._last_enqueued_fp = nil
       self._batch_claimed = false
       self._batch_job_id = nil
+      -- Periodic heartbeat so operator knows the monitor is alive
+      self._idle_ticks = (self._idle_ticks or 0) + 1
+      if self._idle_ticks == 1 or self._idle_ticks % 30 == 0 then
+        if log then log(string.format("[ROB] buf: IDLE - buffer empty (tick %d)", self._idle_ticks)) end
+      end
+      -- Direct console echo every 5 ticks so the operator can see the monitor is running
+      -- even if the logger isn't working
+      if self._idle_ticks % 5 == 0 then
+        callbacks.log(string.format("[buf] IDLE tick %d - fp type=%s empty=%s",
+          self._idle_ticks, type(fp), tostring(fp and next(fp)==nil)))
+      end
       return { events = events }
     end
 
@@ -154,11 +173,14 @@ function BufferMonitor.step(self, now, registry, config, callbacks, pending_jobs
     end
 
     -- New items — enter stabilizing
+    self._idle_ticks = 0
     self._fingerprint = fp
     self._stable_since = now
     self._state = C.DIS_STABILIZING
+    local fp_slots = table_len(fp)
     if log then log(string.format("[ROB] buf: IDLE -> STABILIZING (fp has %d slots, stabilize_s=%.1f)",
-      table_len(fp), job_stabilize_s or 3.0)) end
+      fp_slots, job_stabilize_s or 3.0)) end
+    callbacks.log(string.format("[buf] ITEMS DETECTED slots=%d stabilize=%.1fs", fp_slots, job_stabilize_s or 3.0))
     events[#events + 1] = { type = "central_buffer_ready", detail = "items in central chest" }
 
   elseif self._state == C.DIS_STABILIZING then

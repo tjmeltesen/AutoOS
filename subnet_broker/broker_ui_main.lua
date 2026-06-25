@@ -37,19 +37,9 @@ if not gpu then
   return
 end
 
--- ponytail: append each write; after 150 lines, clear and restart.
-local _log_path = "/home/subnet_broker/lane_worker.log"
-local _log_writes = 0
-local MAX_LOG_LINES = 150
-
+local Logger = require("logger")
 local function file_log(msg)
-  _log_writes = _log_writes + 1
-  if _log_writes > MAX_LOG_LINES then
-    _log_writes = 1
-    local w = io.open(_log_path, "w"); if w then w:close() end
-  end
-  local f = io.open(_log_path, "a")
-  if f then f:write(tostring(msg) .. "\n"); f:close() end
+  Logger.lane(msg)
 end
 
 local theme = {

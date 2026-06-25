@@ -11,50 +11,10 @@ local FaultNet = require("fault_net")
 
 local LaneContext = {}
 
----------------------------------------------------------------------------
--- File logging (module-level — shared across all lanes)
----------------------------------------------------------------------------
+local Logger = require("logger")
 
-local LOG_PATH = "/home/subnet_broker/lane_worker.log"
-local LOG_BUFFER = {}
-local LOG_BUF_MAX = 1   -- flush every line so logs survive hangs
-local LOG_ROTATE_LINES = 150
-local _log_writes = 0
-
--- Ensure log directory exists (io.open doesn't create parent dirs in OC)
-do
-  local ok, fs = pcall(require, "filesystem")
-  if ok and type(fs) == "table" and fs.makeDirectory then
-    pcall(fs.makeDirectory, "/home/subnet_broker")
-  end
-end
-
-local function file_flush()
-  if #LOG_BUFFER == 0 then return end
-  local f, open_err = io.open(LOG_PATH, "a")
-  if not f then
-    print("[lane_context] ERROR opening " .. LOG_PATH .. ": " .. tostring(open_err or "nil"))
-    LOG_BUFFER = {}
-    return
-  end
-  for _, line in ipairs(LOG_BUFFER) do
-    f:write(line .. "\n")
-  end
-  f:close()
-  LOG_BUFFER = {}
-end
-
-local function file_log(msg)
-  _log_writes = _log_writes + 1
-  if _log_writes > LOG_ROTATE_LINES then
-    _log_writes = 1
-    file_flush()
-    local w = io.open(LOG_PATH, "w")
-    if w then w:close() end
-  end
-  LOG_BUFFER[#LOG_BUFFER + 1] = string.format("[%s] %s", os.date("%Y-%m-%d %H:%M:%S"), msg)
-  if #LOG_BUFFER >= LOG_BUF_MAX then file_flush() end
-end
+-- Phase transition ring buffer (50 entries, shared across all lanes)
+local PHASE_RING = { entries = {}, head = 1, count = 0, max = 50 }
 
 local PULL_SCAN_MAX = 54
 
@@ -227,9 +187,23 @@ end
 
 local function await_delivery(ctx, condition_fn, timeout_s, start_time, phase_name)
   local deadline = start_time + timeout_s
+  local crash_streak = 0
+  local MAX_CRASH_STREAK = 3  -- ponytail: fail fast, full watchdog if this proves too aggressive
   while true do
     local ok_cond, result = pcall(condition_fn)
-    if ok_cond and result then return true end
+    if ok_cond and result then
+      crash_streak = 0
+      return true
+    end
+    if not ok_cond then
+      crash_streak = crash_streak + 1
+      local err_str = tostring(result or "unknown")
+      ctx:log(string.format("[LaneWorker] %s %s condition_fn CRASH #%d: %s",
+        ctx.machine_id, phase_name, crash_streak, err_str))
+      if crash_streak >= MAX_CRASH_STREAK then
+        return false, phase_name .. " condition_fn crashed " .. crash_streak .. " times: " .. err_str
+      end
+    end
     if ctx.now_fn() >= deadline then
       return false, phase_name .. " timeout after " .. tostring(timeout_s) .. "s"
     end
@@ -285,20 +259,42 @@ function LaneContext.build(registry, job, machine_id)
     cfg_slots = {},
 
     -- Internal functions (exposed so phase modules don't need to re-require)
-    _file_flush = file_flush,
-    _file_log = file_log,
     _parent_log = parent_log,
+
+    -- Shared diagnostics ring
+    _phase_ring = PHASE_RING,
   }
 
   -- Methods
 
   function ctx:log(msg)
     parent_log(msg)
-    file_log(string.format("[%s] %s", machine_id, msg))
+    Logger.lane(string.format("[%s] %s", machine_id, msg))
   end
 
   function ctx:flush_log()
-    file_flush()
+    Logger.flush("lane")
+  end
+
+  function ctx:record_phase(phase, event)
+    local entry = {
+      ts = self.now_fn(),
+      machine_id = self.machine_id,
+      job_id = self.job and self.job.id,
+      phase = phase,
+      event = event,
+      elapsed_s = self._phase_start and (self.now_fn() - self._phase_start) or 0,
+    }
+    local ring = self._phase_ring
+    ring.entries[ring.head] = entry
+    ring.head = (ring.head % ring.max) + 1
+    ring.count = math.min(ring.count + 1, ring.max)
+    if event == "enter" then
+      self._phase_start = self.now_fn()
+    end
+    Logger.lane(string.format("[PHASE] %s job=%s phase=%s event=%s elapsed=%.3f",
+      tostring(self.machine_id), tostring(self.job and self.job.id),
+      tostring(phase), tostring(event), entry.elapsed_s))
   end
 
   --- Clean up interface configs and return false, error.
@@ -306,7 +302,7 @@ function LaneContext.build(registry, job, machine_id)
   function ctx:fail(err)
     local err_str = tostring(err)
     self:log("[LaneWorker] " .. machine_id .. " FAILED: " .. err_str)
-    file_flush()
+    Logger.flush("lane")
     -- Capture into fault_net so it appears in fault.log (unbuffered)
     FaultNet.capture(ctx, "lane." .. machine_id, err_str, { job = job.id })
     for _, s in ipairs(self.cfg_slots) do
@@ -340,5 +336,6 @@ LaneContext.step_visible = step_visible
 LaneContext.transfer_item_step = transfer_item_step
 LaneContext.bus_drained = bus_drained
 LaneContext.await_delivery = await_delivery
+LaneContext.get_phase_ring = function() return PHASE_RING end
 
 return LaneContext

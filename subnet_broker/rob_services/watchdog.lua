@@ -20,8 +20,8 @@ function Watchdog.check(lanes, pending_jobs, now, watchdog_grace_s, release_lock
       local deadline = lane.deadline or 0
       local grace = watchdog_grace_s or 10
       if now > deadline + grace then
-        local detail = string.format("watchdog timeout: deadline=%.1f now=%.1f grace=%.1f",
-          deadline, now, grace)
+        local detail = string.format("WATCHDOG_TIMEOUT deadline=%.1f now=%.1f grace=%.1f job=%s",
+          deadline, now, grace, tostring(lane.current_job_id or "?"))
         if log_fn then
           log_fn(string.format("[ROBDispatcher] %s %s (job %s)", machine_id, detail,
             tostring(lane.current_job_id)))
