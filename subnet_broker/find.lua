@@ -50,7 +50,7 @@ end
 local log_path = join(here, "find.txt")
 local log_file = io.open(log_path, "w")
 local _print = print
-function print(...)
+local function print(...)  -- ponytail: local print shadows global, tees to file + console
   local n = select("#", ...)
   local parts = {}
   for i = 1, n do parts[i] = tostring(select(i, ...)) end

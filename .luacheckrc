@@ -10,6 +10,7 @@ globals = {
     "filesystem",
     "serialization",
     "thread",
+    "page",
 }
 
 read_globals = {
@@ -42,6 +43,7 @@ ignore = {
     "411",
     "421",
     "423",  -- Shadowing/redefining local
-    "611",  --  	A line consists of nothing but whitespace.
-    
+    "512",  -- Loop executed at most once
+    "611",  -- A line consists of nothing but whitespace
+
 }

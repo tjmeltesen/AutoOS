@@ -76,9 +76,9 @@ do
   -- Create mock machine selector (ponytail: MachineSelector.new requires OC hardware)
   local selector = {
     available_budget = function() return #Config.machines end,
-    find_available = function(self, machines, pr, lanes, do_rr)
+    find_available = function(self, machines, pr, lane_map, do_rr)
       for _, m in ipairs(machines) do
-        local lane = lanes[m.id]
+        local lane = lane_map[m.id]
         if not lane or LaneState.is_idle(lane) then return m, 1 end
       end
     end,
@@ -138,9 +138,9 @@ do
 
   local selector = {
     available_budget = function() return #Config.machines end,
-    find_available = function(self, machines, pr, lanes, do_rr)
+    find_available = function(self, machines, pr, lane_map, do_rr)
       for _, m in ipairs(machines) do
-        local lane = lanes[m.id]
+        local lane = lane_map[m.id]
         if not lane or LaneState.is_idle(lane) then return m, 1 end
       end
     end,
