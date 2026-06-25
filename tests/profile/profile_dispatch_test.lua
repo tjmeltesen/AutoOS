@@ -57,7 +57,7 @@ profiler:measure("full_tick", function()
   -- Create mock selector
   local selector = {
     available_budget = function() return 2 end,
-    find_available = function(self, machines, pr, lanes, do_rr)
+    find_available = function(_, _machines, _pr, _lanes, _do_rr)
       for _, m in ipairs(machines) do
         local lane = lanes[m.id]
         if not lane or LaneState.is_idle(lane) then return m, 1 end

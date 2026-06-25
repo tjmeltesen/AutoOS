@@ -13,7 +13,6 @@ package.path = table.concat({
   package.path,
 }, ";")
 
-local LaneState = require("lane_state")
 local JobDescriptor = require("job_descriptor")
 local JobReaper = require("job_reaper")
 

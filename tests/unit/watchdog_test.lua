@@ -39,8 +39,7 @@ do
   local pending_jobs = { JobDescriptor.create({}, "central", "job_001") }
   pending_jobs[1].status = "running"
 
-  local released_locks
-  local release_fn = function(mid, l) released_locks = l end
+  local release_fn = function(mid, l) end
 
   local lanes = { machine_01 = lane }
   Watchdog.check(lanes, pending_jobs, 95, 10, release_fn)

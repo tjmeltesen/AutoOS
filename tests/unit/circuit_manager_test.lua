@@ -110,8 +110,8 @@ do
     config = { machines = { { id = "machine_01" } } },
     component = { proxy = function() return {} end },
   })
-  local _, err = cm:scan_transposer("nonexistent", "item")
-  check("scan_transposer returns error for unknown machine", err ~= nil)
+  local _, scan_err = cm:scan_transposer("nonexistent", "item")
+  check("scan_transposer returns error for unknown machine", scan_err ~= nil)
 end
 
 io.write(string.rep("-", 60) .. "\n")

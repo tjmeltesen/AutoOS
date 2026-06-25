@@ -16,7 +16,6 @@ package.path = table.concat({
 local LaneState = require("lane_state")
 local JobDescriptor = require("job_descriptor")
 local Watchdog = require("watchdog")
-local CompletionDetector = require("completion_detector")
 local LockManager = require("lock_manager")
 
 local ESC = string.char(27)

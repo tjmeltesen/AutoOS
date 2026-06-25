@@ -45,7 +45,7 @@ do
   -- Single message: encode -> send -> deliver -> drain -> decode
   local net = MockNetwork.new()
   local broker = net:node("broker-01")
-  local orch = net:node("orchestrator")
+  net:node("orchestrator")
 
   local msg = Protocols.broker_health("subnet-1", "machine-01", "WORKING", "nominal")
   broker:send("orchestrator", msg)
@@ -72,7 +72,7 @@ do
   -- All message kinds round-trip through network
   local net = MockNetwork.new()
   local a = net:node("a")
-  local b = net:node("b")
+  net:node("b")
 
   local msgs = {
     Protocols.broker_health("s1", "m1", "IDLE", "ok"),
@@ -101,7 +101,7 @@ do
   -- Broadcast reaches all nodes except sender
   local net = MockNetwork.new()
   local a = net:node("a")
-  local b = net:node("b")
+  net:node("b")
   local c = net:node("c")
 
   a:broadcast("hello_all")

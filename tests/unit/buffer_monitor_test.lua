@@ -151,7 +151,7 @@ do
   check("0.1s: still STABILIZING", bm._state == C.DIS_STABILIZING)
 
   -- Third step: stabilized (4.0s elapsed)
-  local result = BufferMonitor.step(bm, 4.0, registry, config, cb, {}, nil, 3.0)
+  BufferMonitor.step(bm, 4.0, registry, config, cb, {}, nil, 3.0)
   package.loaded["hw"] = orig_hw
 
   check("4.0s: transitioned to IDLE", bm._state == C.DIS_IDLE)

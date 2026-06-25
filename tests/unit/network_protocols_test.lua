@@ -133,11 +133,11 @@ end
 
 -- Invalid input
 do
-  local pkt, err = Protocols.parse(nil)
+  local pkt = Protocols.parse(nil)
   check("nil input returns nil", pkt == nil)
-  local pkt2, err2 = Protocols.parse("")
+  local pkt2 = Protocols.parse("")
   check("empty string returns nil", pkt2 == nil)
-  local pkt3, err3 = Protocols.parse(42)
+  local pkt3 = Protocols.parse(42)
   check("non-string returns nil", pkt3 == nil)
 end
 

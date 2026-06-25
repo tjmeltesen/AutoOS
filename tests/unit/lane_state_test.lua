@@ -12,7 +12,6 @@ package.path = table.concat({
 }, ";")
 
 local LaneState = require("lane_state")
-local C = require("rob_core.constants")
 
 local ESC = string.char(27)
 local function color(c, t) return ESC .. "[" .. c .. "m" .. t .. ESC .. "[0m" end

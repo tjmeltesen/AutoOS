@@ -16,9 +16,7 @@ package.path = table.concat({
 
 local Config = require("config")
 local MockHardware = require("mock_broker_hardware")
-local JobManifest = require("job_manifest")
 local JobDescriptor = require("job_descriptor")
-local JobFactory = require("job_factory")
 local JobAssigner = require("job_assigner")
 local LockManager = require("lock_manager")
 local LaneState = require("lane_state")
@@ -43,7 +41,7 @@ io.write(string.rep("-", 60) .. "\n")
 
 do
   -- Setup: create mock hardware, build a job, assign, and complete
-  local mock = MockHardware.new({
+  MockHardware.new({
     machines = MockHardware.machines_from_config(Config),
     database_address = Config.database_address,
   })
@@ -109,7 +107,7 @@ end
 
 do
   -- Simulate job failure and retry
-  local mock = MockHardware.new({
+  MockHardware.new({
     machines = MockHardware.machines_from_config(Config),
     database_address = Config.database_address,
   })
@@ -148,7 +146,7 @@ do
     end,
     advance = function() end,
   }
-  local result = JobAssigner.assign(
+  JobAssigner.assign(
     pending_jobs, poll_results, selector, lm, lanes, Config, nil, now_fn)
 
   if job.machine_id then

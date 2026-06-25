@@ -12,7 +12,6 @@ package.path = table.concat({
   package.path,
 }, ";")
 
-local LaneState = require("lane_state")
 local LockManager = require("lock_manager")
 
 local ESC = string.char(27)
@@ -40,11 +39,8 @@ local circuits_lost = 0
 
 -- Simulate 1000 job cycles with circuits
 for cycle = 1, 1000 do
-  local m_id = "machine_" .. tostring((cycle % 4) + 1)
-  local lane = lanes[m_id]
-
   -- Simulate circuit assignment
-  local circuit_id = "circuit_" .. cycle
+  local m_id = "machine_" .. tostring((cycle % 4) + 1)
   active_circuits = active_circuits + 1
   lm:acquire(m_id, { "tp:circuit_" .. cycle })
 
@@ -63,13 +59,11 @@ for cycle = 1, 1000 do
   -- Every 100 cycles: sweep for lost circuits
   if cycle % 100 == 0 then
     -- Belt-and-suspenders scan (as in LockManager.release)
-    local stale_count = 0
-    for res, owner in pairs(lm:get_locks()) do
+    for res, _ in pairs(lm:get_locks()) do
       if res:match("^tp:circuit_") then
         local circuit_num = tonumber(res:match("circuit_(%d+)"))
         if circuit_num and circuit_num < cycle - 200 then
           lm._locks[res] = nil
-          stale_count = stale_count + 1
           active_circuits = active_circuits - 1
         end
       end

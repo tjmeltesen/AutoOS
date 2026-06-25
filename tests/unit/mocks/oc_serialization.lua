@@ -26,7 +26,7 @@ function OCSerializationMock.unserialize(str)
 end
 
 -- Internal serialization
-function _serialize_impl(value, seen)
+local function _serialize_impl(value, seen)
   local t = type(value)
   if t == "nil" then return "nil"
   elseif t == "boolean" then return value and "true" or "false"

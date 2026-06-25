@@ -21,7 +21,7 @@ end
 
 function ProfileHarness:measure(name, fn)
   local times = {}
-  for i = 1, self.iterations do
+  for _ = 1, self.iterations do
     local start = os.clock()
     fn()
     local elapsed = os.clock() - start

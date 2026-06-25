@@ -35,7 +35,6 @@ io.write(string.rep("-", 60) .. "\n")
 
 -- Validate mock provides required OC component API
 do
-  local machines = Config.machines
   local mock = MockHardware.new({
     machines = MockHardware.machines_from_config(Config),
     database_address = Config.database_address,

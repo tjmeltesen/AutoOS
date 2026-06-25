@@ -50,7 +50,7 @@ local function make_selector(opts)
       return count
     end,
     find_available = function(self, machines, poll_results, lanes, do_rr, filter)
-      for i = 1, #available do
+      for _ = 1, #available do
         idx = idx + 1
         if idx > #available then idx = 1 end
         local m = available[idx]
