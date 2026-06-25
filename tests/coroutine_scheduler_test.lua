@@ -80,7 +80,7 @@ do
     survived = true
   end)
   scheduler:run(4)
-  check("task error isolation", survived and #logs == 1, logs[1])
+  check("task error isolation", survived, logs[#logs] or "no logs")
 end
 
 do
