@@ -18,42 +18,53 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-lua
-      - name: Install luacheck
-        run: sudo luarocks install luacheck
       - name: Run luacheck
         run: luacheck .
 
-  # ── Stage 1: Unit Tests ──────────────────────────────────────────────
+  # ── Stage 1: Unit Tests (native Lua 5.2) ──────────────────────────────
   unit-tests:
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install lupa
-        run: pip install lupa
+      - uses: ./.github/actions/setup-lua
       - name: Run unit tests
-        run: python .claude/skills/run-autoos/driver.py --unit
+        run: |
+          bash .github/scripts/run-tests.sh "Unit Tests" \
+            tests/unit/lane_state_test.lua \
+            tests/unit/lock_manager_test.lua \
+            tests/unit/job_descriptor_test.lua \
+            tests/unit/buffer_monitor_test.lua \
+            tests/unit/job_assigner_test.lua \
+            tests/unit/job_reaper_test.lua \
+            tests/unit/watchdog_test.lua \
+            tests/unit/completion_detector_test.lua \
+            tests/unit/circuit_manager_test.lua \
+            tests/unit/network_protocols_test.lua
       - name: Run existing test suite
-        run: python .claude/skills/run-autoos/driver.py
+        run: |
+          bash .github/scripts/run-tests.sh "Existing Tests" \
+            tests/coroutine_scheduler_test.lua \
+            tests/fluid_tanks_test.lua \
+            tests/descriptor_cache_test.lua
 
-  # ── Stage 2b: Lua Integration Tests ──────────────────────────────────
+  # ── Stage 2: Lua Integration Tests ────────────────────────────────────
   integration-tests:
     needs: unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install lupa
-        run: pip install lupa
+      - uses: ./.github/actions/setup-lua
       - name: Run integration tests
-        run: python .claude/skills/run-autoos/driver.py --integration
+        run: |
+          bash .github/scripts/run-tests.sh "Integration Tests" \
+            tests/integration/hardware_contract_test.lua \
+            tests/integration/adapter_connectivity_test.lua \
+            tests/integration/full_lane_stack_test.lua \
+            tests/integration/network_card_test.lua \
+            tests/integration/oc_boot_smoke_test.lua
 
   # ── Stage 3: Soak Testing ────────────────────────────────────────────
   soak-tests:
@@ -63,13 +74,14 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install lupa
-        run: pip install lupa
+      - uses: ./.github/actions/setup-lua
       - name: Run soak tests
-        run: python .claude/skills/run-autoos/driver.py --soak
+        run: |
+          bash .github/scripts/run-tests.sh "Soak Tests" \
+            tests/soak/soak_thousands_test.lua \
+            tests/soak/soak_stuck_phase5_test.lua \
+            tests/soak/soak_queue_saturation_test.lua \
+            tests/soak/soak_circuit_leak_test.lua
       - name: Upload soak reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -78,20 +90,20 @@ jobs:
           path: tests/soak/reports/
           retention-days: 30
 
-  # ── Stage 4: Profiling ───────────────────────────────────────────────
+  # ── Stage 4: Profiling (native Lua 5.2) ───────────────────────────────
   profile:
     needs: unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install lupa
-        run: pip install lupa
+      - uses: ./.github/actions/setup-lua
       - name: Run profiling
-        run: python .claude/skills/run-autoos/driver.py --profile
+        run: |
+          bash .github/scripts/run-tests.sh "Profile Tests" \
+            tests/profile/profile_dispatch_test.lua \
+            tests/profile/profile_serialization_test.lua \
+            tests/profile/profile_retry_test.lua
       - name: Upload profile reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -108,6 +120,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Create release artifacts
         run: python .claude/skills/run-autoos/driver.py --release
       - name: Upload release bundles
@@ -116,17 +131,8 @@ jobs:
           name: autos-release
           path: release/
           retention-days: 90
-      - name: Upload release checksums
-        uses: actions/upload-artifact@v4
-        with:
-          name: autos-checksums
-          path: release/*.sha256
-          retention-days: 90
 
-  # ── Stage 6: Deploy to Game Directory ──────────────────────────────────
-  # Requires a self-hosted runner on the game machine.
-  # Setup: https://github.com/<owner>/<repo>/settings/actions/runners/new
-  # Runner labels: autos-deploy, windows
+  # ── Stage 6: Deploy to Game Directory (self-hosted runner) ───────────
   deploy:
     needs: release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -144,29 +150,19 @@ jobs:
         run: |
           $GameHome = "$env:APPDATA\PrismLauncher\instances\GT_New_Horizons_2.8.4_Java_17-25\.minecraft\saves\AutoOS\opencomputers\0f6fe1af-265f-4dcf-be91-d707dc877e0d\home"
           $ArtifactDir = "${{ runner.temp }}\autos-release"
-
-          # Map ZIP contents back to game directories
           $BrokerDest = "$GameHome\subnet_broker"
           $OrchDest   = "$GameHome\orchestrator"
-
           New-Item -ItemType Directory -Force -Path $BrokerDest | Out-Null
           New-Item -ItemType Directory -Force -Path $OrchDest | Out-Null
-
-          # Copy from extracted artifact
           Get-ChildItem -Recurse -File -Path $ArtifactDir -Filter "*.lua" | ForEach-Object {
             $rel = $_.FullName.Replace($ArtifactDir, "").TrimStart("\")
-            if ($rel -match "subnet_broker\\") {
-              Copy-Item $_.FullName -Destination $BrokerDest -Force
-            }
-            elseif ($rel -match "orchestrator\\") {
-              Copy-Item $_.FullName -Destination $OrchDest -Force
-            }
+            if ($rel -match "subnet_broker\\") { Copy-Item $_.FullName -Destination $BrokerDest -Force }
+            elseif ($rel -match "orchestrator\\") { Copy-Item $_.FullName -Destination $OrchDest -Force }
             elseif ($rel -match "shared\\") {
               Copy-Item $_.FullName -Destination $BrokerDest -Force
               Copy-Item $_.FullName -Destination $OrchDest -Force
             }
           }
-
           Write-Host "Deployed to $GameHome"
           Get-ChildItem -Recurse -File "$GameHome\*.lua" | Measure-Object | ForEach-Object {
             Write-Host "  $($_.Count) .lua files in game directory"
