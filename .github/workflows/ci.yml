@@ -41,7 +41,10 @@ jobs:
             tests/unit/watchdog_test.lua \
             tests/unit/completion_detector_test.lua \
             tests/unit/circuit_manager_test.lua \
-            tests/unit/network_protocols_test.lua
+            tests/unit/network_protocols_test.lua \
+            tests/unit/machine_selector_test.lua \
+            tests/unit/fault_net_test.lua \
+            tests/unit/admission_control_test.lua
       - name: Run existing test suite
         run: |
           bash .github/scripts/run-tests.sh "Existing Tests" \
