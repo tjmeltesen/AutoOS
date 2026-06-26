@@ -1,4 +1,9 @@
 repositories {
+    // Force Scala libs through Maven Central — gregtech.overminddl1.com mirror is unreliable
+    exclusiveContent {
+        forRepository { mavenCentral() }
+        filter { includeGroup("org.scala-lang") }
+    }
     maven {
         name = 'GTNH Maven'
         url = 'https://nexus.gtnewhorizons.com/repository/public/'
