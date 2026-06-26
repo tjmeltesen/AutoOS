@@ -38,7 +38,8 @@ jobs:
           ../gradlew :runServer \
             --no-daemon \
             --stacktrace \
-            --mcJvmArgs="-Dhorizonqa.mode=ci -Dhorizonqa.reportDir=build/horizonqa"
+            --mcJvmArgs="-Dhorizonqa.mode=ci" \
+            --mcJvmArgs="-Dhorizonqa.reportDir=build/horizonqa"
 
       - name: Upload JUnit reports
         if: always()
