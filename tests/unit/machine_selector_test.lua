@@ -217,7 +217,7 @@ end
 do
   local ms = MachineSelector.new(3)
   local machines = { make_machine("a") }
-  local m, idx = ms:find_available(machines, {}, {}, false)  -- no round-robin
+  local m, idx = ms:find_available(machines, { a = make_poll(true, true) }, {}, false)  -- no round-robin
   check("no round-robin uses index 1", m.id == "a" and idx == 1)
 end
 

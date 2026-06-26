@@ -74,4 +74,9 @@ function LaneState.is_idle(lane)      return lane and lane.state == C.LANE_IDLE 
 function LaneState.is_working(lane)   return lane and lane.state == C.LANE_WORKING end
 function LaneState.is_faulted(lane)   return lane and lane.state == C.LANE_FAULTED end
 
+-- Exported state constants for external consumers (tests, dispatchers)
+LaneState.IDLE    = C.LANE_IDLE
+LaneState.WORKING = C.LANE_WORKING
+LaneState.FAULTED = C.LANE_FAULTED
+
 return LaneState

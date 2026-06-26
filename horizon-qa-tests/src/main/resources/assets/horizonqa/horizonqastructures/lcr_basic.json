@@ -1,0 +1,35 @@
+{
+  "format_version": 1,
+  "size": [3, 4, 3],
+  "palette": {
+    "P": {"name": "gregtech:gt.blockcasings", "meta": 10, "label": "PTFE Machine Casing"},
+    "C": {"name": "gregtech:gt.blockmachines", "meta": 1177, "label": "LCR Controller"},
+    "I": {"name": "gregtech:gt.blockmachines", "meta": 1, "label": "Input Bus (Bronze)"},
+    "O": {"name": "gregtech:gt.blockmachines", "meta": 2, "label": "Output Bus (Bricked Bronze)"},
+    "H": {"name": "gregtech:gt.blockmachines", "meta": 3, "label": "Input Hatch (Bronze)"},
+    "E": {"name": "gregtech:gt.blockmachines", "meta": 4, "label": "Energy Hatch (Bronze)"},
+    "M": {"name": "gregtech:gt.blockmachines", "meta": 12, "label": "Maintenance Hatch"}
+  },
+  "layers": [
+    [
+      "PPP",
+      "PCP",
+      "PIP"
+    ],
+    [
+      "PPP",
+      "P.P",
+      "PEP"
+    ],
+    [
+      "PPP",
+      "P.P",
+      "PHP"
+    ],
+    [
+      "PPP",
+      "POP",
+      "PMP"
+    ]
+  ]
+}

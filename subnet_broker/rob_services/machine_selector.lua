@@ -46,8 +46,11 @@ function MachineSelector.is_available(machine, poll_status, lanes, recover_fn)
     if LaneState.is_working(lane) then return false end
     if LaneState.is_faulted(lane) then
       -- Auto-recover: poll confirms healthy, lane state was stale
-      if recover_fn then recover_fn(machine.id) end
-      return true
+      if recover_fn then
+        recover_fn(machine.id)
+        return true
+      end
+      return false
     end
     return true  -- IDLE
   end
