@@ -1,4 +1,4 @@
-package autos;
+package com.gtnewhorizons.horizonqa.tests.autos;
 
 import com.gtnewhorizons.horizonqa.api.GameTest;
 import com.gtnewhorizons.horizonqa.api.GameTestHelper;
