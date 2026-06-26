@@ -39,23 +39,29 @@ jobs:
             --no-daemon \
             --stacktrace \
             --mcJvmArgs="-Dhorizonqa.mode=ci" \
-            --mcJvmArgs="-Dhorizonqa.reportDir=build/horizonqa"
+            --mcJvmArgs="-Dhorizonqa.reportDir=${{ github.workspace }}/horizon-qa-tests/build/horizonqa"
 
-      - name: List generated reports
+      - name: Collect all outputs
         if: always()
         run: |
           echo "=== build/horizonqa ==="
           find horizon-qa-tests/build/horizonqa -type f 2>/dev/null || echo "(empty)"
-          echo "=== run/server reports ==="
-          find horizon-qa-tests/run/server -name "*.xml" -o -name "*.json" 2>/dev/null || echo "(empty)"
+          echo "=== run/server test outputs ==="
+          find horizon-qa-tests/run/server -maxdepth 1 \( -name "*.xml" -o -name "*.json" \) 2>/dev/null || echo "(empty)"
+          echo "=== crash reports ==="
+          find horizon-qa-tests/run/server/crash-reports -type f 2>/dev/null || echo "(none)"
+          echo "=== latest.log (last 80 lines) ==="
+          tail -80 horizon-qa-tests/run/server/logs/latest.log 2>/dev/null || echo "(no log)"
 
-      - name: Upload JUnit reports
+      - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: horizon-qa-reports
           path: |
-            horizon-qa-tests/build/horizonqa/
+            horizon-qa-tests/build/horizonqa/**
             horizon-qa-tests/run/server/TEST-*.xml
             horizon-qa-tests/run/server/*-result.json
+            horizon-qa-tests/run/server/crash-reports/**
+            horizon-qa-tests/run/server/logs/latest.log
           retention-days: 30
