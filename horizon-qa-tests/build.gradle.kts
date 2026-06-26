@@ -24,6 +24,30 @@ tasks.withType<Javadoc>().configureEach {
     javadocOptions.quiet()
 }
 
+// gregtech.overminddl1.com mirror is dead; its ancient Scala 2.11 module versions
+// (1.0.1, 1.0.2) don't exist on Maven Central. Upgrade to the earliest available
+// versions on Central and remap to the org.scala-lang.modules group.
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.scala-lang") {
+            when (requested.name) {
+                "scala-parser-combinators_2.11" -> {
+                    useTarget("org.scala-lang.modules:scala-parser-combinators_2.11:1.0.4")
+                    because("1.0.1 only on dead overmind mirror")
+                }
+                "scala-swing_2.11" -> {
+                    useTarget("org.scala-lang.modules:scala-swing_2.11:1.0.2")
+                    because("1.0.1 only on dead overmind mirror")
+                }
+                "scala-xml_2.11" -> {
+                    useTarget("org.scala-lang.modules:scala-xml_2.11:1.0.6")
+                    because("1.0.2 only on dead overmind mirror")
+                }
+            }
+        }
+    }
+}
+
 // The java17Dependencies configuration in subprojects requires rfgDeobfuscatorTransformed=true when
 // resolving variants. External JARs acquire this attribute through the RFG deobfuscator transform,
 // but local project dependencies (devOnlyNonPublishable(project(":"))) bypass that transform.

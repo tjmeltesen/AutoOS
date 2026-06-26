@@ -66,6 +66,7 @@ jobs:
             tests/integration/hardware_contract_test.lua \
             tests/integration/adapter_connectivity_test.lua \
             tests/integration/full_lane_stack_test.lua \
+            tests/integration/dispatch_pipeline_test.lua \
             tests/integration/network_card_test.lua \
             tests/integration/oc_boot_smoke_test.lua
 
