@@ -1,4 +1,6 @@
 repositories {
+    // Vendored deps (lzma:lzma:0.0.1) — spongepowered repo excluded from wellKnownRepos
+    maven { url = uri("libs") }
     // Force Scala libs through Maven Central — gregtech.overminddl1.com mirror is unreliable
     exclusiveContent {
         forRepository { mavenCentral() }
