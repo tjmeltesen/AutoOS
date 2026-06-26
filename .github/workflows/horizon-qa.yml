@@ -19,13 +19,11 @@ jobs:
           distribution: temurin
           java-version: 25
 
-      - name: Verify Java version
-        run: java -version
-
-      - name: Verify Gradle wrapper exists
-        run: |
-          test -f ./gradlew
-          chmod +x ./gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+          add-job-summary-as-pr-comment: false
 
       - name: Accept Minecraft EULA
         run: |
