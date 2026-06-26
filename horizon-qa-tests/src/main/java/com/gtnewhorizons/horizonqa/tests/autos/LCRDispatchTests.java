@@ -25,7 +25,7 @@ import gregtech.api.util.GTRecipeBuilder;
  *   6. Recipe run to completion (time-warp)
  *   7. Verify machine returns to idle
  */
-@GameTestHolder("autos")
+@GameTestHolder("horizonqa")
 public class LCRDispatchTests {
 
     // ---- Recipe builder reused across tests ----
