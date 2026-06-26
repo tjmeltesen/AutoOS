@@ -1,9 +1,9 @@
 package com.gtnewhorizons.horizonqa.tests.autos;
 
-import com.gtnewhorizons.horizonqa.api.GameTest;
+import com.gtnewhorizons.horizonqa.api.annotation.GameTest;
 import com.gtnewhorizons.horizonqa.api.GameTestHelper;
-import com.gtnewhorizons.horizonqa.api.GameTestHolder;
-import com.gtnewhorizons.horizonqa.api.GTNHGameTestHelper;
+import com.gtnewhorizons.horizonqa.api.annotation.GameTestHolder;
+import com.gtnewhorizons.horizonqa.api.gt.GTNHGameTestHelper;
 import com.gtnewhorizons.horizonqa.api.gt.Multiblock;
 import com.gtnewhorizons.horizonqa.api.gt.Bus;
 import static com.gtnewhorizons.horizonqa.api.TestPos.at;
