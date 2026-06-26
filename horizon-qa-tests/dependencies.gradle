@@ -40,5 +40,10 @@ dependencies {
     // The consuming modpack supplies GT5U at runtime. Update the version to match your modpack's GT5U build.
     compileOnly("com.github.GTNewHorizons:GT5-Unofficial:5.09.52.584:dev")
 
+    // runtimeOnlyNonPublishable makes GT5U + NHCore available for runServer so
+    // in-game tests can use GTRecipeBuilder, Materials, TierEU, and gtnh().
+    runtimeOnlyNonPublishable("com.github.GTNewHorizons:GT5-Unofficial:5.09.52.584:dev")
+    runtimeOnlyNonPublishable("com.github.GTNewHorizons:NewHorizonsCoreMod:2.8.232:dev")
+
     testImplementation("junit:junit:4.13.2")
 }

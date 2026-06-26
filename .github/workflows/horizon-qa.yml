@@ -41,10 +41,21 @@ jobs:
             --mcJvmArgs="-Dhorizonqa.mode=ci" \
             --mcJvmArgs="-Dhorizonqa.reportDir=build/horizonqa"
 
+      - name: List generated reports
+        if: always()
+        run: |
+          echo "=== build/horizonqa ==="
+          find horizon-qa-tests/build/horizonqa -type f 2>/dev/null || echo "(empty)"
+          echo "=== run/server reports ==="
+          find horizon-qa-tests/run/server -name "*.xml" -o -name "*.json" 2>/dev/null || echo "(empty)"
+
       - name: Upload JUnit reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: horizon-qa-reports
-          path: horizon-qa-tests/build/horizonqa/
+          path: |
+            horizon-qa-tests/build/horizonqa/
+            horizon-qa-tests/run/server/TEST-*.xml
+            horizon-qa-tests/run/server/*-result.json
           retention-days: 30
