@@ -27,6 +27,11 @@ jobs:
           test -f ./gradlew
           chmod +x ./gradlew
 
+      - name: Accept Minecraft EULA
+        run: |
+          mkdir -p horizon-qa-tests/run/server
+          echo "eula=true" > horizon-qa-tests/run/server/eula.txt
+
       - name: Run Horizon-QA tests
         run: |
           cd horizon-qa-tests && \

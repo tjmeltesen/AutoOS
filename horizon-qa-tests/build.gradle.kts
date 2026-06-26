@@ -3,6 +3,9 @@ plugins {
     id("com.gtnewhorizons.gtnhconvention")
 }
 
+// Default to build — bare `gradlew` should compile, not launch a server
+defaultTasks("build")
+
 // Configure Javadoc task to prevent GitHub Actions from failing
 tasks.withType<Javadoc>().configureEach {
     val javadocOptions = options as StandardJavadocDocletOptions
